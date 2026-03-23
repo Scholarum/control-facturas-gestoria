@@ -1,0 +1,20 @@
+{
+  "name": "control-facturas-gestoria",
+  "version": "1.0.0",
+  "description": "Sistema de control de facturas con trazabilidad para gestorías",
+  "main": "src/app.js",
+  "scripts": {
+    "start": "node src/app.js",
+    "dev": "nodemon src/app.js",
+    "migrate": "node src/config/migrate.js"
+  },
+  "dependencies": {
+    "better-sqlite3": "^9.4.3",
+    "dotenv": "^16.4.5",
+    "express": "^4.18.3",
+    "uuid": "^9.0.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.0"
+  }
+}
