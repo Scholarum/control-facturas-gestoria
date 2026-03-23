@@ -65,7 +65,8 @@ async function buildDriveClient() {
 function buildGeminiModel() {
   if (!GEMINI_API_KEY) throw new Error('GEMINI_API_KEY no configurada en .env');
   const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
-  return genAI.getGenerativeModel({ model: GEMINI_MODEL });
+  // apiVersion: 'v1' — la v1beta no está disponible para todas las API keys
+  return genAI.getGenerativeModel({ model: GEMINI_MODEL }, { apiVersion: 'v1' });
 }
 
 // ─── Descarga temporal del PDF ────────────────────────────────────────────────
