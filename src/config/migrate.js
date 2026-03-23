@@ -50,14 +50,17 @@ const schema = `
 
   -- Archivos sincronizados desde Google Drive
   CREATE TABLE IF NOT EXISTS drive_archivos (
-    id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    google_id       TEXT    NOT NULL UNIQUE,
-    nombre_archivo  TEXT    NOT NULL,
-    ruta_completa   TEXT    NOT NULL,
-    proveedor       TEXT,
-    fecha_subida    TEXT,
-    estado          TEXT    NOT NULL DEFAULT 'PENDIENTE',
-    ultima_sync     TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    google_id         TEXT    NOT NULL UNIQUE,
+    nombre_archivo    TEXT    NOT NULL,
+    ruta_completa     TEXT    NOT NULL,
+    proveedor         TEXT,
+    fecha_subida      TEXT,
+    estado            TEXT    NOT NULL DEFAULT 'PENDIENTE',  -- PENDIENTE | PROCESADA | REVISION_MANUAL | IGNORADO
+    datos_extraidos   TEXT,   -- JSON con los campos extraídos por Gemini
+    error_extraccion  TEXT,   -- Motivo del fallo si estado = REVISION_MANUAL
+    procesado_at      TEXT,   -- Timestamp del último intento de extracción
+    ultima_sync       TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
   );
 
   CREATE INDEX IF NOT EXISTS idx_logs_factura    ON logs_auditoria(factura_id);
@@ -68,9 +71,20 @@ const schema = `
   CREATE INDEX IF NOT EXISTS idx_drive_proveedor ON drive_archivos(proveedor);
 `;
 
+// Columnas añadidas en Bloque 2 — se aplican sobre BDs ya existentes
+const alteraciones = [
+  "ALTER TABLE drive_archivos ADD COLUMN datos_extraidos  TEXT",
+  "ALTER TABLE drive_archivos ADD COLUMN error_extraccion TEXT",
+  "ALTER TABLE drive_archivos ADD COLUMN procesado_at     TEXT",
+];
+
 function runMigrations() {
   const db = getDb();
   db.exec(schema);
+  // ALTER TABLE no soporta IF NOT EXISTS → ignoramos el error si ya existe
+  for (const sql of alteraciones) {
+    try { db.exec(sql); } catch (_) { /* columna ya existente */ }
+  }
   console.log('Migración completada. Base de datos lista.');
 }
 
