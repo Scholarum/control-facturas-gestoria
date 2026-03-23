@@ -1,7 +1,8 @@
 require('dotenv').config();
-require('./config/migrate'); // Ejecuta las migraciones al arrancar
 
-const express = require('express');
+const express        = require('express');
+const { initDb }     = require('./config/database');
+const { runMigrations } = require('./config/migrate');
 const { attachRequestMeta } = require('./middleware/audit');
 
 const app  = express();
@@ -10,21 +11,21 @@ const PORT = process.env.PORT || 3000;
 app.use(express.json());
 app.use(attachRequestMeta);
 
-// Rutas
 app.use('/facturas', require('./routes/facturas'));
 app.use('/ver',      require('./routes/acceso'));
-
-// Health check
 app.get('/health', (_req, res) => res.json({ ok: true, uptime: process.uptime() }));
 
-// Manejador de errores genérico
 app.use((err, _req, res, _next) => {
   console.error(err);
   res.status(500).json({ ok: false, error: 'Error interno del servidor' });
 });
 
-app.listen(PORT, () => {
-  console.log(`Servidor arrancado en http://localhost:${PORT}`);
-});
+async function start() {
+  await initDb();
+  runMigrations();
+  app.listen(PORT, () => console.log(`Servidor arrancado en http://localhost:${PORT}`));
+}
+
+start().catch(err => { console.error('Error al arrancar:', err); process.exit(1); });
 
 module.exports = app;

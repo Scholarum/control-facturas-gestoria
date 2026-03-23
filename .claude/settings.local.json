@@ -2,7 +2,22 @@
   "permissions": {
     "allow": [
       "Bash(git add:*)",
-      "Bash(git commit:*)"
+      "Bash(git commit:*)",
+      "Bash(git remote:*)",
+      "Bash(git branch:*)",
+      "Bash(git push:*)",
+      "Bash(npm install:*)",
+      "Bash(npm show:*)",
+      "Bash(node -e \"const v=JSON.parse\\(require\\(''''fs''''\\).readFileSync\\(''''/dev/stdin'''',''''utf8''''\\)\\); console.log\\(v.slice\\(-5\\).join\\(''''\\\\n''''\\)\\)\")",
+      "Bash(timeout 5 node src/app.js)",
+      "Bash(npm start:*)",
+      "Bash(npx kill-port:*)",
+      "Bash(ls /c/Users/info/control-facturas-gestoria/*.json)",
+      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); keys=list\\(d.keys\\(\\)\\); print\\(''''Tipo de credencial:'''', keys\\); print\\(''''Campos:'''', list\\(d[keys[0]].keys\\(\\)\\) if isinstance\\(d[keys[0]], dict\\) else ''''root-level''''\\)\")",
+      "Bash(node -e \"const d=require\\(''''./credentials..json''''\\); console.log\\(''''Claves raíz:'''', Object.keys\\(d\\)\\)\")",
+      "Bash(node:*)",
+      "Bash(echo \"EXIT:$?\")",
+      "Bash(npm uninstall:*)"
     ]
   }
 }
