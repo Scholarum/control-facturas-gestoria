@@ -16,9 +16,10 @@ app.use(express.json());
 app.use(attachRequestMeta);
 
 // API routes
-app.use('/api/drive',    require('./routes/gestion'));
-app.use('/api/facturas', require('./routes/facturas'));
-app.use('/ver',          require('./routes/acceso'));
+app.use('/api/drive',         require('./routes/gestion'));
+app.use('/api/facturas',      require('./routes/facturas'));
+app.use('/api/conciliacion',  require('./routes/conciliacion'));
+app.use('/ver',               require('./routes/acceso'));
 app.get('/health', (_req, res) => res.json({ ok: true, uptime: process.uptime() }));
 
 // Servir el cliente React en producción

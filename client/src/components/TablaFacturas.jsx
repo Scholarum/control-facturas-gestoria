@@ -1,6 +1,6 @@
 import { BadgeGestion, BadgeExtraccion } from './Badge.jsx';
 
-function fmt€(n) {
+function fmtEuro(n) {
   if (n == null) return '—';
   return new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format(n);
 }
@@ -114,7 +114,7 @@ export default function TablaFacturas({ facturas, seleccionados, onToggle, onTog
                       {fmtFecha(datos?.fecha_emision)}
                     </td>
                     <td className={`px-4 py-3 text-right font-semibold whitespace-nowrap ${negativo ? 'text-red-600' : 'text-gray-900'}`}>
-                      {fmt€(total)}
+                      {fmtEuro(total)}
                     </td>
                     <td className="px-4 py-3 font-mono text-xs text-gray-600">
                       {datos?.cif_emisor || '—'}

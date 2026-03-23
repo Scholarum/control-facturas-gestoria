@@ -9,10 +9,10 @@
     "migrate": "node src/config/migrate.js",
     "sync": "node sync.js --save",
     "extraer": "node extractor.js",
-    "reprocess":      "node extractor.js --reprocess",
+    "reprocess": "node extractor.js --reprocess",
     "client:install": "cd client && npm install",
-    "client:dev":     "cd client && npm run dev",
-    "client:build":   "cd client && npm run build"
+    "client:dev": "cd client && npm run dev",
+    "client:build": "cd client && npm run build"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
@@ -21,8 +21,11 @@
     "express": "^4.18.3",
     "googleapis": "^171.4.0",
     "jszip": "^3.10.1",
+    "multer": "^2.1.1",
+    "pdfkit": "^0.18.0",
     "sql.js": "^1.14.1",
-    "uuid": "^9.0.1"
+    "uuid": "^9.0.1",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "nodemon": "^3.1.0"

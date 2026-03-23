@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import Filtros           from './components/Filtros.jsx';
 import TablaFacturas     from './components/TablaFacturas.jsx';
 import ModalContabilizar from './components/ModalContabilizar.jsx';
+import Conciliacion      from './pages/Conciliacion.jsx';
 import { fetchFacturas, fetchProveedores, descargarZip, contabilizar } from './api.js';
 
 // ─── Stats ────────────────────────────────────────────────────────────────────
@@ -18,6 +19,7 @@ function StatCard({ label, value, color }) {
 // ─── App ──────────────────────────────────────────────────────────────────────
 
 export default function App() {
+  const [tab, setTab] = useState('facturas');
   const [todasFacturas, setTodasFacturas] = useState([]);
   const [proveedores,   setProveedores]   = useState([]);
   const [filtros, setFiltros] = useState({ proveedor: '', estado: '', fechaDesde: '', fechaHasta: '' });
@@ -123,15 +125,37 @@ export default function App() {
             <span className="text-xl">🧾</span>
             <span className="font-semibold text-gray-900 text-base">Control de Facturas</span>
           </div>
-          <div className="text-xs text-gray-400">
-            {facturas.length !== todasFacturas.length
-              ? `Mostrando ${facturas.length} de ${todasFacturas.length} facturas`
-              : `${todasFacturas.length} facturas en total`}
+          {/* Pestañas */}
+          <nav className="flex gap-1">
+            {[
+              { id: 'facturas',      label: 'Facturas' },
+              { id: 'conciliacion',  label: 'Conciliación SAGE' },
+            ].map(t => (
+              <button key={t.id} onClick={() => setTab(t.id)}
+                className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                  tab === t.id
+                    ? 'bg-blue-600 text-white'
+                    : 'text-gray-600 hover:bg-gray-100'
+                }`}>
+                {t.label}
+              </button>
+            ))}
+          </nav>
+          <div className="text-xs text-gray-400 w-40 text-right">
+            {tab === 'facturas' && (facturas.length !== todasFacturas.length
+              ? `Mostrando ${facturas.length} de ${todasFacturas.length}`
+              : `${todasFacturas.length} facturas`)}
           </div>
         </div>
       </header>
 
       <main className="max-w-screen-xl mx-auto px-6 py-6 space-y-4">
+        {/* ── Pestaña Conciliación ── */}
+        {tab === 'conciliacion' && (
+          <Conciliacion proveedores={proveedores} />
+        )}
+        {/* ── Pestaña Facturas ── */}
+        {tab === 'facturas' && <>
 
         {/* Stats */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -193,6 +217,7 @@ export default function App() {
           loading={loading}
           hayFiltros={hayFiltros}
         />
+        </>}
 
       </main>
 
