@@ -57,6 +57,7 @@ const schema = `
     proveedor         TEXT,
     fecha_subida      TEXT,
     estado            TEXT    NOT NULL DEFAULT 'PENDIENTE',  -- PENDIENTE | PROCESADA | REVISION_MANUAL | IGNORADO
+    estado_gestion    TEXT    NOT NULL DEFAULT 'PENDIENTE',  -- PENDIENTE | DESCARGADA | CONTABILIZADA
     datos_extraidos   TEXT,   -- JSON con los campos extraídos por Gemini
     error_extraccion  TEXT,   -- Motivo del fallo si estado = REVISION_MANUAL
     procesado_at      TEXT,   -- Timestamp del último intento de extracción
@@ -76,6 +77,7 @@ const alteraciones = [
   "ALTER TABLE drive_archivos ADD COLUMN datos_extraidos  TEXT",
   "ALTER TABLE drive_archivos ADD COLUMN error_extraccion TEXT",
   "ALTER TABLE drive_archivos ADD COLUMN procesado_at     TEXT",
+  "ALTER TABLE drive_archivos ADD COLUMN estado_gestion   TEXT NOT NULL DEFAULT 'PENDIENTE'",
 ];
 
 function runMigrations() {

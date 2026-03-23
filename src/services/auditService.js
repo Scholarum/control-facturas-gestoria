@@ -1,10 +1,12 @@
 const { getDb } = require('../config/database');
 
 const EVENTOS = {
-  SUBIDA:   'SUBIDA',
-  APERTURA: 'APERTURA',
-  VISTO:    'VISTO',
-  REGISTRO: 'REGISTRO',
+  SUBIDA:          'SUBIDA',
+  APERTURA:        'APERTURA',
+  VISTO:           'VISTO',
+  REGISTRO:        'REGISTRO',
+  DESCARGA:        'DESCARGA',
+  CONTABILIZACION: 'CONTABILIZACION',
 };
 
 function registrarEvento({ evento, facturaId, usuarioId, ip, userAgent, tokenUsado, detalle }) {

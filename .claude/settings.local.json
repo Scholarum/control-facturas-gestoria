@@ -17,7 +17,10 @@
       "Bash(node -e \"const d=require\\(''''./credentials..json''''\\); console.log\\(''''Claves raíz:'''', Object.keys\\(d\\)\\)\")",
       "Bash(node:*)",
       "Bash(echo \"EXIT:$?\")",
-      "Bash(npm uninstall:*)"
+      "Bash(npm uninstall:*)",
+      "Bash(curl -s http://localhost:3000/api/drive)",
+      "Bash(node -e \"const d=JSON.parse\\(require\\(''''fs''''\\).readFileSync\\(''''/dev/stdin'''',''''utf8''''\\)\\); console.log\\(''''OK - facturas:'''', d.data.length\\); d.data.forEach\\(f=>console.log\\('''' '''', f.id, f.proveedor, ''''|'''', f.estado_gestion, ''''|'''', f.datos_extraidos?.numero_factura\\)\\)\")",
+      "Bash(python3 -c \":*)"
     ]
   }
 }
