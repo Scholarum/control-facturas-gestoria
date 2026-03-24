@@ -60,8 +60,7 @@ router.post('/descargar-zip', async (req, res) => {
         { fileId: archivo.google_id, alt: 'media' },
         { responseType: 'arraybuffer' }
       );
-      const carpeta = archivo.proveedor || 'Sin proveedor';
-      zip.file(`${carpeta}/${archivo.nombre_archivo}`, Buffer.from(resp.data));
+      zip.file(archivo.nombre_archivo, Buffer.from(resp.data));
     } catch (err) {
       fallidos.push({ id: archivo.id, nombre: archivo.nombre_archivo, error: err.message });
     }
