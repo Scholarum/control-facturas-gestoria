@@ -193,7 +193,10 @@ router.get('/:id/stream', async (req, res) => {
       { fileId: archivo.google_id, alt: 'media' },
       { responseType: 'stream' }
     );
-    const ct = resp.headers['content-type'] || 'application/octet-stream';
+    const ext = (archivo.nombre_archivo || '').split('.').pop().toLowerCase();
+    const ct  = ext === 'pdf'
+      ? 'application/pdf'
+      : (resp.headers['content-type'] || 'application/octet-stream');
     res.set('Content-Type', ct);
     res.set('Content-Disposition', 'inline');
     resp.data.pipe(res);
