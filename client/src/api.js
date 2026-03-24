@@ -97,10 +97,10 @@ export async function fetchFacturas() {
 }
 
 export async function fetchProveedores() {
-  const res = await fetch(`${API_BASE}/api/drive/proveedores`, { headers: authHeaders() });
+  const res = await fetch(`${API_BASE}/api/proveedores/selector`, { headers: authHeaders() });
   if (!res.ok) throw new Error('Error al cargar proveedores');
   const { data } = await res.json();
-  return data;
+  return data; // [{ nombre_carpeta, label }]
 }
 
 export async function descargarZip(ids) {
@@ -361,6 +361,94 @@ export async function ejecutarConciliacion(formData) {
   const json = await res.json();
   if (!json.ok) throw new Error(json.error || 'Error en la conciliación');
   return json.data;
+}
+
+// ─── Plan Contable ────────────────────────────────────────────────────────────
+
+export async function fetchPlanContable(q = '') {
+  const url = q
+    ? `${API_BASE}/api/plan-contable?q=${encodeURIComponent(q)}`
+    : `${API_BASE}/api/plan-contable`;
+  const res = await fetch(url, { headers: authHeaders() });
+  if (!res.ok) throw new Error('Error al cargar plan contable');
+  const { data } = await res.json();
+  return data;
+}
+
+export async function crearCuentaContable(datos) {
+  const res = await fetch(`${API_BASE}/api/plan-contable`, {
+    method:  'POST',
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
+    body:    JSON.stringify(datos),
+  });
+  const json = await res.json();
+  if (!json.ok) throw new Error(json.error || 'Error al crear cuenta');
+  return json.data;
+}
+
+// ─── Proveedores ──────────────────────────────────────────────────────────────
+
+export async function fetchProveedoresCrud() {
+  const res = await fetch(`${API_BASE}/api/proveedores`, { headers: authHeaders() });
+  if (!res.ok) throw new Error('Error al cargar proveedores');
+  const { data } = await res.json();
+  return data;
+}
+
+export async function crearProveedor(datos) {
+  const res = await fetch(`${API_BASE}/api/proveedores`, {
+    method:  'POST',
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
+    body:    JSON.stringify(datos),
+  });
+  const json = await res.json();
+  if (!json.ok) throw new Error(json.error || 'Error al crear proveedor');
+  return json.data;
+}
+
+export async function editarProveedor(id, datos) {
+  const res = await fetch(`${API_BASE}/api/proveedores/${id}`, {
+    method:  'PUT',
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
+    body:    JSON.stringify(datos),
+  });
+  const json = await res.json();
+  if (!json.ok) throw new Error(json.error || 'Error al actualizar proveedor');
+  return json.data;
+}
+
+export async function eliminarProveedor(id) {
+  const res = await fetch(`${API_BASE}/api/proveedores/${id}`, {
+    method:  'DELETE',
+    headers: authHeaders(),
+  });
+  const json = await res.json();
+  if (!json.ok) throw new Error(json.error || 'Error al eliminar proveedor');
+}
+
+export async function descargarExcelProveedores() {
+  const res = await fetch(`${API_BASE}/api/proveedores/excel`, { headers: authHeaders() });
+  if (!res.ok) throw new Error('Error al generar Excel');
+  const blob = await res.blob();
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href     = url;
+  a.download = `proveedores-${new Date().toISOString().slice(0, 10)}.xlsx`;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+export async function importarProveedoresExcel(file) {
+  const fd = new FormData();
+  fd.append('archivo', file);
+  const res = await fetch(`${API_BASE}/api/proveedores/importar`, {
+    method:  'POST',
+    headers: authHeaders(),
+    body:    fd,
+  });
+  const json = await res.json();
+  if (!json.ok) throw new Error(json.error || 'Error al importar');
+  return json.data; // { insertados, actualizados, errores }
 }
 
 export async function reextraer(ids, onProgress) {

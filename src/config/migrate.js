@@ -141,6 +141,26 @@ const tablas = [
     creado_en       TIMESTAMPTZ NOT NULL DEFAULT NOW()
   )`,
 
+  `CREATE TABLE IF NOT EXISTS plan_contable (
+    id          SERIAL PRIMARY KEY,
+    codigo      TEXT NOT NULL UNIQUE,
+    descripcion TEXT NOT NULL,
+    grupo       TEXT NOT NULL,
+    activo      BOOLEAN NOT NULL DEFAULT true
+  )`,
+
+  `CREATE TABLE IF NOT EXISTS proveedores (
+    id                 SERIAL PRIMARY KEY,
+    razon_social       TEXT NOT NULL,
+    nombre_carpeta     TEXT,
+    cif                TEXT,
+    cuenta_contable_id INTEGER REFERENCES plan_contable(id),
+    cuenta_gasto_id    INTEGER REFERENCES plan_contable(id),
+    activo             BOOLEAN NOT NULL DEFAULT true,
+    created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at         TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`,
+
   // Índices
   `CREATE INDEX IF NOT EXISTS idx_logs_factura    ON logs_auditoria(factura_id)`,
   `CREATE INDEX IF NOT EXISTS idx_logs_evento     ON logs_auditoria(evento)`,
@@ -198,6 +218,49 @@ async function runMigrations() {
        ON CONFLICT (clave) DO NOTHING`,
       [clave, valor]
     );
+  }
+
+  // Seed plan contable (solo inserta si la tabla está vacía)
+  const yaSeeded = await db.one('SELECT COUNT(*) as n FROM plan_contable');
+  if (parseInt(yaSeeded.n) === 0) {
+    const cuentas = [
+      { codigo: '400',  descripcion: 'Proveedores',                                        grupo: '4' },
+      { codigo: '4000', descripcion: 'Proveedores (euros)',                                grupo: '4' },
+      { codigo: '401',  descripcion: 'Proveedores, efectos comerciales a pagar',           grupo: '4' },
+      { codigo: '404',  descripcion: 'Proveedores de inmovilizado a largo plazo',          grupo: '4' },
+      { codigo: '405',  descripcion: 'Proveedores de inmovilizado a corto plazo',          grupo: '4' },
+      { codigo: '407',  descripcion: 'Anticipos a proveedores',                            grupo: '4' },
+      { codigo: '410',  descripcion: 'Acreedores por prestaciones de servicios',           grupo: '4' },
+      { codigo: '411',  descripcion: 'Acreedores, efectos comerciales a pagar',            grupo: '4' },
+      { codigo: '472',  descripcion: 'Hacienda Pública, IVA soportado',                    grupo: '4' },
+      { codigo: '473',  descripcion: 'Hacienda Pública, retenciones y pagos a cuenta',    grupo: '4' },
+      { codigo: '477',  descripcion: 'Hacienda Pública, IVA repercutido',                  grupo: '4' },
+      { codigo: '600',  descripcion: 'Compras de mercaderías',                             grupo: '6' },
+      { codigo: '601',  descripcion: 'Compras de materias primas',                         grupo: '6' },
+      { codigo: '602',  descripcion: 'Compras de otros aprovisionamientos',                grupo: '6' },
+      { codigo: '606',  descripcion: 'Descuentos sobre compras por pronto pago',           grupo: '6' },
+      { codigo: '608',  descripcion: 'Devoluciones de compras y operaciones similares',    grupo: '6' },
+      { codigo: '609',  descripcion: 'Rappels por compras',                                grupo: '6' },
+      { codigo: '621',  descripcion: 'Arrendamientos y cánones',                           grupo: '6' },
+      { codigo: '622',  descripcion: 'Reparaciones y conservación',                        grupo: '6' },
+      { codigo: '623',  descripcion: 'Servicios de profesionales independientes',          grupo: '6' },
+      { codigo: '624',  descripcion: 'Transportes',                                        grupo: '6' },
+      { codigo: '625',  descripcion: 'Primas de seguros',                                  grupo: '6' },
+      { codigo: '626',  descripcion: 'Servicios bancarios y similares',                    grupo: '6' },
+      { codigo: '627',  descripcion: 'Publicidad, propaganda y relaciones públicas',       grupo: '6' },
+      { codigo: '628',  descripcion: 'Suministros',                                        grupo: '6' },
+      { codigo: '629',  descripcion: 'Otros servicios',                                    grupo: '6' },
+      { codigo: '631',  descripcion: 'Otros tributos',                                     grupo: '6' },
+      { codigo: '640',  descripcion: 'Sueldos y salarios',                                 grupo: '6' },
+      { codigo: '641',  descripcion: 'Indemnizaciones',                                    grupo: '6' },
+      { codigo: '642',  descripcion: 'Seguridad Social a cargo de la empresa',             grupo: '6' },
+    ];
+    for (const c of cuentas) {
+      await db.query(
+        'INSERT INTO plan_contable (codigo, descripcion, grupo) VALUES ($1, $2, $3) ON CONFLICT (codigo) DO NOTHING',
+        [c.codigo, c.descripcion, c.grupo]
+      );
+    }
   }
 
   console.log('Migración PostgreSQL completada.');

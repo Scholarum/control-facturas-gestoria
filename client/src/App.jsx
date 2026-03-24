@@ -6,6 +6,7 @@ import MiPerfil       from './pages/MiPerfil.jsx';
 import Conciliacion   from './pages/Conciliacion.jsx';
 import Historial      from './pages/Historial.jsx';
 import Configuracion  from './pages/Configuracion.jsx';
+import Proveedores    from './pages/Proveedores.jsx';
 import SeccionFacturas from './components/SeccionFacturas.jsx';
 import { fetchFacturas, fetchProveedores, exportarExcel, triggerSyncManual } from './api.js';
 
@@ -140,6 +141,7 @@ function AppInner() {
     { id: 'historial',     label: 'Historial' },
     ...(esAdmin ? [
       { id: 'usuarios',      label: 'Usuarios' },
+      { id: 'proveedores',   label: 'Proveedores' },
       { id: 'configuracion', label: '⚙ Configuración' },
     ] : []),
     { id: 'perfil',        label: 'Mi Perfil' },
@@ -194,6 +196,9 @@ function AppInner() {
 
         {/* ── Pestaña Usuarios (solo ADMIN) ── */}
         {tab === 'usuarios' && esAdmin && <Usuarios />}
+
+        {/* ── Pestaña Proveedores (solo ADMIN) ── */}
+        {tab === 'proveedores' && esAdmin && <Proveedores />}
 
         {/* ── Pestaña Conciliación ── */}
         {tab === 'conciliacion' && <Conciliacion proveedores={proveedores} />}

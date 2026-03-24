@@ -18,7 +18,7 @@ function FiltrosSeccion({ filtros, onChange, proveedores }) {
         <select value={filtros.proveedor} onChange={e => set('proveedor', e.target.value)}
           className={`${inputCls} min-w-[160px]`}>
           <option value="">Todos</option>
-          {proveedores.map(p => <option key={p} value={p}>{p}</option>)}
+          {proveedores.map(p => <option key={p.nombre_carpeta ?? p} value={p.nombre_carpeta ?? p}>{p.label ?? p}</option>)}
         </select>
       </div>
       <div className="flex flex-col gap-1">

@@ -243,7 +243,7 @@ export default function Conciliacion({ proveedores }) {
             className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
           >
             <option value="">— Selecciona un proveedor —</option>
-            {proveedores.map(p => <option key={p} value={p}>{p}</option>)}
+            {proveedores.map(p => <option key={p.nombre_carpeta} value={p.nombre_carpeta}>{p.label}</option>)}
           </select>
         </div>
 
