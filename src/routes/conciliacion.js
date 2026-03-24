@@ -5,6 +5,8 @@ const router    = express.Router();
 const { parsearSage }             = require('../services/sageParser');
 const { ejecutarConciliacion }    = require('../services/conciliacionService');
 const { generarPdfConciliacion }  = require('../services/pdfReporte');
+const { registrarEvento, EVENTOS } = require('../services/auditService');
+const { resolveUser }             = require('../middleware/auth');
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -20,13 +22,12 @@ const upload = multer({
 });
 
 // ─── POST /api/conciliacion ───────────────────────────────────────────────────
-// Procesa el archivo SAGE y devuelve el resultado de la conciliación.
 
-router.post('/', upload.single('archivo'), async (req, res) => {
+router.post('/', resolveUser, upload.single('archivo'), async (req, res) => {
   const { proveedor, fechaDesde, fechaHasta } = req.body;
 
-  if (!proveedor)    return res.status(400).json({ ok: false, error: 'proveedor requerido' });
-  if (!req.file)     return res.status(400).json({ ok: false, error: 'archivo SAGE requerido' });
+  if (!proveedor) return res.status(400).json({ ok: false, error: 'proveedor requerido' });
+  if (!req.file)  return res.status(400).json({ ok: false, error: 'archivo SAGE requerido' });
 
   let entradasSage;
   try {
@@ -41,16 +42,32 @@ router.post('/', upload.single('archivo'), async (req, res) => {
 
   let resultado;
   try {
-    resultado = ejecutarConciliacion(proveedor, fechaDesde || null, fechaHasta || null, entradasSage);
+    resultado = await ejecutarConciliacion(proveedor, fechaDesde || null, fechaHasta || null, entradasSage);
   } catch (err) {
     return res.status(err.status || 500).json({ ok: false, error: err.message });
   }
+
+  registrarEvento({
+    evento:    EVENTOS.UPLOAD_CONCILIACION,
+    usuarioId: req.usuario?.id ?? null,
+    ip:        req.clientIp,
+    userAgent: req.userAgent,
+    detalle:   {
+      proveedor,
+      fechaDesde:     fechaDesde || null,
+      fechaHasta:     fechaHasta || null,
+      archivo:        req.file.originalname,
+      total:          resultado.resumen.total,
+      ok:             resultado.resumen.ok,
+      pendientesSage: resultado.resumen.pendientesSage,
+      errorImporte:   resultado.resumen.errorImporte,
+    },
+  }).catch(() => {});
 
   res.json({ ok: true, data: resultado });
 });
 
 // ─── POST /api/conciliacion/pdf ───────────────────────────────────────────────
-// Recibe los resultados JSON y devuelve el informe en PDF.
 
 router.post('/pdf', express.json(), async (req, res) => {
   const { resumen, resultados } = req.body;

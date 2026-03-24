@@ -1,128 +1,53 @@
 /**
- * Capa de base de datos — sql.js (puro WASM, sin compilación nativa)
+ * Capa de base de datos — PostgreSQL via pg (node-postgres)
  *
- * Expone una API compatible con better-sqlite3:
- *   db.exec(sql)
- *   db.prepare(sql).run(paramsObj | ...args)
- *   db.prepare(sql).get(paramsObj | ...args)
- *   db.prepare(sql).all(paramsObj | ...args)
- *
- * La BD se persiste en disco después de cada escritura.
+ * Expone getDb() que devuelve el pool con helpers:
+ *   await db.query(sql, params)   → { rows, rowCount }
+ *   await db.one(sql, params)     → row | undefined
+ *   await db.all(sql, params)     → rows[]
+ *   await db.run(sql, params)     → { rowCount }
  */
-const initSqlJs = require('sql.js');
-const fs        = require('fs');
-const path      = require('path');
+const { Pool } = require('pg');
 
-const DB_PATH = process.env.DB_PATH || './data/facturas.db';
+const connectionString = process.env.DATABASE_URL || 'postgresql://localhost/control_facturas';
 
-// ─── Helpers de binding ───────────────────────────────────────────────────────
+// SSL requerido para Supabase/Neon en producción
+const ssl = connectionString.includes('localhost') || connectionString.includes('127.0.0.1')
+  ? false
+  : { rejectUnauthorized: false };
 
-/**
- * Convierte el objeto de parámetros nombrados de mejor-sqlite3 ({ key: val })
- * al formato que espera sql.js ({ '@key': val, ':key': val, '$key': val }).
- */
-function toSqlJsBindings(params) {
-  if (!params || Array.isArray(params)) return params;   // posicionales: pasar tal cual
-  const out = {};
-  for (const [k, v] of Object.entries(params)) {
-    // Si la clave ya lleva prefijo la dejamos; si no, añadimos '@'
-    const key = /^[@:$]/.test(k) ? k : `@${k}`;
-    out[key] = v ?? null;
-  }
-  return out;
-}
+const pool = new Pool({ connectionString, ssl });
 
-// ─── Statement wrapper ────────────────────────────────────────────────────────
+// ─── Wrapper con helpers ──────────────────────────────────────────────────────
 
-class Statement {
-  constructor(sqlDb, sql, saveFn) {
-    this._sqlDb = sqlDb;
-    this._sql   = sql;
-    this._save  = saveFn;
-  }
+const db = {
+  query: (sql, params = []) => pool.query(sql, params),
 
-  run(...args) {
-    const params = args.length === 1 && typeof args[0] === 'object' && !Array.isArray(args[0])
-      ? toSqlJsBindings(args[0])
-      : args;
+  async one(sql, params = []) {
+    const res = await pool.query(sql, params);
+    return res.rows[0];
+  },
 
-    this._sqlDb.run(this._sql, params);
-    this._save();
-    return { changes: this._sqlDb.getRowsModified() };
-  }
+  async all(sql, params = []) {
+    const res = await pool.query(sql, params);
+    return res.rows;
+  },
 
-  get(...args) {
-    const params = args.length === 1 && typeof args[0] === 'object' && !Array.isArray(args[0])
-      ? toSqlJsBindings(args[0])
-      : args;
+  async run(sql, params = []) {
+    const res = await pool.query(sql, params);
+    return { rowCount: res.rowCount, rows: res.rows };
+  },
+};
 
-    const stmt = this._sqlDb.prepare(this._sql);
-    if (params && (Array.isArray(params) ? params.length : Object.keys(params).length)) {
-      stmt.bind(params);
-    }
-    const row = stmt.step() ? stmt.getAsObject() : undefined;
-    stmt.free();
-    return row;
-  }
-
-  all(...args) {
-    const params = args.length === 1 && typeof args[0] === 'object' && !Array.isArray(args[0])
-      ? toSqlJsBindings(args[0])
-      : args;
-
-    const stmt = this._sqlDb.prepare(this._sql);
-    if (params && (Array.isArray(params) ? params.length : Object.keys(params).length)) {
-      stmt.bind(params);
-    }
-    const rows = [];
-    while (stmt.step()) rows.push(stmt.getAsObject());
-    stmt.free();
-    return rows;
-  }
-}
-
-// ─── Database wrapper ─────────────────────────────────────────────────────────
-
-class Database {
-  constructor(sqlDb, dbPath) {
-    this._db   = sqlDb;
-    this._path = dbPath;
-  }
-
-  exec(sql) {
-    this._db.run(sql);
-    this._persist();
-  }
-
-  prepare(sql) {
-    return new Statement(this._db, sql, () => this._persist());
-  }
-
-  _persist() {
-    const data = this._db.export();
-    fs.writeFileSync(this._path, Buffer.from(data));
-  }
-}
-
-// ─── Inicialización (async one-time) ──────────────────────────────────────────
-
-let _db = null;
+// ─── Inicialización (test de conexión) ───────────────────────────────────────
 
 async function initDb() {
-  if (_db) return _db;
-
-  const dbDir = path.dirname(DB_PATH);
-  if (!fs.existsSync(dbDir)) fs.mkdirSync(dbDir, { recursive: true });
-
-  const SQL  = await initSqlJs();
-  const data = fs.existsSync(DB_PATH) ? fs.readFileSync(DB_PATH) : null;
-  _db = new Database(new SQL.Database(data), DB_PATH);
-  return _db;
+  await pool.query('SELECT 1');
+  console.log('PostgreSQL conectado');
 }
 
 function getDb() {
-  if (!_db) throw new Error('BD no inicializada. Llama a initDb() primero.');
-  return _db;
+  return db;
 }
 
 module.exports = { initDb, getDb };

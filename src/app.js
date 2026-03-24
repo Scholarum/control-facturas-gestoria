@@ -7,18 +7,33 @@ const fs                = require('fs');
 const { initDb }        = require('./config/database');
 const { runMigrations } = require('./config/migrate');
 const { attachRequestMeta } = require('./middleware/audit');
+const { ensurePromptSeeded } = require('./services/extractorService');
+const { iniciarCrons }       = require('./services/cronService');
 
 const app  = express();
 const PORT = process.env.PORT || 3000;
 
-app.use(cors());
+// CORS — en producción lee CORS_ORIGIN (coma-separado si hay varios dominios)
+const corsOrigins = process.env.CORS_ORIGIN
+  ? process.env.CORS_ORIGIN.split(',').map(s => s.trim())
+  : true;
+
+app.use(cors({
+  origin: corsOrigins,
+  credentials: true,
+}));
 app.use(express.json());
 app.use(attachRequestMeta);
 
 // API routes
+app.use('/api/auth',          require('./routes/auth'));
 app.use('/api/drive',         require('./routes/gestion'));
 app.use('/api/facturas',      require('./routes/facturas'));
 app.use('/api/conciliacion',  require('./routes/conciliacion'));
+app.use('/api/usuarios',       require('./routes/usuarios'));
+app.use('/api/auditoria',      require('./routes/auditoria'));
+app.use('/api/configuracion',  require('./routes/configuracion'));
+app.use('/api/sincronizacion', require('./routes/sincronizacion'));
 app.use('/ver',               require('./routes/acceso'));
 app.get('/health', (_req, res) => res.json({ ok: true, uptime: process.uptime() }));
 
@@ -40,7 +55,9 @@ app.use((err, _req, res, _next) => {
 
 async function start() {
   await initDb();
-  runMigrations();
+  await runMigrations();
+  await ensurePromptSeeded();
+  await iniciarCrons();
   app.listen(PORT, () => console.log(`Servidor arrancado en http://localhost:${PORT}`));
 }
 

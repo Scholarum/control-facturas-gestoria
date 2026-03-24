@@ -1,18 +1,20 @@
 const { getDb } = require('./database');
 
-const schema = `
-  -- Usuarios del sistema (administradores, gestores)
-  CREATE TABLE IF NOT EXISTS usuarios (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    nombre      TEXT    NOT NULL,
-    email       TEXT    NOT NULL UNIQUE,
-    rol         TEXT    NOT NULL DEFAULT 'admin',
-    created_at  TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
-  );
+// ─── Schema ───────────────────────────────────────────────────────────────────
 
-  -- Facturas
-  CREATE TABLE IF NOT EXISTS facturas (
-    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+const tablas = [
+  `CREATE TABLE IF NOT EXISTS usuarios (
+    id            SERIAL PRIMARY KEY,
+    nombre        TEXT    NOT NULL,
+    email         TEXT    NOT NULL UNIQUE,
+    rol           TEXT    NOT NULL DEFAULT 'admin',
+    password_hash TEXT,
+    activo        INTEGER NOT NULL DEFAULT 1,
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`,
+
+  `CREATE TABLE IF NOT EXISTS facturas (
+    id              SERIAL PRIMARY KEY,
     numero          TEXT    NOT NULL UNIQUE,
     descripcion     TEXT,
     importe         REAL    NOT NULL,
@@ -21,23 +23,21 @@ const schema = `
     archivo_nombre  TEXT,
     archivo_ruta    TEXT,
     subida_por      INTEGER NOT NULL REFERENCES usuarios(id),
-    created_at      TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
-    updated_at      TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
-  );
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`,
 
-  -- Tokens de acceso para enlaces únicos enviados a la gestoría
-  CREATE TABLE IF NOT EXISTS tokens_acceso (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  `CREATE TABLE IF NOT EXISTS tokens_acceso (
+    id          SERIAL PRIMARY KEY,
     token       TEXT    NOT NULL UNIQUE,
     factura_id  INTEGER NOT NULL REFERENCES facturas(id),
     usado       INTEGER NOT NULL DEFAULT 0,
     expira_at   TEXT,
-    created_at  TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
-  );
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`,
 
-  -- Log de auditoría (inmutable: solo INSERT)
-  CREATE TABLE IF NOT EXISTS logs_auditoria (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  `CREATE TABLE IF NOT EXISTS logs_auditoria (
+    id          SERIAL PRIMARY KEY,
     evento      TEXT    NOT NULL,
     factura_id  INTEGER REFERENCES facturas(id),
     usuario_id  INTEGER REFERENCES usuarios(id),
@@ -45,49 +45,104 @@ const schema = `
     user_agent  TEXT,
     token_usado TEXT,
     detalle     TEXT,
-    timestamp   TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
-  );
+    timestamp   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`,
 
-  -- Archivos sincronizados desde Google Drive
-  CREATE TABLE IF NOT EXISTS drive_archivos (
-    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+  `CREATE TABLE IF NOT EXISTS drive_archivos (
+    id                SERIAL PRIMARY KEY,
     google_id         TEXT    NOT NULL UNIQUE,
     nombre_archivo    TEXT    NOT NULL,
     ruta_completa     TEXT    NOT NULL,
     proveedor         TEXT,
     fecha_subida      TEXT,
-    estado            TEXT    NOT NULL DEFAULT 'PENDIENTE',  -- PENDIENTE | PROCESADA | REVISION_MANUAL | IGNORADO
-    estado_gestion    TEXT    NOT NULL DEFAULT 'PENDIENTE',  -- PENDIENTE | DESCARGADA | CONTABILIZADA
-    datos_extraidos   TEXT,   -- JSON con los campos extraídos por Gemini
-    error_extraccion  TEXT,   -- Motivo del fallo si estado = REVISION_MANUAL
-    procesado_at      TEXT,   -- Timestamp del último intento de extracción
-    ultima_sync       TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
-  );
+    estado            TEXT    NOT NULL DEFAULT 'PENDIENTE',
+    estado_gestion    TEXT    NOT NULL DEFAULT 'PENDIENTE',
+    datos_extraidos   TEXT,
+    error_extraccion  TEXT,
+    procesado_at      TIMESTAMPTZ,
+    ultima_sync       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`,
 
-  CREATE INDEX IF NOT EXISTS idx_logs_factura    ON logs_auditoria(factura_id);
-  CREATE INDEX IF NOT EXISTS idx_logs_evento     ON logs_auditoria(evento);
-  CREATE INDEX IF NOT EXISTS idx_logs_timestamp  ON logs_auditoria(timestamp);
-  CREATE INDEX IF NOT EXISTS idx_tokens_token    ON tokens_acceso(token);
-  CREATE INDEX IF NOT EXISTS idx_drive_estado    ON drive_archivos(estado);
-  CREATE INDEX IF NOT EXISTS idx_drive_proveedor ON drive_archivos(proveedor);
-`;
+  `CREATE TABLE IF NOT EXISTS configuracion (
+    clave      TEXT PRIMARY KEY,
+    valor      TEXT NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`,
 
-// Columnas añadidas en Bloque 2 — se aplican sobre BDs ya existentes
-const alteraciones = [
-  "ALTER TABLE drive_archivos ADD COLUMN datos_extraidos  TEXT",
-  "ALTER TABLE drive_archivos ADD COLUMN error_extraccion TEXT",
-  "ALTER TABLE drive_archivos ADD COLUMN procesado_at     TEXT",
-  "ALTER TABLE drive_archivos ADD COLUMN estado_gestion   TEXT NOT NULL DEFAULT 'PENDIENTE'",
+  `CREATE TABLE IF NOT EXISTS configuracion_sistema (
+    clave      TEXT PRIMARY KEY,
+    valor      TEXT NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`,
+
+  `CREATE TABLE IF NOT EXISTS historial_sincronizaciones (
+    id               SERIAL PRIMARY KEY,
+    origen           TEXT    NOT NULL DEFAULT 'MANUAL',
+    fecha            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    estado           TEXT    NOT NULL DEFAULT 'OK',
+    facturas_nuevas  INTEGER NOT NULL DEFAULT 0,
+    facturas_error   INTEGER NOT NULL DEFAULT 0,
+    duracion_ms      INTEGER,
+    detalle          TEXT
+  )`,
+
+  // Índices
+  `CREATE INDEX IF NOT EXISTS idx_logs_factura    ON logs_auditoria(factura_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_logs_evento     ON logs_auditoria(evento)`,
+  `CREATE INDEX IF NOT EXISTS idx_logs_timestamp  ON logs_auditoria(timestamp)`,
+  `CREATE INDEX IF NOT EXISTS idx_tokens_token    ON tokens_acceso(token)`,
+  `CREATE INDEX IF NOT EXISTS idx_drive_estado    ON drive_archivos(estado)`,
+  `CREATE INDEX IF NOT EXISTS idx_drive_proveedor ON drive_archivos(proveedor)`,
 ];
 
-function runMigrations() {
+// ─── Seeds ────────────────────────────────────────────────────────────────────
+
+const usuariosSeed = [
+  { nombre: 'Administrador', email: 'admin@gestoria.local',    rol: 'ADMIN'    },
+  { nombre: 'Gestoría',      email: 'gestoria@gestoria.local', rol: 'GESTORIA' },
+];
+
+const confDefaults = {
+  sync_activo:       'true',
+  sync_frecuencia:   'diaria',
+  sync_hora:         '08:00',
+  notify_activo:     'false',
+  notify_frecuencia: 'diaria',
+  notify_hora:       '09:00',
+  notify_app_url:    'http://localhost:5173',
+};
+
+// ─── Runner ───────────────────────────────────────────────────────────────────
+
+async function runMigrations() {
   const db = getDb();
-  db.exec(schema);
-  // ALTER TABLE no soporta IF NOT EXISTS → ignoramos el error si ya existe
-  for (const sql of alteraciones) {
-    try { db.exec(sql); } catch (_) { /* columna ya existente */ }
+
+  // Crear tablas e índices
+  for (const sql of tablas) {
+    await db.query(sql);
   }
-  console.log('Migración completada. Base de datos lista.');
+
+  // Seed usuarios
+  for (const u of usuariosSeed) {
+    await db.query(
+      `INSERT INTO usuarios (nombre, email, rol, activo)
+       VALUES ($1, $2, $3, 1)
+       ON CONFLICT (email) DO NOTHING`,
+      [u.nombre, u.email, u.rol]
+    );
+  }
+
+  // Seed configuracion_sistema
+  for (const [clave, valor] of Object.entries(confDefaults)) {
+    await db.query(
+      `INSERT INTO configuracion_sistema (clave, valor)
+       VALUES ($1, $2)
+       ON CONFLICT (clave) DO NOTHING`,
+      [clave, valor]
+    );
+  }
+
+  console.log('Migración PostgreSQL completada.');
 }
 
 module.exports = { runMigrations };
