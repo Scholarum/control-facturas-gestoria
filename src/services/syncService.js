@@ -1,5 +1,6 @@
-const { getDb }            = require('../config/database');
-const { buildDriveClient } = require('./driveService');
+const { getDb }              = require('../config/database');
+const { buildDriveClient }   = require('./driveService');
+const { ejecutarExtraccion } = require('./extractorService');
 
 const ROOT_FOLDER_ID = process.env.DRIVE_ROOT_FOLDER_ID || '1bJjT-9q4jca4vkhmGNGKyHj7mmFlLjr9';
 
@@ -51,6 +52,8 @@ async function ejecutarSync(origen = 'MANUAL') {
     await escanearCarpeta(drive, ROOT_FOLDER_ID, '', null, archivos);
 
     let facturas_nuevas = 0;
+    const nuevosIds = [];
+
     for (const a of archivos) {
       const existia = await db.one(
         'SELECT id FROM drive_archivos WHERE google_id = $1',
@@ -67,7 +70,21 @@ async function ejecutarSync(origen = 'MANUAL') {
            ultima_sync    = NOW()`,
         [a.google_id, a.nombre_archivo, a.ruta_completa, a.proveedor, a.fecha_subida]
       );
-      if (!existia) facturas_nuevas++;
+      if (!existia) {
+        const nuevo = await db.one('SELECT id FROM drive_archivos WHERE google_id = $1', [a.google_id]);
+        nuevosIds.push(nuevo.id);
+        facturas_nuevas++;
+      }
+    }
+
+    // Extraer con Gemini las facturas recién añadidas
+    let extraccion = { procesada: 0, revision: 0 };
+    if (nuevosIds.length > 0) {
+      try {
+        extraccion = await ejecutarExtraccion(nuevosIds);
+      } catch (e) {
+        console.error('[Sync] Error en extracción:', e.message);
+      }
     }
 
     const countRow = await db.one(
@@ -81,10 +98,10 @@ async function ejecutarSync(origen = 'MANUAL') {
          (origen, estado, facturas_nuevas, facturas_error, duracion_ms, detalle)
        VALUES ($1, 'OK', $2, $3, $4, $5)`,
       [origen, facturas_nuevas, facturas_error, duracion_ms,
-       JSON.stringify({ total_escaneadas: archivos.length })]
+       JSON.stringify({ total_escaneadas: archivos.length, extraccion })]
     );
 
-    return { facturas_nuevas, facturas_error, duracion_ms };
+    return { facturas_nuevas, facturas_error, duracion_ms, extraccion };
 
   } catch (err) {
     const duracion_ms = Date.now() - inicio;
