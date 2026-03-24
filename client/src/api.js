@@ -417,6 +417,16 @@ export async function crearCuentaContable(datos) {
 
 // ─── Proveedores ──────────────────────────────────────────────────────────────
 
+export async function autodetectarProveedores() {
+  const res = await fetch(`${API_BASE}/api/proveedores/autodetectar`, {
+    method: 'POST',
+    headers: authHeaders(),
+  });
+  const json = await res.json();
+  if (!json.ok) throw new Error(json.error || 'Error al autodetectar proveedores');
+  return json.data; // { creados, sinCuentas: [{id, razon_social, cif, nombre_carpeta}] }
+}
+
 export async function fetchProveedoresCrud() {
   const res = await fetch(`${API_BASE}/api/proveedores`, { headers: authHeaders() });
   if (!res.ok) throw new Error('Error al cargar proveedores');

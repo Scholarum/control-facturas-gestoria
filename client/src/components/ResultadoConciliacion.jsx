@@ -8,7 +8,7 @@ import {
 
 const ESTADO_CFG = {
   OK:               { label: 'OK',             cls: 'bg-emerald-50 text-emerald-700 ring-emerald-200' },
-  PENDIENTE_EN_SAGE:{ label: 'Pendiente SAGE', cls: 'bg-amber-50  text-amber-700  ring-amber-200'   },
+  PENDIENTE_EN_SAGE:{ label: 'Pendiente Mayor', cls: 'bg-amber-50  text-amber-700  ring-amber-200'   },
   ERROR_IMPORTE:    { label: 'Error importe',  cls: 'bg-red-50    text-red-700    ring-red-200'      },
 };
 
@@ -29,13 +29,13 @@ function fmtEuro(n) {
 }
 
 function motivoError(r) {
-  if (r.estado === 'PENDIENTE_EN_SAGE') return 'No localizada en el Mayor SAGE';
+  if (r.estado === 'PENDIENTE_EN_SAGE') return 'No localizada en el Mayor';
   if (r.estado === 'ERROR_IMPORTE') {
     const importeDif = r.importe_drive !== r.sage?.importe;
     const fechaDif   = r.fecha_emision !== r.sage?.fecha;
-    if (importeDif && fechaDif) return `Importe y fecha no coinciden (Drive: ${fmtEuro(r.importe_drive)} · SAGE: ${fmtEuro(r.sage?.importe)})`;
-    if (importeDif)             return `Diferencia de importe (Drive: ${fmtEuro(r.importe_drive)} · SAGE: ${fmtEuro(r.sage?.importe)})`;
-    if (fechaDif)               return `Fecha diferente (Drive: ${fmtFecha(r.fecha_emision)} · SAGE: ${fmtFecha(r.sage?.fecha)})`;
+    if (importeDif && fechaDif) return `Importe y fecha no coinciden (Drive: ${fmtEuro(r.importe_drive)} · Mayor: ${fmtEuro(r.sage?.importe)})`;
+    if (importeDif)             return `Diferencia de importe (Drive: ${fmtEuro(r.importe_drive)} · Mayor: ${fmtEuro(r.sage?.importe)})`;
+    if (fechaDif)               return `Fecha diferente (Drive: ${fmtFecha(r.fecha_emision)} · Mayor: ${fmtFecha(r.sage?.fecha)})`;
   }
   return '';
 }
@@ -154,7 +154,7 @@ export default function ResultadoConciliacion({ resumen, resultados, conciliacio
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           <StatCard label="Total analizadas" value={resumen.total}          color="text-gray-900"    bg="bg-gray-50"    />
           <StatCard label="OK"               value={resumen.ok}             color="text-emerald-700" bg="bg-emerald-50" />
-          <StatCard label="Pendientes SAGE"  value={resumen.pendientesSage} color="text-amber-700"   bg="bg-amber-50"   />
+          <StatCard label="Pendiente Mayor"   value={resumen.pendientesSage} color="text-amber-700"   bg="bg-amber-50"   />
           <StatCard label="Error importe"    value={resumen.errorImporte}   color="text-red-700"     bg="bg-red-50"     />
         </div>
       </div>
@@ -174,7 +174,7 @@ export default function ResultadoConciliacion({ resumen, resultados, conciliacio
             <table className="w-full text-sm">
               <thead className="bg-gray-50 border-b border-gray-200">
                 <tr>
-                  {['Estado','Nº Factura Drive','Fecha','Importe Drive','Nº SAGE','Importe SAGE','Motivo','Revisión'].map(h => (
+                  {['Estado','Nº Factura Drive','Fecha','Importe Drive','Nº Mayor','Importe Mayor','Motivo','Revisión'].map(h => (
                     <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
@@ -307,7 +307,7 @@ export default function ResultadoConciliacion({ resumen, resultados, conciliacio
           <table className="w-full text-sm">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
-                {['Estado','Nº Drive','Fecha emis.','Importe Drive','Nº SAGE','Importe SAGE','Diferencia'].map(h => (
+                {['Estado','Nº Drive','Fecha emis.','Importe Drive','Nº Mayor','Importe Mayor','Diferencia'].map(h => (
                   <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">{h}</th>
                 ))}
               </tr>

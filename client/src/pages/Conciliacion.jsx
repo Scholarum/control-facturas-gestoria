@@ -5,7 +5,7 @@ import { ejecutarConciliacion, fetchHistorialConciliaciones, fetchConciliacion }
 const FASES = { FORM: 'form', CARGANDO: 'cargando', RESULTADO: 'resultado', ERROR: 'error' };
 
 const MENSAJES_CARGA = [
-  'Analizando el archivo SAGE con IA...',
+  'Analizando el Mayor con IA...',
   'Extrayendo entradas del mayor...',
   'Buscando facturas en Drive...',
   'Aplicando reglas de conciliación...',
@@ -192,7 +192,7 @@ export default function Conciliacion({ proveedores }) {
     return (
       <div className="space-y-4">
         <div className="flex items-center justify-between">
-          <h2 className="text-base font-semibold text-gray-900">Conciliación SAGE</h2>
+          <h2 className="text-base font-semibold text-gray-900">Conciliación de Mayor</h2>
           <button onClick={resetear}
             className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
             <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -214,107 +214,109 @@ export default function Conciliacion({ proveedores }) {
 
   // ─── FORMULARIO / ERROR ────────────────────────────────────────────────────
   return (
-    <div className="max-w-xl">
-      <h2 className="text-base font-semibold text-gray-900 mb-4">Conciliación SAGE</h2>
+    <div className="space-y-0">
+      <h2 className="text-base font-semibold text-gray-900 mb-4">Conciliación de Mayor</h2>
 
-      {fase === FASES.ERROR && (
-        <div className="mb-4 rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700 flex items-start gap-3">
-          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
-          </svg>
-          <div>
-            <p className="font-medium">Error en la conciliación</p>
-            <p className="mt-0.5 text-red-600">{error}</p>
+      <div className="max-w-xl space-y-4">
+        {fase === FASES.ERROR && (
+          <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700 flex items-start gap-3">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+            </svg>
+            <div>
+              <p className="font-medium">Error en la conciliación</p>
+              <p className="mt-0.5 text-red-600">{error}</p>
+            </div>
           </div>
-        </div>
-      )}
+        )}
 
-      <form onSubmit={handleSubmit} className="bg-white rounded-xl border border-gray-200 shadow-sm p-6 space-y-5">
+        <form onSubmit={handleSubmit} className="bg-white rounded-xl border border-gray-200 shadow-sm p-6 space-y-5">
 
-        {/* Proveedor */}
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1.5">
-            Proveedor <span className="text-red-500">*</span>
-          </label>
-          <select
-            value={proveedor}
-            onChange={e => setProveedor(e.target.value)}
-            required
-            className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          {/* Proveedor */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">
+              Proveedor <span className="text-red-500">*</span>
+            </label>
+            <select
+              value={proveedor}
+              onChange={e => setProveedor(e.target.value)}
+              required
+              className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="">— Selecciona un proveedor —</option>
+              {proveedores.map(p => <option key={p.nombre_carpeta} value={p.nombre_carpeta}>{p.label}</option>)}
+            </select>
+          </div>
+
+          {/* Rango de fechas */}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">Fecha desde</label>
+              <input type="date" value={fechaDesde} onChange={e => setFechaDesde(e.target.value)}
+                className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">Fecha hasta</label>
+              <input type="date" value={fechaHasta} onChange={e => setFechaHasta(e.target.value)}
+                className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            </div>
+          </div>
+
+          {/* Archivo Mayor */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">
+              Archivo del Mayor <span className="text-red-500">*</span>
+              <span className="ml-2 text-xs font-normal text-gray-400">PDF, Excel (.xlsx/.xls) o CSV</span>
+            </label>
+            <label className={`flex items-center gap-3 cursor-pointer rounded-lg border-2 border-dashed px-4 py-4 transition-colors ${
+              archivo ? 'border-blue-300 bg-blue-50' : 'border-gray-300 hover:border-blue-400 hover:bg-gray-50'
+            }`}>
+              {archivo ? (
+                <>
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                  </svg>
+                  <div>
+                    <p className="text-sm font-medium text-blue-700">{archivo.name}</p>
+                    <p className="text-xs text-blue-500">{(archivo.size / 1024).toFixed(1)} KB · Clic para cambiar</p>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/>
+                  </svg>
+                  <div>
+                    <p className="text-sm font-medium text-gray-700">Arrastra aquí o haz clic para seleccionar</p>
+                    <p className="text-xs text-gray-400 mt-0.5">PDF, XLSX, XLS, CSV — máx. 20 MB</p>
+                  </div>
+                </>
+              )}
+              <input type="file" accept=".pdf,.csv,.xlsx,.xls" className="hidden"
+                onChange={e => setArchivo(e.target.files[0] || null)} />
+            </label>
+          </div>
+
+          <button
+            type="submit"
+            disabled={!proveedor || !archivo}
+            className="w-full py-2.5 px-4 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
           >
-            <option value="">— Selecciona un proveedor —</option>
-            {proveedores.map(p => <option key={p.nombre_carpeta} value={p.nombre_carpeta}>{p.label}</option>)}
-          </select>
+            Iniciar conciliación
+          </button>
+        </form>
+
+        {/* Explicación */}
+        <div className="rounded-lg bg-blue-50 border border-blue-100 px-4 py-3 text-xs text-blue-700 space-y-1">
+          <p className="font-semibold">¿Cómo funciona?</p>
+          <p>1. El sistema extrae automáticamente las entradas del Mayor usando IA.</p>
+          <p>2. Busca las facturas de ese proveedor en Drive dentro del rango de fechas.</p>
+          <p>3. Compara por número de factura (tolerante a prefijos y ceros), importe y fecha.</p>
+          <p>4. Puedes descargar el resultado como PDF o Excel para enviarlo a la gestoría.</p>
         </div>
-
-        {/* Rango de fechas */}
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">Fecha desde</label>
-            <input type="date" value={fechaDesde} onChange={e => setFechaDesde(e.target.value)}
-              className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">Fecha hasta</label>
-            <input type="date" value={fechaHasta} onChange={e => setFechaHasta(e.target.value)}
-              className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
-          </div>
-        </div>
-
-        {/* Archivo SAGE */}
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1.5">
-            Mayor de SAGE <span className="text-red-500">*</span>
-            <span className="ml-2 text-xs font-normal text-gray-400">PDF, Excel (.xlsx/.xls) o CSV</span>
-          </label>
-          <label className={`flex items-center gap-3 cursor-pointer rounded-lg border-2 border-dashed px-4 py-4 transition-colors ${
-            archivo ? 'border-blue-300 bg-blue-50' : 'border-gray-300 hover:border-blue-400 hover:bg-gray-50'
-          }`}>
-            {archivo ? (
-              <>
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
-                </svg>
-                <div>
-                  <p className="text-sm font-medium text-blue-700">{archivo.name}</p>
-                  <p className="text-xs text-blue-500">{(archivo.size / 1024).toFixed(1)} KB · Clic para cambiar</p>
-                </div>
-              </>
-            ) : (
-              <>
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/>
-                </svg>
-                <div>
-                  <p className="text-sm font-medium text-gray-700">Arrastra aquí o haz clic para seleccionar</p>
-                  <p className="text-xs text-gray-400 mt-0.5">PDF, XLSX, XLS, CSV — máx. 20 MB</p>
-                </div>
-              </>
-            )}
-            <input type="file" accept=".pdf,.csv,.xlsx,.xls" className="hidden"
-              onChange={e => setArchivo(e.target.files[0] || null)} />
-          </label>
-        </div>
-
-        <button
-          type="submit"
-          disabled={!proveedor || !archivo}
-          className="w-full py-2.5 px-4 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-        >
-          Iniciar conciliación
-        </button>
-      </form>
-
-      {/* Explicación */}
-      <div className="mt-4 rounded-lg bg-blue-50 border border-blue-100 px-4 py-3 text-xs text-blue-700 space-y-1">
-        <p className="font-semibold">¿Cómo funciona?</p>
-        <p>1. El sistema extrae automáticamente las entradas del Mayor SAGE usando IA.</p>
-        <p>2. Busca las facturas de ese proveedor en Drive dentro del rango de fechas.</p>
-        <p>3. Compara por número de factura (tolerante a prefijos y ceros), importe y fecha.</p>
-        <p>4. Puedes descargar el resultado como PDF o Excel para enviarlo a la gestoría.</p>
       </div>
 
-      {/* Historial */}
+      {/* Historial — ancho completo */}
       <HistorialConciliaciones
         historial={historial}
         cargandoHistorial={cargandoHistorial}

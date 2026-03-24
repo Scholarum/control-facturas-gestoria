@@ -8,7 +8,7 @@ import Historial      from './pages/Historial.jsx';
 import Configuracion  from './pages/Configuracion.jsx';
 import Proveedores    from './pages/Proveedores.jsx';
 import SeccionFacturas from './components/SeccionFacturas.jsx';
-import { fetchFacturas, fetchProveedores, exportarExcel, triggerSyncManual, fetchPlanContable, asignarCuentaContable, asignarCCMasivo } from './api.js';
+import { fetchFacturas, fetchProveedores, exportarExcel, triggerSyncManual, fetchPlanContable, asignarCuentaContable, asignarCCMasivo, autodetectarProveedores } from './api.js';
 
 // ─── Stats ────────────────────────────────────────────────────────────────────
 
@@ -36,6 +36,7 @@ function AppInner() {
   const [sincronizando,   setSincronizando]   = useState(false);
   const [syncMsg,         setSyncMsg]         = useState(null); // { ok, texto }
   const [planContable,    setPlanContable]    = useState([]);
+  const [alertaProveedores, setAlertaProveedores] = useState([]); // proveedores sin cuentas
 
   // Redirigir tabs inaccesibles si el rol cambia
   useEffect(() => {
@@ -62,6 +63,14 @@ function AppInner() {
     if (!user) return;
     fetchPlanContable().then(setPlanContable).catch(() => {});
   }, [user]);
+
+  // Autodetectar proveedores nuevos por CIF tras cargar facturas
+  useEffect(() => {
+    if (!user || loading) return;
+    autodetectarProveedores()
+      .then(({ creados, sinCuentas }) => setAlertaProveedores(sinCuentas))
+      .catch(() => {});
+  }, [user, loading]);
 
   // Listas por estado (reactivas a todasFacturas)
   const pendientes     = useMemo(() => todasFacturas.filter(f => (f.estado_gestion || 'PENDIENTE') === 'PENDIENTE'), [todasFacturas]);
@@ -170,7 +179,7 @@ function AppInner() {
   // ── Pestañas disponibles ────────────────────────────────────────────────────
   const tabs = [
     { id: 'facturas',      label: 'Facturas' },
-    { id: 'conciliacion',  label: 'Conciliación SAGE' },
+    { id: 'conciliacion',  label: 'Conciliación de Mayor' },
     { id: 'historial',     label: 'Historial' },
     ...(esAdmin ? [
       { id: 'usuarios',      label: 'Usuarios' },
@@ -227,6 +236,35 @@ function AppInner() {
       </header>
 
       <main className="max-w-screen-xl mx-auto px-6 py-6 space-y-4">
+
+        {/* ── Banner: proveedores detectados sin cuentas ── */}
+        {alertaProveedores.length > 0 && esAdmin && (
+          <div className="rounded-xl bg-amber-50 border border-amber-200 px-5 py-4 flex items-start gap-4">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-amber-500 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+            </svg>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-amber-800">
+                {alertaProveedores.length} {alertaProveedores.length === 1 ? 'proveedor detectado' : 'proveedores detectados'} sin cuenta contable
+              </p>
+              <p className="text-xs text-amber-700 mt-0.5">
+                Se han identificado por CIF en las facturas importadas. Ve a <button onClick={() => setTab('proveedores')} className="font-semibold underline hover:text-amber-900">Proveedores</button> y registra su cuenta contable para poder gestionar sus facturas.
+              </p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {alertaProveedores.slice(0, 8).map(p => (
+                  <span key={p.id} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 text-xs font-medium">
+                    {p.razon_social}
+                    {p.cif && <span className="font-mono text-amber-600">({p.cif})</span>}
+                  </span>
+                ))}
+                {alertaProveedores.length > 8 && (
+                  <span className="text-xs text-amber-600">+{alertaProveedores.length - 8} más</span>
+                )}
+              </div>
+            </div>
+            <button onClick={() => setAlertaProveedores([])} className="text-amber-400 hover:text-amber-600 flex-shrink-0 text-lg leading-none">✕</button>
+          </div>
+        )}
 
         {/* ── Pestaña Usuarios (solo ADMIN) ── */}
         {tab === 'usuarios' && esAdmin && <Usuarios />}
