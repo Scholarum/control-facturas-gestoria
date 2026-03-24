@@ -18,8 +18,25 @@ router.use(resolveUser);
 // ─── GET /api/drive ───────────────────────────────────────────────────────────
 
 router.get('/', async (req, res) => {
-  const db       = getDb();
-  const archivos = await db.all('SELECT * FROM drive_archivos ORDER BY id DESC');
+  const db = getDb();
+  // JOIN con proveedores para vincular automáticamente razón social y cuentas
+  const archivos = await db.all(`
+    SELECT da.*,
+           p.razon_social,
+           p.cif                  AS proveedor_cif,
+           p.cuenta_contable_id,
+           pc.codigo              AS cuenta_contable_codigo,
+           pc.descripcion         AS cuenta_contable_desc,
+           p.cuenta_gasto_id,
+           pg.codigo              AS cuenta_gasto_codigo,
+           pg.descripcion         AS cuenta_gasto_desc
+    FROM drive_archivos da
+    LEFT JOIN proveedores p
+           ON p.nombre_carpeta = da.proveedor AND p.activo = true
+    LEFT JOIN plan_contable pc ON pc.id = p.cuenta_contable_id
+    LEFT JOIN plan_contable pg ON pg.id = p.cuenta_gasto_id
+    ORDER BY da.id DESC
+  `);
   res.json({ ok: true, data: archivos.map(parsearArchivo) });
 });
 
@@ -179,7 +196,15 @@ router.post('/exportar-excel', async (req, res) => {
 
   const db       = getDb();
   const archivos = await db.all(
-    'SELECT * FROM drive_archivos WHERE id = ANY($1::int[])',
+    `SELECT da.*,
+            p.razon_social,
+            pc.codigo AS cuenta_contable_codigo,
+            pg.codigo AS cuenta_gasto_codigo
+     FROM drive_archivos da
+     LEFT JOIN proveedores p  ON p.nombre_carpeta = da.proveedor AND p.activo = true
+     LEFT JOIN plan_contable pc ON pc.id = p.cuenta_contable_id
+     LEFT JOIN plan_contable pg ON pg.id = p.cuenta_gasto_id
+     WHERE da.id = ANY($1::int[])`,
     [ids]
   );
 
@@ -194,6 +219,9 @@ router.post('/exportar-excel', async (req, res) => {
     return {
       'ID':                   a.id,
       'Proveedor':            a.proveedor || '',
+      'Razón Social':         a.razon_social || '',
+      'Cta. Contable':        a.cuenta_contable_codigo || '',
+      'Cta. Gasto':           a.cuenta_gasto_codigo || '',
       'Archivo':              a.nombre_archivo,
       'Nº Factura':           d.numero_factura  || '',
       'Fecha Emisión':        d.fecha_emision    || '',
@@ -224,7 +252,7 @@ router.post('/exportar-excel', async (req, res) => {
   XLSX.utils.book_append_sheet(wb, ws, 'Facturas');
 
   ws['!cols'] = [
-    {wch:6},{wch:22},{wch:32},{wch:16},{wch:14},
+    {wch:6},{wch:22},{wch:30},{wch:14},{wch:14},{wch:32},{wch:16},{wch:14},
     {wch:30},{wch:14},{wch:30},{wch:14},
     {wch:10},{wch:12},{wch:10},{wch:12},{wch:10},{wch:12},{wch:10},{wch:12},
     {wch:18},{wch:12},{wch:14},
