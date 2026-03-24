@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import ResultadoConciliacion from '../components/ResultadoConciliacion.jsx';
+import { ejecutarConciliacion } from '../api.js';
 
 const FASES = { FORM: 'form', CARGANDO: 'cargando', RESULTADO: 'resultado', ERROR: 'error' };
 
@@ -41,11 +42,8 @@ export default function Conciliacion({ proveedores }) {
       fd.append('fechaHasta', fechaHasta);
       fd.append('archivo',    archivo);
 
-      const res = await fetch('/api/conciliacion', { method: 'POST', body: fd });
-      const json = await res.json();
-
-      if (!json.ok) throw new Error(json.error || 'Error desconocido');
-      setResultado(json.data);
+      const data = await ejecutarConciliacion(fd);
+      setResultado(data);
       setFase(FASES.RESULTADO);
     } catch (err) {
       setError(err.message);

@@ -289,6 +289,17 @@ export async function testNotificacion() {
   return json.data;
 }
 
+export async function ejecutarConciliacion(formData) {
+  const res = await fetch(`${API_BASE}/api/conciliacion`, {
+    method:  'POST',
+    headers: authHeaders(),
+    body:    formData,
+  });
+  const json = await res.json();
+  if (!json.ok) throw new Error(json.error || 'Error en la conciliación');
+  return json.data;
+}
+
 export async function reextraer(ids, onProgress) {
   const res = await fetch(`${API_BASE}/api/configuracion/reextraer`, {
     method:  'POST',
