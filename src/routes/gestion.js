@@ -19,22 +19,25 @@ router.use(resolveUser);
 
 router.get('/', async (req, res) => {
   const db = getDb();
-  // JOIN con proveedores para vincular automáticamente razón social y cuentas
   const archivos = await db.all(`
-    SELECT da.*,
-           p.razon_social,
-           p.cif                  AS proveedor_cif,
-           p.cuenta_contable_id,
-           pc.codigo              AS cuenta_contable_codigo,
-           pc.descripcion         AS cuenta_contable_desc,
-           p.cuenta_gasto_id,
-           pg.codigo              AS cuenta_gasto_codigo,
-           pg.descripcion         AS cuenta_gasto_desc
+    SELECT
+      da.id, da.google_id, da.nombre_archivo, da.ruta_completa,
+      da.proveedor, da.fecha_subida, da.estado, da.estado_gestion,
+      da.datos_extraidos, da.error_extraccion, da.procesado_at, da.ultima_sync,
+      da.cuenta_contable_id                                     AS cc_manual_id,
+      p.razon_social,
+      p.cif                                                     AS proveedor_cif,
+      COALESCE(da.cuenta_contable_id, p.cuenta_contable_id)     AS cc_efectiva_id,
+      COALESCE(ccd.codigo,      pcc.codigo)                     AS cuenta_contable_codigo,
+      COALESCE(ccd.descripcion, pcc.descripcion)                AS cuenta_contable_desc,
+      p.cuenta_gasto_id,
+      pg.codigo                                                 AS cuenta_gasto_codigo,
+      pg.descripcion                                            AS cuenta_gasto_desc
     FROM drive_archivos da
-    LEFT JOIN proveedores p
-           ON p.nombre_carpeta = da.proveedor AND p.activo = true
-    LEFT JOIN plan_contable pc ON pc.id = p.cuenta_contable_id
-    LEFT JOIN plan_contable pg ON pg.id = p.cuenta_gasto_id
+    LEFT JOIN proveedores p    ON p.nombre_carpeta = da.proveedor AND p.activo = true
+    LEFT JOIN plan_contable pcc ON pcc.id = p.cuenta_contable_id
+    LEFT JOIN plan_contable ccd ON ccd.id = da.cuenta_contable_id
+    LEFT JOIN plan_contable pg  ON pg.id  = p.cuenta_gasto_id
     ORDER BY da.id DESC
   `);
   res.json({ ok: true, data: archivos.map(parsearArchivo) });
@@ -137,9 +140,22 @@ router.put('/contabilizar', async (req, res) => {
   const usuarioId = req.usuario?.id ?? null;
 
   const archivos = await db.all(
-    'SELECT id, nombre_archivo, proveedor FROM drive_archivos WHERE id = ANY($1::int[])',
+    `SELECT da.id, da.nombre_archivo, da.proveedor,
+            COALESCE(da.cuenta_contable_id, p.cuenta_contable_id) AS cc_efectiva_id
+     FROM drive_archivos da
+     LEFT JOIN proveedores p ON p.nombre_carpeta = da.proveedor AND p.activo = true
+     WHERE da.id = ANY($1::int[])`,
     [ids]
   );
+
+  const sinCC = archivos.filter(a => !a.cc_efectiva_id);
+  if (sinCC.length > 0) {
+    return res.status(400).json({
+      ok: false,
+      error: `${sinCC.length} factura(s) no tienen cuenta contable asignada`,
+      ids_sin_cc: sinCC.map(a => a.id),
+    });
+  }
 
   await db.query(
     "UPDATE drive_archivos SET estado_gestion='CONTABILIZADA' WHERE id = ANY($1::int[])",
@@ -157,6 +173,61 @@ router.put('/contabilizar', async (req, res) => {
   }
 
   res.json({ ok: true, data: { contabilizadas: archivos.length } });
+});
+
+// ─── GET /api/drive/:id/stream — proxy PDF para vista previa ─────────────────
+
+router.get('/:id/stream', async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const db = getDb();
+
+  const archivo = await db.one('SELECT google_id, nombre_archivo FROM drive_archivos WHERE id = $1', [id]);
+  if (!archivo) return res.status(404).json({ ok: false, error: 'Archivo no encontrado' });
+
+  let drive;
+  try { drive = await buildDriveClient(); }
+  catch (e) { return res.status(500).json({ ok: false, error: 'Error conectando con Drive' }); }
+
+  try {
+    const resp = await drive.files.get(
+      { fileId: archivo.google_id, alt: 'media' },
+      { responseType: 'stream' }
+    );
+    const ct = resp.headers['content-type'] || 'application/octet-stream';
+    res.set('Content-Type', ct);
+    res.set('Content-Disposition', 'inline');
+    resp.data.pipe(res);
+  } catch (err) {
+    if (!res.headersSent) res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// ─── PUT /api/drive/:id/cc — asignar cuenta contable ────────────────────────
+
+router.put('/:id/cc', express.json(), async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const { cuenta_contable_id } = req.body;
+  const ccId = cuenta_contable_id ? parseInt(cuenta_contable_id, 10) : null;
+
+  const db = getDb();
+  const archivo = await db.one('SELECT estado_gestion FROM drive_archivos WHERE id = $1', [id]);
+  if (!archivo) return res.status(404).json({ ok: false, error: 'Archivo no encontrado' });
+  if (archivo.estado_gestion === 'CONTABILIZADA')
+    return res.status(400).json({ ok: false, error: 'No se puede modificar una factura contabilizada' });
+
+  let nuevoEstado = archivo.estado_gestion || 'PENDIENTE';
+  if (ccId) {
+    if (nuevoEstado !== 'CC_ASIGNADA') nuevoEstado = 'CC_ASIGNADA';
+  } else {
+    if (nuevoEstado === 'CC_ASIGNADA') nuevoEstado = 'PENDIENTE';
+  }
+
+  await db.query(
+    'UPDATE drive_archivos SET cuenta_contable_id = $1, estado_gestion = $2 WHERE id = $3',
+    [ccId, nuevoEstado, id]
+  );
+
+  res.json({ ok: true, data: { id, cc_efectiva_id: ccId, estado_gestion: nuevoEstado } });
 });
 
 // ─── PUT /api/drive/:id/revertir ─────────────────────────────────────────────

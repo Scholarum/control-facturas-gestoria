@@ -131,6 +131,24 @@ export async function contabilizar(ids) {
   return res.json();
 }
 
+export async function asignarCuentaContable(id, ccId) {
+  const res = await fetch(`${API_BASE}/api/drive/${id}/cc`, {
+    method: 'PUT',
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ cuenta_contable_id: ccId || null }),
+  });
+  const json = await res.json();
+  if (!json.ok) throw new Error(json.error || 'Error al asignar cuenta contable');
+  return json.data;
+}
+
+export async function fetchPreviewFactura(id) {
+  const res = await fetch(`${API_BASE}/api/drive/${id}/stream`, { headers: authHeaders() });
+  if (!res.ok) throw new Error('Error al cargar vista previa');
+  const blob = await res.blob();
+  return { url: URL.createObjectURL(blob), type: blob.type };
+}
+
 export async function revertirEstado(id) {
   const res = await fetch(`${API_BASE}/api/drive/${id}/revertir`, {
     method: 'PUT', headers: authHeaders(),

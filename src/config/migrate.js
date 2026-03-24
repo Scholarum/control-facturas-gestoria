@@ -161,6 +161,8 @@ const tablas = [
     updated_at         TIMESTAMPTZ NOT NULL DEFAULT NOW()
   )`,
 
+  `ALTER TABLE drive_archivos ADD COLUMN IF NOT EXISTS cuenta_contable_id INTEGER REFERENCES plan_contable(id)`,
+
   // Índices
   `CREATE INDEX IF NOT EXISTS idx_logs_factura    ON logs_auditoria(factura_id)`,
   `CREATE INDEX IF NOT EXISTS idx_logs_evento     ON logs_auditoria(evento)`,

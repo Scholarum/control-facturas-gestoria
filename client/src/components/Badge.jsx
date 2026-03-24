@@ -1,6 +1,7 @@
 const GESTION = {
   PENDIENTE:     { text: 'Pendiente',     cls: 'bg-gray-100 text-gray-600 ring-gray-300' },
   DESCARGADA:    { text: 'Descargada',    cls: 'bg-blue-50 text-blue-700 ring-blue-200' },
+  CC_ASIGNADA:   { text: 'CC Asignada',   cls: 'bg-purple-50 text-purple-700 ring-purple-200' },
   CONTABILIZADA: { text: 'Contabilizada', cls: 'bg-emerald-50 text-emerald-700 ring-emerald-200' },
 };
 

@@ -1,6 +1,5 @@
 import { useState, useMemo, useEffect } from 'react';
 import TablaFacturas from './TablaFacturas.jsx';
-import ModalContabilizar from './ModalContabilizar.jsx';
 import { descargarZip, contabilizar, revertirEstado } from '../api.js';
 
 // ─── Filtros compactos por sección ────────────────────────────────────────────
@@ -69,7 +68,7 @@ function Spinner() {
 // ─── Sección principal ────────────────────────────────────────────────────────
 
 /**
- * tipo: 'pendientes' | 'descargadas' | 'contabilizadas'
+ * tipo: 'pendientes' | 'descargadas' | 'cc_asignada' | 'contabilizadas'
  * onEstadoActualizado(ids: number[], nuevoEstado: string): void
  */
 export default function SeccionFacturas({
@@ -79,13 +78,14 @@ export default function SeccionFacturas({
   esAdmin,
   loading,
   onEstadoActualizado,
+  planContable = [],
+  onAsignarCC,
 }) {
   const [filtros,       setFiltros]       = useState({ proveedor: '', fechaDesde: '', fechaHasta: '' });
   const [seleccionados, setSeleccionados] = useState(new Set());
   const [descargando,        setDescargando]        = useState(false);
   const [contabilizando,     setContabilizando]     = useState(false);
   const [error,              setError]              = useState('');
-  const [modalPendiente,     setModalPendiente]     = useState(null); // { ids }
 
   const filtradas = useMemo(() => facturas.filter(f => {
     const d = f.datos_extraidos;
@@ -123,38 +123,14 @@ export default function SeccionFacturas({
     setDescargando(true); setError('');
     try {
       await descargarZip(ids);
-      if (tipo === 'pendientes' && !esAdmin) {
-        // El backend ya marcó como DESCARGADA; preguntamos si también contabilizar
-        setModalPendiente({ ids });
-      } else if (!esAdmin) {
+      if (!esAdmin) {
         onEstadoActualizado(ids, 'DESCARGADA');
       }
-      // Si es admin: no se cambia estado ni aparece modal
     } catch (e) {
       setError(e.message);
     } finally {
       setDescargando(false);
     }
-  }
-
-  async function handleModalContabilizar() {
-    const { ids } = modalPendiente;
-    setContabilizando(true);
-    try {
-      await contabilizar(ids);
-      onEstadoActualizado(ids, 'CONTABILIZADA');
-      setModalPendiente(null);
-    } catch (e) {
-      setError(e.message);
-    } finally {
-      setContabilizando(false);
-    }
-  }
-
-  function handleModalCerrar() {
-    // El ZIP ya se descargó y el backend marcó como DESCARGADA
-    onEstadoActualizado(modalPendiente.ids, 'DESCARGADA');
-    setModalPendiente(null);
   }
 
   async function handleContabilizar() {
@@ -222,15 +198,15 @@ export default function SeccionFacturas({
             {descargando ? 'Generando ZIP...' : `Descargar ZIP (${n})`}
           </button>
 
-          {/* Marcar como CONTABILIZADAS — solo en sección Descargadas y solo para no-admin */}
-          {tipo === 'descargadas' && !esAdmin && (
+          {/* Marcar como CONTABILIZADAS — solo en CC Asignada */}
+          {tipo === 'cc_asignada' && !esAdmin && (
             <button
               onClick={handleContabilizar}
               disabled={contabilizando || descargando}
               className="flex items-center gap-1.5 px-4 py-1.5 text-xs font-semibold bg-emerald-500 hover:bg-emerald-400 text-white rounded-lg transition-colors disabled:opacity-60"
             >
               {contabilizando ? <Spinner /> : <IconoCheck />}
-              {contabilizando ? 'Contabilizando...' : `Marcar CONTABILIZADAS (${n})`}
+              {contabilizando ? 'Contabilizando...' : `Contabilizar (${n})`}
             </button>
           )}
         </div>
@@ -246,17 +222,9 @@ export default function SeccionFacturas({
         hayFiltros={hayFiltros}
         esAdmin={esAdmin}
         onRevertir={handleRevertir}
+        planContable={planContable}
+        onAsignarCC={onAsignarCC}
       />
-
-      {/* Modal post-descarga: solo para pendientes */}
-      {modalPendiente && (
-        <ModalContabilizar
-          count={modalPendiente.ids.length}
-          onContabilizar={handleModalContabilizar}
-          onCerrar={handleModalCerrar}
-          cargando={contabilizando}
-        />
-      )}
     </div>
   );
 }

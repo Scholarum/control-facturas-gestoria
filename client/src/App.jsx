@@ -8,7 +8,7 @@ import Historial      from './pages/Historial.jsx';
 import Configuracion  from './pages/Configuracion.jsx';
 import Proveedores    from './pages/Proveedores.jsx';
 import SeccionFacturas from './components/SeccionFacturas.jsx';
-import { fetchFacturas, fetchProveedores, exportarExcel, triggerSyncManual } from './api.js';
+import { fetchFacturas, fetchProveedores, exportarExcel, triggerSyncManual, fetchPlanContable, asignarCuentaContable } from './api.js';
 
 // ─── Stats ────────────────────────────────────────────────────────────────────
 
@@ -35,6 +35,7 @@ function AppInner() {
   const [exportandoTotal, setExportandoTotal] = useState(false);
   const [sincronizando,   setSincronizando]   = useState(false);
   const [syncMsg,         setSyncMsg]         = useState(null); // { ok, texto }
+  const [planContable,    setPlanContable]    = useState([]);
 
   // Redirigir tabs inaccesibles si el rol cambia
   useEffect(() => {
@@ -51,6 +52,7 @@ function AppInner() {
     Promise.all([
       fetchFacturas().then(setTodasFacturas),
       fetchProveedores().then(setProveedores),
+      fetchPlanContable().then(setPlanContable),
     ])
       .catch(() => setError('No se pudo conectar con el servidor.'))
       .finally(() => setLoading(false));
@@ -59,6 +61,7 @@ function AppInner() {
   // Listas por estado (reactivas a todasFacturas)
   const pendientes     = useMemo(() => todasFacturas.filter(f => (f.estado_gestion || 'PENDIENTE') === 'PENDIENTE'), [todasFacturas]);
   const descargadas    = useMemo(() => todasFacturas.filter(f => f.estado_gestion === 'DESCARGADA'),    [todasFacturas]);
+  const ccAsignadas    = useMemo(() => todasFacturas.filter(f => f.estado_gestion === 'CC_ASIGNADA'),   [todasFacturas]);
   const contabilizadas = useMemo(() => todasFacturas.filter(f => f.estado_gestion === 'CONTABILIZADA'), [todasFacturas]);
 
   // Stats en tiempo real
@@ -66,8 +69,9 @@ function AppInner() {
     total:          todasFacturas.length,
     pendientes:     pendientes.length,
     descargadas:    descargadas.length,
+    ccAsignadas:    ccAsignadas.length,
     contabilizadas: contabilizadas.length,
-  }), [todasFacturas, pendientes, descargadas, contabilizadas]);
+  }), [todasFacturas, pendientes, descargadas, ccAsignadas, contabilizadas]);
 
   // Callback cuando una SeccionFacturas mueve facturas de estado
   function handleEstadoActualizado(ids, nuevoEstado) {
@@ -78,6 +82,21 @@ function AppInner() {
     if (nuevoEstado === 'CONTABILIZADA') setSubTab('contabilizadas');
     // Si descargamos desde Pendientes, saltar a Descargadas
     if (nuevoEstado === 'DESCARGADA')    setSubTab('descargadas');
+    if (nuevoEstado === 'CC_ASIGNADA')   setSubTab('cc_asignada');
+  }
+
+  async function handleAsignarCC(id, ccId) {
+    try {
+      const result = await asignarCuentaContable(id, ccId);
+      setTodasFacturas(prev => prev.map(f =>
+        f.id === id
+          ? { ...f, cc_manual_id: ccId, cc_efectiva_id: result.cc_efectiva_id, estado_gestion: result.estado_gestion }
+          : f
+      ));
+      if (result.estado_gestion === 'CC_ASIGNADA') setSubTab('cc_asignada');
+    } catch (e) {
+      setError(e.message);
+    }
   }
 
   // Callback para re-extracción desde Configuración
@@ -150,6 +169,7 @@ function AppInner() {
   const subTabs = [
     { id: 'pendientes',     label: 'Pendientes',     count: stats.pendientes,     color: 'text-amber-600',   bg: 'bg-amber-600'   },
     { id: 'descargadas',    label: 'Descargadas',    count: stats.descargadas,    color: 'text-blue-600',    bg: 'bg-blue-600'    },
+    { id: 'cc_asignada',    label: 'CC Asignada',    count: stats.ccAsignadas,    color: 'text-purple-600',  bg: 'bg-purple-600'  },
     { id: 'contabilizadas', label: 'Contabilizadas', count: stats.contabilizadas, color: 'text-emerald-600', bg: 'bg-emerald-600' },
   ];
 
@@ -222,10 +242,11 @@ function AppInner() {
           <div className="space-y-4">
 
             {/* Stats */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
               <StatCard label="Total"          value={stats.total}          color="text-gray-900" />
               <StatCard label="Pendientes"     value={stats.pendientes}     color="text-amber-600" />
               <StatCard label="Descargadas"    value={stats.descargadas}    color="text-blue-600" />
+              <StatCard label="CC Asignada"    value={stats.ccAsignadas}    color="text-purple-600" />
               <StatCard label="Contabilizadas" value={stats.contabilizadas} color="text-emerald-600" />
             </div>
 
@@ -316,7 +337,9 @@ function AppInner() {
                 proveedores={proveedores}
                 esAdmin={esAdmin}
                 loading={loading}
+                planContable={planContable}
                 onEstadoActualizado={handleEstadoActualizado}
+                onAsignarCC={handleAsignarCC}
               />
             )}
             {subTab === 'descargadas' && (
@@ -326,7 +349,21 @@ function AppInner() {
                 proveedores={proveedores}
                 esAdmin={esAdmin}
                 loading={loading}
+                planContable={planContable}
                 onEstadoActualizado={handleEstadoActualizado}
+                onAsignarCC={handleAsignarCC}
+              />
+            )}
+            {subTab === 'cc_asignada' && (
+              <SeccionFacturas
+                tipo="cc_asignada"
+                facturas={ccAsignadas}
+                proveedores={proveedores}
+                esAdmin={esAdmin}
+                loading={loading}
+                planContable={planContable}
+                onEstadoActualizado={handleEstadoActualizado}
+                onAsignarCC={handleAsignarCC}
               />
             )}
             {subTab === 'contabilizadas' && (
@@ -336,7 +373,9 @@ function AppInner() {
                 proveedores={proveedores}
                 esAdmin={esAdmin}
                 loading={loading}
+                planContable={planContable}
                 onEstadoActualizado={handleEstadoActualizado}
+                onAsignarCC={handleAsignarCC}
               />
             )}
 
