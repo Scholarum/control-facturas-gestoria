@@ -8,14 +8,34 @@ function normalizar(str) {
     .replace(/^0+/, '');
 }
 
+// Extrae el sufijo numérico de un string normalizado y elimina sus ceros iniciales.
+// "fl039" → "39", "fac202639" → "202639", "39" → "39"
+function sufijsNumerico(str) {
+  const m = str.match(/(\d+)$/);
+  return m ? m[1].replace(/^0+/, '') || '0' : '';
+}
+
 function coincideNumero(numA, numB) {
   const a = normalizar(numA);
   const b = normalizar(numB);
   if (!a || !b) return false;
   if (a === b) return true;
+
+  const aPuro = /^\d+$/.test(a);
+  const bPuro = /^\d+$/.test(b);
+
+  // Ambos tienen 4+ chars: fuzzy completo
   if (a.length >= 4 && b.length >= 4) {
     return a.endsWith(b) || b.endsWith(a) || a.includes(b) || b.includes(a);
   }
+
+  // Uno es puramente numérico (corto) y el otro tiene letras:
+  // coincide si el sufijo numérico del largo es igual al número corto.
+  // Ej: "39" vs "fl39" → sufijo("fl39")="39" === "39" ✓
+  //     "39" vs "fac202639" → sufijo="202639" ≠ "39" ✗ (distinta factura)
+  if (aPuro && !bPuro) return sufijsNumerico(b) === a;
+  if (bPuro && !aPuro) return sufijsNumerico(a) === b;
+
   return false;
 }
 
@@ -40,7 +60,7 @@ async function obtenerFacturasDrive(proveedor, fechaDesde, fechaHasta) {
 function conciliar(facturasDrive, entradasSage) {
   const usadas = new Set();
 
-  return facturasDrive.map(factura => {
+  const resultados = facturasDrive.map(factura => {
     const datos        = factura.datos;
     const numDrive     = datos?.numero_factura;
     const importeDrive = round2(datos?.total_factura);
@@ -76,16 +96,36 @@ function conciliar(facturasDrive, entradasSage) {
       estado,
     };
   });
+
+  // Entradas SAGE que no se han podido emparejar con ninguna factura en Drive
+  entradasSage.forEach((e, idx) => {
+    if (!usadas.has(idx)) {
+      resultados.push({
+        id: null,
+        numero_factura: e.numero_factura,
+        fecha_emision: e.fecha,
+        importe_drive: null,
+        proveedor: null,
+        nombre_archivo: null,
+        sage: { numero_factura: e.numero_factura, fecha: e.fecha, importe: round2(e.importe) },
+        diferencia: null,
+        estado: 'PENDIENTE_EN_DRIVE',
+      });
+    }
+  });
+
+  return resultados;
 }
 
 function calcularResumen(resultados, proveedor, fechaDesde, fechaHasta) {
   return {
     proveedor, fechaDesde, fechaHasta,
-    total:          resultados.length,
-    ok:             resultados.filter(r => r.estado === 'OK').length,
-    pendientesSage: resultados.filter(r => r.estado === 'PENDIENTE_EN_SAGE').length,
-    errorImporte:   resultados.filter(r => r.estado === 'ERROR_IMPORTE').length,
-    generadoEn:     new Date().toISOString(),
+    total:           resultados.length,
+    ok:              resultados.filter(r => r.estado === 'OK').length,
+    pendientesSage:  resultados.filter(r => r.estado === 'PENDIENTE_EN_SAGE').length,
+    errorImporte:    resultados.filter(r => r.estado === 'ERROR_IMPORTE').length,
+    pendientesDrive: resultados.filter(r => r.estado === 'PENDIENTE_EN_DRIVE').length,
+    generadoEn:      new Date().toISOString(),
   };
 }
 

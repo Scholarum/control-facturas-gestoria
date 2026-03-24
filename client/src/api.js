@@ -289,6 +289,22 @@ export async function testNotificacion() {
   return json.data;
 }
 
+export async function descargarPdfConciliacion(resumen, resultados) {
+  const res = await fetch(`${API_BASE}/api/conciliacion/pdf`, {
+    method:  'POST',
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
+    body:    JSON.stringify({ resumen, resultados }),
+  });
+  if (!res.ok) throw new Error('Error al generar PDF');
+  const blob = await res.blob();
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href     = url;
+  a.download = `conciliacion-${resumen.proveedor.replace(/\s+/g, '-')}-${new Date().toISOString().slice(0, 10)}.pdf`;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
 export async function ejecutarConciliacion(formData) {
   const res = await fetch(`${API_BASE}/api/conciliacion`, {
     method:  'POST',

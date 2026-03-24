@@ -1,9 +1,11 @@
 import { useState } from 'react';
+import { descargarPdfConciliacion } from '../api.js';
 
 const ESTADO_CFG = {
-  OK:               { label: 'OK',              cls: 'bg-emerald-50 text-emerald-700 ring-emerald-200' },
-  PENDIENTE_EN_SAGE:{ label: 'Pendiente SAGE',  cls: 'bg-amber-50  text-amber-700  ring-amber-200'   },
-  ERROR_IMPORTE:    { label: 'Error importe',   cls: 'bg-red-50    text-red-700    ring-red-200'      },
+  OK:                { label: 'OK',               cls: 'bg-emerald-50 text-emerald-700 ring-emerald-200' },
+  PENDIENTE_EN_SAGE: { label: 'Pendiente SAGE',   cls: 'bg-amber-50  text-amber-700  ring-amber-200'   },
+  ERROR_IMPORTE:     { label: 'Error importe',    cls: 'bg-red-50    text-red-700    ring-red-200'      },
+  PENDIENTE_EN_DRIVE:{ label: 'Pendiente Drive',  cls: 'bg-purple-50 text-purple-700 ring-purple-200'  },
 };
 
 function fmtFecha(iso) {
@@ -46,19 +48,7 @@ export default function ResultadoConciliacion({ resumen, resultados }) {
   async function descargarPdf() {
     setDescargandoPdf(true);
     try {
-      const res = await fetch('/api/conciliacion/pdf', {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ resumen, resultados }),
-      });
-      if (!res.ok) throw new Error('Error al generar PDF');
-      const blob = await res.blob();
-      const url  = URL.createObjectURL(blob);
-      const a    = document.createElement('a');
-      a.href     = url;
-      a.download = `conciliacion-${resumen.proveedor.replace(/\s+/g,'-')}-${new Date().toISOString().slice(0,10)}.pdf`;
-      document.body.appendChild(a); a.click(); document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+      await descargarPdfConciliacion(resumen, resultados);
     } finally {
       setDescargandoPdf(false);
     }
@@ -96,11 +86,12 @@ export default function ResultadoConciliacion({ resumen, resultados }) {
           </button>
         </div>
 
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          <StatCard label="Total analizadas" value={resumen.total}          color="text-gray-900"    bg="bg-gray-50"     />
-          <StatCard label="OK"               value={resumen.ok}             color="text-emerald-700" bg="bg-emerald-50"  />
-          <StatCard label="Pendientes SAGE"  value={resumen.pendientesSage} color="text-amber-700"   bg="bg-amber-50"    />
-          <StatCard label="Error importe"    value={resumen.errorImporte}   color="text-red-700"     bg="bg-red-50"      />
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+          <StatCard label="Total"            value={resumen.total}            color="text-gray-900"    bg="bg-gray-50"     />
+          <StatCard label="OK"               value={resumen.ok}               color="text-emerald-700" bg="bg-emerald-50"  />
+          <StatCard label="Pendientes SAGE"  value={resumen.pendientesSage}   color="text-amber-700"   bg="bg-amber-50"    />
+          <StatCard label="Error importe"    value={resumen.errorImporte}     color="text-red-700"     bg="bg-red-50"      />
+          <StatCard label="Pendientes Drive" value={resumen.pendientesDrive ?? 0} color="text-purple-700" bg="bg-purple-50" />
         </div>
       </div>
 
@@ -110,7 +101,7 @@ export default function ResultadoConciliacion({ resumen, resultados }) {
         {/* Filtro por estado */}
         <div className="px-4 py-3 border-b border-gray-100 flex items-center gap-2">
           <span className="text-xs font-medium text-gray-500">Filtrar:</span>
-          {['', 'OK', 'PENDIENTE_EN_SAGE', 'ERROR_IMPORTE'].map(estado => (
+          {['', 'OK', 'PENDIENTE_EN_SAGE', 'ERROR_IMPORTE', 'PENDIENTE_EN_DRIVE'].map(estado => (
             <button
               key={estado}
               onClick={() => setFiltroEstado(estado)}
@@ -146,8 +137,9 @@ export default function ResultadoConciliacion({ resumen, resultados }) {
                 const difPos = r.diferencia != null && r.diferencia > 0;
                 return (
                   <tr key={i} className={`hover:bg-gray-50 transition-colors ${
-                    r.estado === 'ERROR_IMPORTE'    ? 'bg-red-50/40'    :
-                    r.estado === 'PENDIENTE_EN_SAGE'? 'bg-amber-50/40'  : ''
+                    r.estado === 'ERROR_IMPORTE'     ? 'bg-red-50/40'    :
+                    r.estado === 'PENDIENTE_EN_SAGE' ? 'bg-amber-50/40'  :
+                    r.estado === 'PENDIENTE_EN_DRIVE'? 'bg-purple-50/40' : ''
                   }`}>
                     <td className="px-4 py-3"><Badge estado={r.estado} /></td>
                     <td className="px-4 py-3 font-mono text-xs font-medium text-gray-900">{r.numero_factura || '—'}</td>
