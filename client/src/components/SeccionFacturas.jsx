@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect } from 'react';
 import TablaFacturas from './TablaFacturas.jsx';
+import ModalContabilizar from './ModalContabilizar.jsx';
 import { descargarZip, contabilizar, revertirEstado } from '../api.js';
 
 // ─── Filtros compactos por sección ────────────────────────────────────────────
@@ -81,9 +82,10 @@ export default function SeccionFacturas({
 }) {
   const [filtros,       setFiltros]       = useState({ proveedor: '', fechaDesde: '', fechaHasta: '' });
   const [seleccionados, setSeleccionados] = useState(new Set());
-  const [descargando,   setDescargando]   = useState(false);
-  const [contabilizando,setContabilizando]= useState(false);
-  const [error,         setError]         = useState('');
+  const [descargando,        setDescargando]        = useState(false);
+  const [contabilizando,     setContabilizando]     = useState(false);
+  const [error,              setError]              = useState('');
+  const [modalPendiente,     setModalPendiente]     = useState(null); // { ids }
 
   const filtradas = useMemo(() => facturas.filter(f => {
     const d = f.datos_extraidos;
@@ -121,13 +123,37 @@ export default function SeccionFacturas({
     setDescargando(true); setError('');
     try {
       await descargarZip(ids);
-      // Solo actualiza el estado a DESCARGADA cuando vienen de Pendientes
-      if (tipo === 'pendientes') onEstadoActualizado(ids, 'DESCARGADA');
+      if (tipo === 'pendientes') {
+        // El backend ya marcó como DESCARGADA; preguntamos si también contabilizar
+        setModalPendiente({ ids });
+      } else {
+        onEstadoActualizado(ids, 'DESCARGADA');
+      }
     } catch (e) {
       setError(e.message);
     } finally {
       setDescargando(false);
     }
+  }
+
+  async function handleModalContabilizar() {
+    const { ids } = modalPendiente;
+    setContabilizando(true);
+    try {
+      await contabilizar(ids);
+      onEstadoActualizado(ids, 'CONTABILIZADA');
+      setModalPendiente(null);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setContabilizando(false);
+    }
+  }
+
+  function handleModalCerrar() {
+    // El ZIP ya se descargó y el backend marcó como DESCARGADA
+    onEstadoActualizado(modalPendiente.ids, 'DESCARGADA');
+    setModalPendiente(null);
   }
 
   async function handleContabilizar() {
@@ -220,6 +246,16 @@ export default function SeccionFacturas({
         esAdmin={esAdmin}
         onRevertir={handleRevertir}
       />
+
+      {/* Modal post-descarga: solo para pendientes */}
+      {modalPendiente && (
+        <ModalContabilizar
+          count={modalPendiente.ids.length}
+          onContabilizar={handleModalContabilizar}
+          onCerrar={handleModalCerrar}
+          cargando={contabilizando}
+        />
+      )}
     </div>
   );
 }
