@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, useRef } from 'react';
 import TablaFacturas from './TablaFacturas.jsx';
-import { descargarZip, contabilizar, revertirEstado, asignarCCMasivo } from '../api.js';
+import { descargarZip, contabilizar, revertirEstado, asignarCGMasivo } from '../api.js';
 
 // ─── Filtros compactos por sección ────────────────────────────────────────────
 
@@ -94,7 +94,7 @@ function ComboboxCuentaMasiva({ cuentas, value, onChange }) {
         value={abierto ? q : displayValue}
         onChange={e => setQ(e.target.value)}
         onFocus={() => { setQ(''); setAbierto(true); }}
-        placeholder="Selecciona cuenta contable..."
+        placeholder="Selecciona cuenta de gasto..."
         className="rounded-lg border border-white/30 bg-white/10 text-white placeholder-white/50 px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-white/50 w-72 pr-6"
         autoComplete="off"
       />
@@ -145,8 +145,8 @@ export default function SeccionFacturas({
   loading,
   onEstadoActualizado,
   planContable = [],
-  onAsignarCC,
-  onAsignarCCMasivo,
+  onAsignarCG,
+  onAsignarCGMasivo,
 }) {
   const [filtros,       setFiltros]       = useState({ proveedor: '', fechaDesde: '', fechaHasta: '' });
   const [seleccionados, setSeleccionados] = useState(new Set());
@@ -215,13 +215,13 @@ export default function SeccionFacturas({
     }
   }
 
-  async function handleAsignarCCMasivaLocal() {
+  async function handleAsignarCGMasivaLocal() {
     if (!ccMasiva) return;
     const ids = Array.from(seleccionados);
     setAsignandoCC(true); setError('');
     try {
-      await asignarCCMasivo(ids, parseInt(ccMasiva, 10));
-      onAsignarCCMasivo(ids, parseInt(ccMasiva, 10));
+      await asignarCGMasivo(ids, parseInt(ccMasiva, 10));
+      onAsignarCGMasivo(ids, parseInt(ccMasiva, 10));
       setCcMasiva('');
       setSeleccionados(new Set());
     } catch (e) {
@@ -297,24 +297,24 @@ export default function SeccionFacturas({
             )}
           </div>
 
-          {/* Asignación masiva de CC — solo en Pendientes y Descargadas */}
+          {/* Asignación masiva de Cta. Gasto — solo en Pendientes y Descargadas */}
           {(tipo === 'pendientes' || tipo === 'descargadas') && planContable.length > 0 && (
             <div className="flex items-center gap-3 bg-purple-600 text-white rounded-xl px-5 py-3 shadow-lg shadow-purple-200 flex-wrap">
               <span className="text-xs font-medium text-purple-100 flex-shrink-0">
-                Asignar CC a {n} {n === 1 ? 'factura' : 'facturas'}:
+                Asignar Cta. Gasto a {n} {n === 1 ? 'factura' : 'facturas'}:
               </span>
               <ComboboxCuentaMasiva
-                cuentas={planContable}
+                cuentas={planContable.filter(c => c.grupo === '6')}
                 value={ccMasiva}
                 onChange={setCcMasiva}
               />
               <button
-                onClick={handleAsignarCCMasivaLocal}
+                onClick={handleAsignarCGMasivaLocal}
                 disabled={!ccMasiva || asignandoCC || descargando}
                 className="flex items-center gap-1.5 px-4 py-1.5 text-xs font-semibold bg-white text-purple-700 hover:bg-purple-50 rounded-lg transition-colors disabled:opacity-60 flex-shrink-0"
               >
                 {asignandoCC ? <Spinner /> : <IconoCheck />}
-                {asignandoCC ? 'Asignando...' : 'Asignar CC'}
+                {asignandoCC ? 'Asignando...' : 'Asignar Cta. Gasto'}
               </button>
             </div>
           )}
@@ -332,7 +332,7 @@ export default function SeccionFacturas({
         esAdmin={esAdmin}
         onRevertir={handleRevertir}
         planContable={planContable}
-        onAsignarCC={onAsignarCC}
+        onAsignarCG={onAsignarCG}
       />
     </div>
   );

@@ -162,6 +162,7 @@ const tablas = [
   )`,
 
   `ALTER TABLE drive_archivos ADD COLUMN IF NOT EXISTS cuenta_contable_id INTEGER REFERENCES plan_contable(id)`,
+  `ALTER TABLE drive_archivos ADD COLUMN IF NOT EXISTS cuenta_gasto_id INTEGER REFERENCES plan_contable(id)`,
 
   // Índices
   `CREATE INDEX IF NOT EXISTS idx_logs_factura    ON logs_auditoria(factura_id)`,

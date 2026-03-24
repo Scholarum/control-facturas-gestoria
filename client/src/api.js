@@ -131,25 +131,25 @@ export async function contabilizar(ids) {
   return res.json();
 }
 
-export async function asignarCCMasivo(ids, ccId) {
-  const res = await fetch(`${API_BASE}/api/drive/cc-masivo`, {
+export async function asignarCGMasivo(ids, cgId) {
+  const res = await fetch(`${API_BASE}/api/drive/cg-masivo`, {
     method:  'PUT',
     headers: { ...authHeaders(), 'Content-Type': 'application/json' },
-    body:    JSON.stringify({ ids, cuenta_contable_id: ccId || null }),
+    body:    JSON.stringify({ ids, cuenta_gasto_id: cgId || null }),
   });
   const json = await res.json();
-  if (!json.ok) throw new Error(json.error || 'Error al asignar cuentas contables');
+  if (!json.ok) throw new Error(json.error || 'Error al asignar cuentas de gasto');
   return json.data;
 }
 
-export async function asignarCuentaContable(id, ccId) {
-  const res = await fetch(`${API_BASE}/api/drive/${id}/cc`, {
+export async function asignarCuentaGasto(id, cgId) {
+  const res = await fetch(`${API_BASE}/api/drive/${id}/cg`, {
     method: 'PUT',
     headers: { ...authHeaders(), 'Content-Type': 'application/json' },
-    body: JSON.stringify({ cuenta_contable_id: ccId || null }),
+    body: JSON.stringify({ cuenta_gasto_id: cgId || null }),
   });
   const json = await res.json();
-  if (!json.ok) throw new Error(json.error || 'Error al asignar cuenta contable');
+  if (!json.ok) throw new Error(json.error || 'Error al asignar cuenta de gasto');
   return json.data;
 }
 

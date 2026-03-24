@@ -68,7 +68,7 @@ function ComboboxCuenta({ cuentas, value, onChange, disabled }) {
         value={abierto ? q : displayValue}
         onChange={e => setQ(e.target.value)}
         onFocus={() => { setQ(''); setAbierto(true); }}
-        placeholder="Sin CC asignada..."
+        placeholder="Sin Cta. Gasto asignada..."
         className="w-full rounded-md border border-gray-200 px-2.5 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-purple-400 pr-6"
         autoComplete="off"
       />
@@ -109,10 +109,11 @@ function ComboboxCuenta({ cuentas, value, onChange, disabled }) {
 
 // ─── Sub-fila: CC + Vista previa (siempre visible) ───────────────────────────
 
-function FilaCcPreview({ f, planContable, onAsignarCC, selected }) {
-  const [ccId,          setCcId]          = useState(String(f.cc_efectiva_id || ''));
+function FilaCcPreview({ f, planContable, onAsignarCG, selected }) {
+  const cuentasGasto = planContable.filter(c => c.grupo === '6');
+  const [cgId,          setCgId]          = useState(String(f.cg_efectiva_id || ''));
   const [guardando,     setGuardando]     = useState(false);
-  const [ccError,       setCcError]       = useState('');
+  const [cgError,       setCgError]       = useState('');
   const [previewUrl,    setPreviewUrl]    = useState(null);
   const [previewLoading,setPreviewLoading]= useState(false);
   const [previewError,  setPreviewError]  = useState('');
@@ -120,19 +121,19 @@ function FilaCcPreview({ f, planContable, onAsignarCC, selected }) {
   const esContabilizada = f.estado_gestion === 'CONTABILIZADA';
 
   useEffect(() => {
-    setCcId(String(f.cc_efectiva_id || ''));
-  }, [f.cc_efectiva_id]);
+    setCgId(String(f.cg_efectiva_id || ''));
+  }, [f.cg_efectiva_id]);
 
-  async function handleCcChange(newCcId) {
-    const prev = ccId;
-    setCcId(newCcId);
-    setCcError('');
+  async function handleCgChange(newCgId) {
+    const prev = cgId;
+    setCgId(newCgId);
+    setCgError('');
     setGuardando(true);
     try {
-      await onAsignarCC(f.id, newCcId ? parseInt(newCcId, 10) : null);
+      await onAsignarCG(f.id, newCgId ? parseInt(newCgId, 10) : null);
     } catch (e) {
-      setCcId(prev);
-      setCcError(e.message);
+      setCgId(prev);
+      setCgError(e.message);
     } finally {
       setGuardando(false);
     }
@@ -171,23 +172,23 @@ function FilaCcPreview({ f, planContable, onAsignarCC, selected }) {
         <td colSpan={100} className="px-2 py-1.5">
           <div className="flex items-center gap-3 flex-wrap" onClick={e => e.stopPropagation()}>
 
-            {/* Cuenta Contable */}
+            {/* Cuenta de Gasto */}
             <div className="flex items-center gap-2">
-              <span className="text-xs text-gray-400 flex-shrink-0">Cta. Contable:</span>
+              <span className="text-xs text-gray-400 flex-shrink-0">Cta. Gasto:</span>
               <div className="w-64">
                 <ComboboxCuenta
-                  cuentas={planContable}
-                  value={ccId}
-                  onChange={handleCcChange}
+                  cuentas={cuentasGasto}
+                  value={cgId}
+                  onChange={handleCgChange}
                   disabled={esContabilizada}
                 />
               </div>
               {guardando && <span className="text-xs text-purple-400">Guardando...</span>}
-              {ccError  && <span className="text-xs text-red-500">{ccError}</span>}
-              {!ccId && !esContabilizada && (
-                <span className="text-xs text-amber-500">Asigna CC para poder contabilizar</span>
+              {cgError  && <span className="text-xs text-red-500">{cgError}</span>}
+              {!cgId && !esContabilizada && (
+                <span className="text-xs text-amber-500">Asigna Cta. Gasto para poder contabilizar</span>
               )}
-              {ccId && !esContabilizada && f.cc_efectiva_id && !f.cc_manual_id && (
+              {cgId && !esContabilizada && f.cg_efectiva_id && !f.cg_manual_id && (
                 <span className="text-xs text-gray-400">(por defecto del proveedor)</span>
               )}
             </div>
@@ -382,7 +383,7 @@ function EmptyState({ hayFiltros, colspan }) {
 export default function TablaFacturas({
   facturas, seleccionados, onToggle, onToggleTodo,
   loading, hayFiltros, esAdmin = false, onRevertir,
-  planContable = [], onAsignarCC,
+  planContable = [], onAsignarCG,
 }) {
   const [expandidos, setExpandidos] = useState(new Set());
   const todosSeleccionados = facturas.length > 0 && seleccionados.size === facturas.length;
@@ -522,7 +523,7 @@ export default function TablaFacturas({
                     key={`cc-${f.id}`}
                     f={f}
                     planContable={planContable}
-                    onAsignarCC={onAsignarCC}
+                    onAsignarCG={onAsignarCG}
                     selected={selected}
                   />
                 );

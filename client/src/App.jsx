@@ -8,7 +8,7 @@ import Historial      from './pages/Historial.jsx';
 import Configuracion  from './pages/Configuracion.jsx';
 import Proveedores    from './pages/Proveedores.jsx';
 import SeccionFacturas from './components/SeccionFacturas.jsx';
-import { fetchFacturas, fetchProveedores, exportarExcel, triggerSyncManual, fetchPlanContable, asignarCuentaContable, asignarCCMasivo, autodetectarProveedores } from './api.js';
+import { fetchFacturas, fetchProveedores, exportarExcel, triggerSyncManual, fetchPlanContable, asignarCuentaGasto, asignarCGMasivo, autodetectarProveedores } from './api.js';
 
 // ─── Stats ────────────────────────────────────────────────────────────────────
 
@@ -113,12 +113,12 @@ function AppInner() {
     if (nuevoEstado === 'CC_ASIGNADA')   setSubTab('cc_asignada');
   }
 
-  async function handleAsignarCC(id, ccId) {
+  async function handleAsignarCG(id, cgId) {
     try {
-      const result = await asignarCuentaContable(id, ccId);
+      const result = await asignarCuentaGasto(id, cgId);
       setTodasFacturas(prev => prev.map(f =>
         f.id === id
-          ? { ...f, cc_manual_id: ccId, cc_efectiva_id: result.cc_efectiva_id, estado_gestion: result.estado_gestion }
+          ? { ...f, cg_manual_id: cgId, cg_efectiva_id: result.cg_efectiva_id, estado_gestion: result.estado_gestion }
           : f
       ));
       if (result.estado_gestion === 'CC_ASIGNADA') setSubTab('cc_asignada');
@@ -127,10 +127,10 @@ function AppInner() {
     }
   }
 
-  function handleAsignarCCMasivo(ids, ccId) {
+  function handleAsignarCGMasivo(ids, cgId) {
     setTodasFacturas(prev => prev.map(f =>
       ids.includes(f.id)
-        ? { ...f, cc_manual_id: ccId, cc_efectiva_id: ccId, estado_gestion: 'CC_ASIGNADA' }
+        ? { ...f, cg_manual_id: cgId, cg_efectiva_id: cgId, estado_gestion: 'CC_ASIGNADA' }
         : f
     ));
     setSubTab('cc_asignada');
@@ -203,7 +203,7 @@ function AppInner() {
   const subTabs = [
     { id: 'pendientes',     label: 'Pendientes',     count: stats.pendientes,     color: 'text-amber-600',   bg: 'bg-amber-600'   },
     { id: 'descargadas',    label: 'Descargadas',    count: stats.descargadas,    color: 'text-blue-600',    bg: 'bg-blue-600'    },
-    { id: 'cc_asignada',    label: 'CC Asignada',    count: stats.ccAsignadas,    color: 'text-purple-600',  bg: 'bg-purple-600'  },
+    { id: 'cc_asignada',    label: 'Cta. Gasto',     count: stats.ccAsignadas,    color: 'text-purple-600',  bg: 'bg-purple-600'  },
     { id: 'contabilizadas', label: 'Contabilizadas', count: stats.contabilizadas, color: 'text-emerald-600', bg: 'bg-emerald-600' },
   ];
 
@@ -385,7 +385,7 @@ function AppInner() {
               <StatCard label="Total"          value={stats.total}          color="text-gray-900" />
               <StatCard label="Pendientes"     value={stats.pendientes}     color="text-amber-600" />
               <StatCard label="Descargadas"    value={stats.descargadas}    color="text-blue-600" />
-              <StatCard label="CC Asignada"    value={stats.ccAsignadas}    color="text-purple-600" />
+              <StatCard label="Cta. Gasto"     value={stats.ccAsignadas}    color="text-purple-600" />
               <StatCard label="Contabilizadas" value={stats.contabilizadas} color="text-emerald-600" />
             </div>
 
@@ -478,8 +478,8 @@ function AppInner() {
                 loading={loading}
                 planContable={planContable}
                 onEstadoActualizado={handleEstadoActualizado}
-                onAsignarCC={handleAsignarCC}
-                onAsignarCCMasivo={handleAsignarCCMasivo}
+                onAsignarCG={handleAsignarCG}
+                onAsignarCGMasivo={handleAsignarCGMasivo}
               />
             )}
             {subTab === 'descargadas' && (
@@ -491,8 +491,8 @@ function AppInner() {
                 loading={loading}
                 planContable={planContable}
                 onEstadoActualizado={handleEstadoActualizado}
-                onAsignarCC={handleAsignarCC}
-                onAsignarCCMasivo={handleAsignarCCMasivo}
+                onAsignarCG={handleAsignarCG}
+                onAsignarCGMasivo={handleAsignarCGMasivo}
               />
             )}
             {subTab === 'cc_asignada' && (
@@ -504,7 +504,7 @@ function AppInner() {
                 loading={loading}
                 planContable={planContable}
                 onEstadoActualizado={handleEstadoActualizado}
-                onAsignarCC={handleAsignarCC}
+                onAsignarCG={handleAsignarCG}
               />
             )}
             {subTab === 'contabilizadas' && (
@@ -516,7 +516,7 @@ function AppInner() {
                 loading={loading}
                 planContable={planContable}
                 onEstadoActualizado={handleEstadoActualizado}
-                onAsignarCC={handleAsignarCC}
+                onAsignarCG={handleAsignarCG}
               />
             )}
 

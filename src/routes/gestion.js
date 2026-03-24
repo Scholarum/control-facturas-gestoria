@@ -24,20 +24,16 @@ router.get('/', async (req, res) => {
       da.id, da.google_id, da.nombre_archivo, da.ruta_completa,
       da.proveedor, da.fecha_subida, da.estado, da.estado_gestion,
       da.datos_extraidos, da.error_extraccion, da.procesado_at, da.ultima_sync,
-      da.cuenta_contable_id                                     AS cc_manual_id,
       p.razon_social,
-      p.cif                                                     AS proveedor_cif,
-      COALESCE(da.cuenta_contable_id, p.cuenta_contable_id)     AS cc_efectiva_id,
-      COALESCE(ccd.codigo,      pcc.codigo)                     AS cuenta_contable_codigo,
-      COALESCE(ccd.descripcion, pcc.descripcion)                AS cuenta_contable_desc,
-      p.cuenta_gasto_id,
-      pg.codigo                                                 AS cuenta_gasto_codigo,
-      pg.descripcion                                            AS cuenta_gasto_desc
+      p.cif                                                       AS proveedor_cif,
+      da.cuenta_gasto_id                                          AS cg_manual_id,
+      COALESCE(da.cuenta_gasto_id, p.cuenta_gasto_id)             AS cg_efectiva_id,
+      COALESCE(cgd.codigo,  pg.codigo)                            AS cuenta_gasto_codigo,
+      COALESCE(cgd.descripcion, pg.descripcion)                   AS cuenta_gasto_desc
     FROM drive_archivos da
     LEFT JOIN proveedores p    ON p.nombre_carpeta = da.proveedor AND p.activo = true
-    LEFT JOIN plan_contable pcc ON pcc.id = p.cuenta_contable_id
-    LEFT JOIN plan_contable ccd ON ccd.id = da.cuenta_contable_id
     LEFT JOIN plan_contable pg  ON pg.id  = p.cuenta_gasto_id
+    LEFT JOIN plan_contable cgd ON cgd.id = da.cuenta_gasto_id
     ORDER BY da.id DESC
   `);
   res.json({ ok: true, data: archivos.map(parsearArchivo) });
@@ -141,19 +137,19 @@ router.put('/contabilizar', async (req, res) => {
 
   const archivos = await db.all(
     `SELECT da.id, da.nombre_archivo, da.proveedor,
-            COALESCE(da.cuenta_contable_id, p.cuenta_contable_id) AS cc_efectiva_id
+            COALESCE(da.cuenta_gasto_id, p.cuenta_gasto_id) AS cg_efectiva_id
      FROM drive_archivos da
      LEFT JOIN proveedores p ON p.nombre_carpeta = da.proveedor AND p.activo = true
      WHERE da.id = ANY($1::int[])`,
     [ids]
   );
 
-  const sinCC = archivos.filter(a => !a.cc_efectiva_id);
-  if (sinCC.length > 0) {
+  const sinCG = archivos.filter(a => !a.cg_efectiva_id);
+  if (sinCG.length > 0) {
     return res.status(400).json({
       ok: false,
-      error: `${sinCC.length} factura(s) no tienen cuenta contable asignada`,
-      ids_sin_cc: sinCC.map(a => a.id),
+      error: `${sinCG.length} factura(s) no tienen cuenta de gasto asignada`,
+      ids_sin_cg: sinCG.map(a => a.id),
     });
   }
 
@@ -175,14 +171,14 @@ router.put('/contabilizar', async (req, res) => {
   res.json({ ok: true, data: { contabilizadas: archivos.length } });
 });
 
-// ─── PUT /api/drive/cc-masivo — asignar CC a varias facturas ─────────────────
+// ─── PUT /api/drive/cg-masivo — asignar Cta. Gasto a varias facturas ──────────
 
-router.put('/cc-masivo', express.json(), async (req, res) => {
-  const { ids, cuenta_contable_id } = req.body;
+router.put('/cg-masivo', express.json(), async (req, res) => {
+  const { ids, cuenta_gasto_id } = req.body;
   if (!ids?.length) return res.status(400).json({ ok: false, error: 'ids requeridos' });
 
   const db   = getDb();
-  const ccId = cuenta_contable_id ? parseInt(cuenta_contable_id, 10) : null;
+  const cgId = cuenta_gasto_id ? parseInt(cuenta_gasto_id, 10) : null;
 
   const archivos = await db.all(
     'SELECT id, estado_gestion FROM drive_archivos WHERE id = ANY($1::int[])',
@@ -197,14 +193,14 @@ router.put('/cc-masivo', express.json(), async (req, res) => {
     });
   }
 
-  const nuevoEstado = ccId ? 'CC_ASIGNADA' : 'PENDIENTE';
+  const nuevoEstado = cgId ? 'CC_ASIGNADA' : 'PENDIENTE';
   await db.query(
-    `UPDATE drive_archivos SET cuenta_contable_id = $1, estado_gestion = $2
+    `UPDATE drive_archivos SET cuenta_gasto_id = $1, estado_gestion = $2
      WHERE id = ANY($3::int[]) AND estado_gestion != 'CONTABILIZADA'`,
-    [ccId, nuevoEstado, ids]
+    [cgId, nuevoEstado, ids]
   );
 
-  res.json({ ok: true, data: { actualizadas: ids.length, cc_efectiva_id: ccId, estado_gestion: nuevoEstado } });
+  res.json({ ok: true, data: { actualizadas: ids.length, cg_efectiva_id: cgId, estado_gestion: nuevoEstado } });
 });
 
 // ─── GET /api/drive/:id/stream — proxy PDF para vista previa ─────────────────
@@ -237,12 +233,12 @@ router.get('/:id/stream', async (req, res) => {
   }
 });
 
-// ─── PUT /api/drive/:id/cc — asignar cuenta contable ────────────────────────
+// ─── PUT /api/drive/:id/cg — asignar cuenta de gasto ────────────────────────
 
-router.put('/:id/cc', express.json(), async (req, res) => {
+router.put('/:id/cg', express.json(), async (req, res) => {
   const id = parseInt(req.params.id, 10);
-  const { cuenta_contable_id } = req.body;
-  const ccId = cuenta_contable_id ? parseInt(cuenta_contable_id, 10) : null;
+  const { cuenta_gasto_id } = req.body;
+  const cgId = cuenta_gasto_id ? parseInt(cuenta_gasto_id, 10) : null;
 
   const db = getDb();
   const archivo = await db.one('SELECT estado_gestion FROM drive_archivos WHERE id = $1', [id]);
@@ -251,18 +247,18 @@ router.put('/:id/cc', express.json(), async (req, res) => {
     return res.status(400).json({ ok: false, error: 'No se puede modificar una factura contabilizada' });
 
   let nuevoEstado = archivo.estado_gestion || 'PENDIENTE';
-  if (ccId) {
+  if (cgId) {
     if (nuevoEstado !== 'CC_ASIGNADA') nuevoEstado = 'CC_ASIGNADA';
   } else {
     if (nuevoEstado === 'CC_ASIGNADA') nuevoEstado = 'PENDIENTE';
   }
 
   await db.query(
-    'UPDATE drive_archivos SET cuenta_contable_id = $1, estado_gestion = $2 WHERE id = $3',
-    [ccId, nuevoEstado, id]
+    'UPDATE drive_archivos SET cuenta_gasto_id = $1, estado_gestion = $2 WHERE id = $3',
+    [cgId, nuevoEstado, id]
   );
 
-  res.json({ ok: true, data: { id, cc_efectiva_id: ccId, estado_gestion: nuevoEstado } });
+  res.json({ ok: true, data: { id, cg_efectiva_id: cgId, estado_gestion: nuevoEstado } });
 });
 
 // ─── PUT /api/drive/:id/revertir ─────────────────────────────────────────────
