@@ -94,12 +94,21 @@ async function enviarNotificaciones({ forzar = false, origen = 'MANUAL' } = {}) 
           TextPart: textBody,
           HTMLPart: htmlBody,
         }],
+        SandboxMode: false,
       });
-      const msgRes = mjRes.body?.Messages?.[0];
+      const fullBody = mjRes.body ?? {};
+      const msgRes   = fullBody?.Messages?.[0];
       logEntry.enviado = true;
       logEntry.mj_id   = msgRes?.To?.[0]?.MessageID ?? null;
-      respuestasMj.push({ email: u.email, status: msgRes?.Status, id: logEntry.mj_id });
-      console.log(`[Notificaciones] OK → ${u.email} | status: ${msgRes?.Status} | id: ${logEntry.mj_id}`);
+      // Guardamos la respuesta completa para diagnóstico
+      respuestasMj.push({
+        email:   u.email,
+        status:  msgRes?.Status,
+        id:      logEntry.mj_id,
+        uuid:    msgRes?.To?.[0]?.MessageUUID ?? null,
+        rawBody: JSON.stringify(fullBody).slice(0, 800),
+      });
+      console.log(`[Notificaciones] OK → ${u.email} | status: ${msgRes?.Status} | id: ${logEntry.mj_id} | uuid: ${msgRes?.To?.[0]?.MessageUUID}`);
       enviados++;
     } catch (e) {
       // Captura el cuerpo completo de la respuesta de Mailjet para diagnóstico
