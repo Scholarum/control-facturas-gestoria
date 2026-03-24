@@ -2,7 +2,19 @@ const Mailjet              = require('node-mailjet');
 const { getDb }            = require('../config/database');
 const { getSistemaConfig } = require('./sistemaConfigService');
 
-async function enviarNotificaciones({ forzar = false } = {}) {
+// ─── Sustitución de variables en plantillas ───────────────────────────────────
+
+function renderTemplate(tpl, vars) {
+  return tpl
+    .replace(/\{\{total\}\}/g,  vars.total)
+    .replace(/\{\{s\}\}/g,      vars.s)
+    .replace(/\{\{nombre\}\}/g, vars.nombre || '')
+    .replace(/\{\{url\}\}/g,    vars.url || '');
+}
+
+// ─── Envío de notificaciones ──────────────────────────────────────────────────
+
+async function enviarNotificaciones({ forzar = false, origen = 'MANUAL' } = {}) {
   const config = await getSistemaConfig();
 
   if (!forzar && config.notify_activo !== 'true') {
@@ -12,7 +24,7 @@ async function enviarNotificaciones({ forzar = false } = {}) {
   const apiKey    = process.env.MAILJET_API_KEY;
   const apiSecret = process.env.MAILJET_API_SECRET;
   if (!apiKey || !apiSecret) {
-    console.warn('[Notificaciones] MAILJET_API_KEY / MAILJET_API_SECRET no configurados en .env');
+    console.warn('[Notificaciones] MAILJET_API_KEY / MAILJET_API_SECRET no configurados');
     return { error: 'Credenciales Mailjet no configuradas' };
   }
 
@@ -20,14 +32,12 @@ async function enviarNotificaciones({ forzar = false } = {}) {
   const usuarios = await db.all(
     "SELECT * FROM usuarios WHERE rol = 'GESTORIA' AND activo = 1"
   );
-
   if (!usuarios.length) return { enviados: 0, motivo: 'sin destinatarios GESTORIA' };
 
   const countRow = await db.one(
     "SELECT COUNT(*) AS total FROM drive_archivos WHERE estado_gestion = 'PENDIENTE'"
   );
   const total = parseInt(countRow.total, 10);
-
   if (!total) return { enviados: 0, motivo: 'sin facturas pendientes' };
 
   const appUrl    = config.notify_app_url || 'http://localhost:5173';
@@ -35,17 +45,26 @@ async function enviarNotificaciones({ forzar = false } = {}) {
   const fromName  = 'Control de Facturas';
   const mj        = Mailjet.apiConnect(apiKey, apiSecret);
 
-  const plural  = total === 1;
-  const subject = `${total} factura${plural ? '' : 's'} pendiente${plural ? '' : 's'} de revisar`;
+  const s        = total === 1 ? '' : 's';
+  const tplVars  = { total, s, url: appUrl };
 
-  const html = `
+  // Plantillas editables
+  const asunto = renderTemplate(config.email_asunto || '{{total}} factura{{s}} pendiente{{s}} de revisar', tplVars);
+
+  const cuerpoTpl = config.email_cuerpo || 'Tienes {{total}} factura{{s}} pendiente{{s}} de revisar en el sistema de Control de Facturas.';
+
+  const destinatariosLog = [];
+  let enviados = 0;
+  let errores  = 0;
+  const respuestasMj = [];
+
+  for (const u of usuarios) {
+    const cuerpo    = renderTemplate(cuerpoTpl, { ...tplVars, nombre: u.nombre });
+    const htmlBody  = `
 <div style="font-family:Arial,sans-serif;max-width:520px;margin:0 auto;padding:24px">
   <h2 style="color:#1d4ed8;margin-bottom:8px">Control de Facturas</h2>
-  <p style="color:#374151">Hola <strong>{{nombre}}</strong>,</p>
-  <p style="color:#374151">
-    Tienes <strong style="color:#d97706">${total} factura${plural ? '' : 's'} pendiente${plural ? '' : 's'}</strong>
-    de revisar en el sistema de Control de Facturas.
-  </p>
+  <p style="color:#374151">Hola <strong>${u.nombre}</strong>,</p>
+  <p style="color:#374151">${cuerpo}</p>
   <a href="${appUrl}"
      style="display:inline-block;margin:20px 0;padding:12px 28px;background:#2563eb;color:#fff;
             text-decoration:none;border-radius:8px;font-weight:600;font-size:14px">
@@ -56,25 +75,49 @@ async function enviarNotificaciones({ forzar = false } = {}) {
   </p>
 </div>`;
 
-  let enviados = 0;
-  for (const u of usuarios) {
+    const textBody = `Hola ${u.nombre},\n\n${cuerpo}\n\nAccede en: ${appUrl}\n\nMensaje automático.`;
+
+    let logEntry = { email: u.email, nombre: u.nombre, enviado: false, error: null, mj_id: null };
     try {
-      await mj.post('send', { version: 'v3.1' }).request({
+      const mjRes = await mj.post('send', { version: 'v3.1' }).request({
         Messages: [{
           From: { Email: fromEmail, Name: fromName },
           To:   [{ Email: u.email, Name: u.nombre }],
-          Subject: subject,
-          TextPart: `Hola ${u.nombre},\n\nTienes ${total} factura${plural ? '' : 's'} pendiente${plural ? '' : 's'} de revisar.\n\nAccede en: ${appUrl}\n\nMensaje automático.`,
-          HTMLPart: html.replace('{{nombre}}', u.nombre),
+          Subject:  asunto,
+          TextPart: textBody,
+          HTMLPart: htmlBody,
         }],
       });
+      const msgRes = mjRes.body?.Messages?.[0];
+      logEntry.enviado = true;
+      logEntry.mj_id   = msgRes?.To?.[0]?.MessageID ?? null;
+      respuestasMj.push({ email: u.email, status: msgRes?.Status, id: logEntry.mj_id });
       enviados++;
     } catch (e) {
+      logEntry.error = e.message?.slice(0, 200);
+      respuestasMj.push({ email: u.email, error: logEntry.error });
       console.error(`[Notificaciones] Error enviando a ${u.email}:`, e.message);
+      errores++;
     }
+    destinatariosLog.push(logEntry);
   }
 
-  return { enviados, destinatarios: usuarios.length };
+  // Guardar en historial
+  await db.query(
+    `INSERT INTO historial_notificaciones
+       (origen, asunto, destinatarios, enviados, errores, respuesta_mj)
+     VALUES ($1, $2, $3, $4, $5, $6)`,
+    [
+      origen,
+      asunto,
+      JSON.stringify(destinatariosLog),
+      enviados,
+      errores,
+      JSON.stringify(respuestasMj),
+    ]
+  );
+
+  return { enviados, errores, destinatarios: usuarios.length, asunto };
 }
 
 module.exports = { enviarNotificaciones };

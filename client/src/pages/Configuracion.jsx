@@ -3,6 +3,7 @@ import {
   fetchPrompt, savePrompt, resetPrompt, reextraer,
   fetchConfigSistema, saveConfigSistema,
   fetchHistorialSync, triggerSyncManual, testNotificacion,
+  fetchHistorialNotificaciones, fetchEmailTemplate, saveEmailTemplate,
 } from '../api.js';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -327,6 +328,208 @@ function PanelHistorialSync() {
   );
 }
 
+// ─── Panel: Plantilla de email ────────────────────────────────────────────────
+
+function PanelEmailTemplate() {
+  const [asunto,  setAsunto]  = useState('');
+  const [cuerpo,  setCuerpo]  = useState('');
+  const [orig,    setOrig]    = useState({ asunto: '', cuerpo: '' });
+  const [loading, setLoading] = useState(true);
+  const [saving,  setSaving]  = useState(false);
+  const [ok,      setOk]      = useState(false);
+
+  useEffect(() => {
+    fetchEmailTemplate()
+      .then(t => { setAsunto(t.asunto); setCuerpo(t.cuerpo); setOrig(t); })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  async function handleSave() {
+    setSaving(true); setOk(false);
+    try {
+      await saveEmailTemplate({ asunto, cuerpo });
+      setOrig({ asunto, cuerpo }); setOk(true);
+      setTimeout(() => setOk(false), 3000);
+    } catch (e) { alert(e.message); }
+    finally { setSaving(false); }
+  }
+
+  const cambiado = asunto !== orig.asunto || cuerpo !== orig.cuerpo;
+
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+      <div className="px-5 py-4 border-b border-gray-100">
+        <p className="text-sm font-semibold text-gray-900">Plantilla de email de notificación</p>
+        <p className="text-xs text-gray-400 mt-0.5">
+          Variables disponibles: <code className="bg-gray-100 px-1 rounded">{'{{total}}'}</code> (nº facturas),{' '}
+          <code className="bg-gray-100 px-1 rounded">{'{{s}}'}</code> (plural),{' '}
+          <code className="bg-gray-100 px-1 rounded">{'{{nombre}}'}</code> (destinatario),{' '}
+          <code className="bg-gray-100 px-1 rounded">{'{{url}}'}</code> (enlace a la app).
+        </p>
+      </div>
+      {loading ? (
+        <div className="flex justify-center py-8">
+          <svg className="h-5 w-5 animate-spin text-blue-500" viewBox="0 0 24 24" fill="none">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
+          </svg>
+        </div>
+      ) : (
+        <div className="px-5 py-4 space-y-4">
+          <div className="flex flex-col gap-1">
+            <label className="text-xs font-medium text-gray-500">Asunto</label>
+            <input type="text" value={asunto} onChange={e => setAsunto(e.target.value)}
+              className={`${inputCls} w-full`} placeholder="Asunto del email" />
+          </div>
+          <div className="flex flex-col gap-1">
+            <label className="text-xs font-medium text-gray-500">Cuerpo del mensaje</label>
+            <textarea value={cuerpo} onChange={e => setCuerpo(e.target.value)}
+              rows={4} className="rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-y w-full"
+              placeholder="Texto del email…" />
+          </div>
+          <div className="flex items-center gap-3">
+            <button onClick={handleSave} disabled={saving || !cambiado}
+              className="px-4 py-1.5 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors disabled:opacity-50">
+              {saving ? 'Guardando…' : ok ? '✓ Guardado' : 'Guardar plantilla'}
+            </button>
+            <button onClick={() => { setAsunto(orig.asunto); setCuerpo(orig.cuerpo); }}
+              disabled={!cambiado}
+              className="px-3 py-1.5 text-sm font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors disabled:opacity-40">
+              Descartar
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Panel: Historial de notificaciones ──────────────────────────────────────
+
+function PanelHistorialNotificaciones() {
+  const [historial,  setHistorial]  = useState([]);
+  const [cargando,   setCargando]   = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [expanded,   setExpanded]   = useState(null);
+
+  async function cargar() {
+    setRefreshing(true);
+    try { setHistorial(await fetchHistorialNotificaciones()); }
+    catch (_) {}
+    finally { setCargando(false); setRefreshing(false); }
+  }
+
+  useEffect(() => { cargar(); }, []);
+
+  function toggleRow(id) {
+    setExpanded(prev => prev === id ? null : id);
+  }
+
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+      <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+        <div>
+          <p className="text-sm font-semibold text-gray-900">Historial de notificaciones</p>
+          <p className="text-xs text-gray-400 mt-0.5">Últimos 50 envíos (manuales y automáticos). Haz clic en una fila para ver los detalles.</p>
+        </div>
+        <button onClick={cargar} disabled={refreshing}
+          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors disabled:opacity-50">
+          {refreshing
+            ? <svg className="h-3.5 w-3.5 animate-spin" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/></svg>
+            : <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>}
+          Actualizar
+        </button>
+      </div>
+      <div className="overflow-x-auto">
+        {cargando ? (
+          <div className="flex justify-center py-10">
+            <svg className="h-5 w-5 animate-spin text-blue-500" viewBox="0 0 24 24" fill="none">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
+            </svg>
+          </div>
+        ) : historial.length === 0 ? (
+          <p className="text-sm text-gray-400 text-center py-10">Sin registros todavía</p>
+        ) : (
+          <table className="w-full text-sm">
+            <thead className="bg-gray-50 border-b border-gray-200">
+              <tr>
+                {['Fecha', 'Origen', 'Asunto', 'Enviados', 'Errores'].map(h => (
+                  <th key={h} className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {historial.map(row => {
+                const dests = (() => { try { return JSON.parse(row.destinatarios || '[]'); } catch { return []; } })();
+                const mjRes = (() => { try { return JSON.parse(row.respuesta_mj || '[]'); } catch { return []; } })();
+                return (
+                  <>
+                    <tr key={row.id} onClick={() => toggleRow(row.id)}
+                      className="hover:bg-gray-50 cursor-pointer">
+                      <td className="px-4 py-2.5 text-xs text-gray-600 whitespace-nowrap">{fmtFecha(row.fecha)}</td>
+                      <td className="px-4 py-2.5">
+                        <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ring-1 ring-inset ${
+                          row.origen === 'CRON'
+                            ? 'bg-purple-50 text-purple-700 ring-purple-200'
+                            : row.origen === 'TEST'
+                              ? 'bg-amber-50 text-amber-700 ring-amber-200'
+                              : 'bg-blue-50 text-blue-700 ring-blue-200'
+                        }`}>{row.origen}</span>
+                      </td>
+                      <td className="px-4 py-2.5 text-xs text-gray-700 max-w-[220px] truncate">{row.asunto || '—'}</td>
+                      <td className="px-4 py-2.5 text-sm font-semibold text-emerald-700">{row.enviados}</td>
+                      <td className="px-4 py-2.5">
+                        {row.errores > 0
+                          ? <span className="text-sm font-semibold text-red-600">{row.errores}</span>
+                          : <span className="text-sm text-gray-400">—</span>}
+                      </td>
+                    </tr>
+                    {expanded === row.id && (
+                      <tr key={`${row.id}-detail`} className="bg-gray-50">
+                        <td colSpan={5} className="px-4 py-3 text-xs text-gray-700">
+                          <div className="space-y-2">
+                            {dests.length > 0 && (
+                              <div>
+                                <p className="font-semibold text-gray-500 mb-1 uppercase tracking-wide">Destinatarios</p>
+                                <div className="flex flex-col gap-1">
+                                  {dests.map((d, i) => (
+                                    <div key={i} className="flex items-center gap-2">
+                                      <span className={d.enviado ? 'text-emerald-500 font-bold' : 'text-red-500 font-bold'}>
+                                        {d.enviado ? '✓' : '✗'}
+                                      </span>
+                                      <span className="text-gray-800">{d.nombre} &lt;{d.email}&gt;</span>
+                                      {d.mj_id && <span className="text-gray-400">ID: {d.mj_id}</span>}
+                                      {d.error && <span className="text-red-500">{d.error}</span>}
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                            {mjRes.length > 0 && (
+                              <div>
+                                <p className="font-semibold text-gray-500 mb-1 uppercase tracking-wide">Respuesta Mailjet</p>
+                                <pre className="bg-white border border-gray-200 rounded p-2 text-xs overflow-x-auto whitespace-pre-wrap">
+                                  {JSON.stringify(mjRes, null, 2)}
+                                </pre>
+                              </div>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── Componente principal ─────────────────────────────────────────────────────
 
 export default function Configuracion({ todasFacturas, onFacturasActualizadas }) {
@@ -418,6 +621,12 @@ export default function Configuracion({ todasFacturas, onFacturasActualizadas })
 
       {/* ── Notificaciones ── */}
       <PanelNotificaciones config={sistemaConfig} onChange={handleSaveSistema} />
+
+      {/* ── Plantilla de email ── */}
+      <PanelEmailTemplate />
+
+      {/* ── Historial de notificaciones ── */}
+      <PanelHistorialNotificaciones />
 
       {/* ── Historial de sincronizaciones ── */}
       <PanelHistorialSync />

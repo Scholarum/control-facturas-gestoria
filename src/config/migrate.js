@@ -86,6 +86,18 @@ const tablas = [
     detalle          TEXT
   )`,
 
+  `CREATE TABLE IF NOT EXISTS historial_notificaciones (
+    id            SERIAL PRIMARY KEY,
+    fecha         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    origen        TEXT    NOT NULL DEFAULT 'MANUAL',
+    asunto        TEXT,
+    destinatarios TEXT,
+    enviados      INTEGER NOT NULL DEFAULT 0,
+    errores       INTEGER NOT NULL DEFAULT 0,
+    respuesta_mj  TEXT,
+    detalle       TEXT
+  )`,
+
   // Índices
   `CREATE INDEX IF NOT EXISTS idx_logs_factura    ON logs_auditoria(factura_id)`,
   `CREATE INDEX IF NOT EXISTS idx_logs_evento     ON logs_auditoria(evento)`,
@@ -110,6 +122,8 @@ const confDefaults = {
   notify_frecuencia: 'diaria',
   notify_hora:       '09:00',
   notify_app_url:    'http://localhost:5173',
+  email_asunto:      '{{total}} factura{{s}} pendiente{{s}} de revisar',
+  email_cuerpo:      'Tienes {{total}} factura{{s}} pendiente{{s}} de revisar en el sistema de Control de Facturas.',
 };
 
 // ─── Runner ───────────────────────────────────────────────────────────────────

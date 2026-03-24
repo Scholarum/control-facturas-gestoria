@@ -33,11 +33,21 @@ router.post('/manual', requireAdmin, async (req, res) => {
   }
 });
 
+// ─── GET /api/sincronizacion/historial-notificaciones ────────────────────────
+
+router.get('/historial-notificaciones', requireAdmin, async (req, res) => {
+  const db   = getDb();
+  const rows = await db.all(
+    'SELECT * FROM historial_notificaciones ORDER BY id DESC LIMIT 50'
+  );
+  res.json({ ok: true, data: rows });
+});
+
 // ─── POST /api/sincronizacion/test-notificacion ───────────────────────────────
 
 router.post('/test-notificacion', requireAdmin, async (req, res) => {
   try {
-    const result = await enviarNotificaciones({ forzar: true });
+    const result = await enviarNotificaciones({ forzar: true, origen: 'TEST' });
     res.json({ ok: true, data: result });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });

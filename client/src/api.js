@@ -241,6 +241,30 @@ export async function triggerSyncManual() {
   return json.data;
 }
 
+export async function fetchHistorialNotificaciones() {
+  const res = await fetch(`${API_BASE}/api/sincronizacion/historial-notificaciones`, { headers: authHeaders() });
+  if (!res.ok) throw new Error('Error al cargar historial de notificaciones');
+  const { data } = await res.json();
+  return data;
+}
+
+export async function fetchEmailTemplate() {
+  const res = await fetch(`${API_BASE}/api/configuracion/sistema`, { headers: authHeaders() });
+  if (!res.ok) throw new Error('Error al cargar plantilla de email');
+  const { data } = await res.json();
+  return { asunto: data.email_asunto || '', cuerpo: data.email_cuerpo || '' };
+}
+
+export async function saveEmailTemplate({ asunto, cuerpo }) {
+  const res = await fetch(`${API_BASE}/api/configuracion/sistema`, {
+    method:  'PUT',
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
+    body:    JSON.stringify({ email_asunto: asunto, email_cuerpo: cuerpo }),
+  });
+  const json = await res.json();
+  if (!json.ok) throw new Error(json.error || 'Error al guardar plantilla');
+}
+
 export async function testNotificacion() {
   const res = await fetch(`${API_BASE}/api/sincronizacion/test-notificacion`, {
     method:  'POST',

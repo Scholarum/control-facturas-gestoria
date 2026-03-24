@@ -45,7 +45,7 @@ async function iniciarCrons() {
     if (expr && cron.validate(expr)) {
       notifyTask = cron.schedule(expr, () => {
         console.log('[Cron] Enviando notificaciones automáticas...');
-        enviarNotificaciones().catch(e => console.error('[Cron] Error notif:', e.message));
+        enviarNotificaciones({ origen: 'CRON' }).catch(e => console.error('[Cron] Error notif:', e.message));
       });
       console.log(`[Cron] Notificaciones programadas → ${expr} (${config.notify_frecuencia} a las ${config.notify_hora})`);
     }
