@@ -196,26 +196,33 @@ router.put('/historial/:id/lineas/:idx', resolveUser, express.json(), async (req
   const usuarioId     = req.usuario?.id     ?? null;
   const usuarioNombre = req.usuario?.nombre ?? null;
 
+  // Obtener estado actual (puede no existir para conciliaciones antiguas)
   const actual = await db.one(
     `SELECT estado_revision, numero_factura
      FROM conciliacion_lineas_estado
      WHERE conciliacion_id = $1 AND linea_idx = $2`,
     [conciliacionId, lineaIdx]
   );
-  if (!actual) return res.status(404).json({ ok: false, error: 'Línea no encontrada' });
+  const estadoAnterior = actual?.estado_revision ?? null;
 
+  // UPSERT: funciona tanto si el registro existe como si no
   await db.query(
-    `UPDATE conciliacion_lineas_estado
-     SET estado_revision = $1, usuario_id = $2, usuario_nombre = $3, actualizado_en = NOW()
-     WHERE conciliacion_id = $4 AND linea_idx = $5`,
-    [estado_revision, usuarioId, usuarioNombre, conciliacionId, lineaIdx]
+    `INSERT INTO conciliacion_lineas_estado
+       (conciliacion_id, linea_idx, estado_revision, usuario_id, usuario_nombre, actualizado_en)
+     VALUES ($1, $2, $3, $4, $5, NOW())
+     ON CONFLICT (conciliacion_id, linea_idx) DO UPDATE
+       SET estado_revision = EXCLUDED.estado_revision,
+           usuario_id      = EXCLUDED.usuario_id,
+           usuario_nombre  = EXCLUDED.usuario_nombre,
+           actualizado_en  = NOW()`,
+    [conciliacionId, lineaIdx, estado_revision, usuarioId, usuarioNombre]
   );
 
   await db.query(
     `INSERT INTO conciliacion_lineas_historial
        (conciliacion_id, linea_idx, numero_factura, estado_anterior, estado_nuevo, usuario_id, usuario_nombre)
      VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-    [conciliacionId, lineaIdx, actual.numero_factura, actual.estado_revision, estado_revision, usuarioId, usuarioNombre]
+    [conciliacionId, lineaIdx, actual?.numero_factura ?? null, estadoAnterior, estado_revision, usuarioId, usuarioNombre]
   );
 
   res.json({ ok: true });
