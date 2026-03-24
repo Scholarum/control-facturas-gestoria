@@ -31,7 +31,22 @@ router.get('/', async (req, res) => {
       COALESCE(cgd.codigo,  pg.codigo)                            AS cuenta_gasto_codigo,
       COALESCE(cgd.descripcion, pg.descripcion)                   AS cuenta_gasto_desc
     FROM drive_archivos da
-    LEFT JOIN proveedores p    ON p.nombre_carpeta = da.proveedor AND p.activo = true
+    LEFT JOIN LATERAL (
+      SELECT p2.*
+      FROM proveedores p2
+      WHERE p2.activo = true
+        AND (
+          p2.nombre_carpeta = da.proveedor
+          OR (
+            p2.cif IS NOT NULL
+            AND da.datos_extraidos IS NOT NULL
+            AND da.datos_extraidos ~ '^\\s*\\{'
+            AND (da.datos_extraidos::jsonb)->>'cif_emisor' = p2.cif
+          )
+        )
+      ORDER BY (p2.nombre_carpeta = da.proveedor) DESC NULLS LAST
+      LIMIT 1
+    ) p ON true
     LEFT JOIN plan_contable pg  ON pg.id  = p.cuenta_gasto_id
     LEFT JOIN plan_contable cgd ON cgd.id = da.cuenta_gasto_id
     ORDER BY da.id DESC
@@ -139,7 +154,21 @@ router.put('/contabilizar', async (req, res) => {
     `SELECT da.id, da.nombre_archivo, da.proveedor,
             COALESCE(da.cuenta_gasto_id, p.cuenta_gasto_id) AS cg_efectiva_id
      FROM drive_archivos da
-     LEFT JOIN proveedores p ON p.nombre_carpeta = da.proveedor AND p.activo = true
+     LEFT JOIN LATERAL (
+       SELECT p2.cuenta_gasto_id FROM proveedores p2
+       WHERE p2.activo = true
+         AND (
+           p2.nombre_carpeta = da.proveedor
+           OR (
+             p2.cif IS NOT NULL
+             AND da.datos_extraidos IS NOT NULL
+             AND da.datos_extraidos ~ '^\\s*\\{'
+             AND (da.datos_extraidos::jsonb)->>'cif_emisor' = p2.cif
+           )
+         )
+       ORDER BY (p2.nombre_carpeta = da.proveedor) DESC NULLS LAST
+       LIMIT 1
+     ) p ON true
      WHERE da.id = ANY($1::int[])`,
     [ids]
   );
