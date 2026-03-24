@@ -3,6 +3,7 @@ import {
   descargarPdfConciliacion,
   descargarExcelConciliacion,
   actualizarEstadoLineaConciliacion,
+  fetchRevisionesConciliacion,
 } from '../api.js';
 
 const ESTADO_CFG = {
@@ -57,10 +58,11 @@ function StatCard({ label, value, color, bg }) {
   );
 }
 
-export default function ResultadoConciliacion({ resumen, resultados, conciliacionId, lineaEstados: lineaEstadosIniciales }) {
+export default function ResultadoConciliacion({ resumen, resultados, conciliacionId, lineaEstados: lineaEstadosIniciales, lineasHistorial: lineasHistorialIniciales }) {
   const [filtroEstado,     setFiltroEstado]     = useState('');
   const [descargandoPdf,   setDescargandoPdf]   = useState(false);
   const [descargandoExcel, setDescargandoExcel] = useState(false);
+  const [mostrarHistorial, setMostrarHistorial] = useState(false);
 
   // Estado local de revisiones (optimistic update)
   const [revisiones, setRevisiones] = useState(() => {
@@ -72,7 +74,8 @@ export default function ResultadoConciliacion({ resumen, resultados, conciliacio
     }
     return m;
   });
-  const [guardando, setGuardando] = useState({}); // idx → true mientras guarda
+  const [guardando,       setGuardando]       = useState({});
+  const [lineasHistorial, setLineasHistorial] = useState(lineasHistorialIniciales ?? []);
 
   const filtrados = filtroEstado
     ? resultados.filter(r => r.estado === filtroEstado)
@@ -91,6 +94,10 @@ export default function ResultadoConciliacion({ resumen, resultados, conciliacio
     setRevisiones(prev => ({ ...prev, [idx]: { ...prev[idx], estado_revision: nuevoEstado } }));
     try {
       await actualizarEstadoLineaConciliacion(conciliacionId, idx, nuevoEstado);
+      // Refrescar historial de cambios
+      const nuevasEntradas = await fetchRevisionesConciliacion(conciliacionId);
+      setLineasHistorial(nuevasEntradas);
+      setMostrarHistorial(true);
     } catch {
       // Revertir si falla
       setRevisiones(prev => ({ ...prev, [idx]: { ...prev[idx], estado_revision: anterior } }));
@@ -222,6 +229,58 @@ export default function ResultadoConciliacion({ resumen, resultados, conciliacio
               </tbody>
             </table>
           </div>
+        </div>
+      )}
+
+      {/* Historial de revisiones */}
+      {lineasHistorial.length > 0 && (
+        <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+          <button
+            onClick={() => setMostrarHistorial(v => !v)}
+            className="w-full px-4 py-3 flex items-center justify-between text-sm font-semibold text-gray-700 hover:bg-gray-50 transition-colors"
+          >
+            <span>Historial de revisiones ({lineasHistorial.length})</span>
+            <svg xmlns="http://www.w3.org/2000/svg" className={`h-4 w-4 text-gray-400 transition-transform ${mostrarHistorial ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7"/>
+            </svg>
+          </button>
+
+          {mostrarHistorial && (
+            <div className="border-t border-gray-100 overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-gray-50 border-b border-gray-200">
+                  <tr>
+                    {['Fecha / Hora','Nº Factura','Estado anterior','Estado nuevo','Usuario'].map(h => (
+                      <th key={h} className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {lineasHistorial.map((e, i) => (
+                    <tr key={i} className="hover:bg-gray-50">
+                      <td className="px-4 py-2.5 text-gray-500 whitespace-nowrap text-xs">{fmtFechaHora(e.creado_en)}</td>
+                      <td className="px-4 py-2.5 font-mono text-xs text-gray-800">{e.numero_factura || '—'}</td>
+                      <td className="px-4 py-2.5">
+                        <span className="inline-flex rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset bg-amber-50 text-amber-700 ring-amber-200">
+                          {e.estado_anterior === 'REVISADA' ? 'Revisada' : 'Pendiente'}
+                        </span>
+                      </td>
+                      <td className="px-4 py-2.5">
+                        <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset ${
+                          e.estado_nuevo === 'REVISADA'
+                            ? 'bg-emerald-50 text-emerald-700 ring-emerald-200'
+                            : 'bg-amber-50 text-amber-700 ring-amber-200'
+                        }`}>
+                          {e.estado_nuevo === 'REVISADA' ? 'Revisada' : 'Pendiente'}
+                        </span>
+                      </td>
+                      <td className="px-4 py-2.5 text-gray-600">{e.usuario_nombre || '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       )}
 

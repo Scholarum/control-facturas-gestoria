@@ -137,7 +137,7 @@ router.post('/', resolveUser, upload.single('archivo'), async (req, res) => {
     },
   }).catch(() => {});
 
-  res.json({ ok: true, data: { ...resultado, conciliacionId, lineaEstados } });
+  res.json({ ok: true, data: { ...resultado, conciliacionId, lineaEstados, lineasHistorial: [] } });
 });
 
 // ─── GET /api/conciliacion/historial ─────────────────────────────────────────
@@ -171,14 +171,38 @@ router.get('/historial/:id', resolveUser, async (req, res) => {
     ? JSON.parse(row.resultado_json)
     : row.resultado_json;
 
-  const lineas = await db.all(
-    `SELECT linea_idx, estado_revision, usuario_nombre, actualizado_en
-     FROM conciliacion_lineas_estado
-     WHERE conciliacion_id = $1`,
+  const [lineas, historial] = await Promise.all([
+    db.all(
+      `SELECT linea_idx, estado_revision, usuario_nombre, actualizado_en
+       FROM conciliacion_lineas_estado
+       WHERE conciliacion_id = $1`,
+      [id]
+    ),
+    db.all(
+      `SELECT linea_idx, numero_factura, estado_anterior, estado_nuevo, usuario_nombre, creado_en
+       FROM conciliacion_lineas_historial
+       WHERE conciliacion_id = $1
+       ORDER BY creado_en DESC`,
+      [id]
+    ),
+  ]);
+
+  res.json({ ok: true, data: { ...resultado, conciliacionId: id, lineaEstados: buildLineaEstados(lineas), lineasHistorial: historial } });
+});
+
+// ─── GET /api/conciliacion/historial/:id/revisiones ──────────────────────────
+
+router.get('/historial/:id/revisiones', resolveUser, async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const db = getDb();
+  const rows = await db.all(
+    `SELECT linea_idx, numero_factura, estado_anterior, estado_nuevo, usuario_nombre, creado_en
+     FROM conciliacion_lineas_historial
+     WHERE conciliacion_id = $1
+     ORDER BY creado_en DESC`,
     [id]
   );
-
-  res.json({ ok: true, data: { ...resultado, conciliacionId: id, lineaEstados: buildLineaEstados(lineas) } });
+  res.json({ ok: true, data: rows });
 });
 
 // ─── PUT /api/conciliacion/historial/:id/lineas/:idx ─────────────────────────

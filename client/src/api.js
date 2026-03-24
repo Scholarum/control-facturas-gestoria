@@ -303,6 +303,13 @@ export async function fetchConciliacion(id) {
   return data;
 }
 
+export async function fetchRevisionesConciliacion(conciliacionId) {
+  const res = await fetch(`${API_BASE}/api/conciliacion/historial/${conciliacionId}/revisiones`, { headers: authHeaders() });
+  if (!res.ok) throw new Error('Error al cargar historial de revisiones');
+  const { data } = await res.json();
+  return data;
+}
+
 export async function actualizarEstadoLineaConciliacion(conciliacionId, lineaIdx, estado_revision) {
   const res = await fetch(`${API_BASE}/api/conciliacion/historial/${conciliacionId}/lineas/${lineaIdx}`, {
     method:  'PUT',

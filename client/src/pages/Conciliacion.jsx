@@ -206,6 +206,7 @@ export default function Conciliacion({ proveedores }) {
           resultados={resultado.resultados}
           conciliacionId={resultado.conciliacionId ?? null}
           lineaEstados={resultado.lineaEstados ?? {}}
+          lineasHistorial={resultado.lineasHistorial ?? []}
         />
       </div>
     );
