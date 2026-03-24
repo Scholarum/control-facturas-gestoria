@@ -13,25 +13,18 @@ const FORM_VACIO = {
 
 // ─── Combobox de cuentas del Plan Contable ────────────────────────────────────
 
-function ComboboxCuenta({ cuentas, value, onChange, placeholder, onCrear }) {
-  const [q,        setQ]        = useState('');
-  const [abierto,  setAbierto]  = useState(false);
-  const [creando,  setCreando]  = useState(false);
+function ComboboxCuenta({ cuentas, value, onChange, placeholder }) {
+  const [q,       setQ]       = useState('');
+  const [abierto, setAbierto] = useState(false);
   const ref = useRef(null);
 
   const seleccionada = cuentas.find(c => String(c.id) === String(value));
-
   const filtradas = q.trim()
     ? cuentas.filter(c =>
         c.codigo.startsWith(q.trim()) ||
         c.descripcion.toLowerCase().includes(q.toLowerCase())
       )
     : cuentas;
-
-  // Mostrar opción "Crear" si hay texto, no hay coincidencia exacta de código, y parece un código contable
-  const textoCrear = q.trim();
-  const codigoExacto = textoCrear && cuentas.some(c => c.codigo === textoCrear);
-  const puedeCrear = onCrear && textoCrear.length >= 2 && !codigoExacto && /^\d/.test(textoCrear);
 
   useEffect(() => {
     function onClick(e) {
@@ -47,19 +40,6 @@ function ComboboxCuenta({ cuentas, value, onChange, placeholder, onCrear }) {
     onChange(String(cuenta.id));
     setQ('');
     setAbierto(false);
-  }
-
-  async function handleCrear() {
-    if (!textoCrear || creando) return;
-    setCreando(true);
-    try {
-      const nueva = await onCrear(textoCrear);
-      onChange(String(nueva.id));
-      setQ('');
-      setAbierto(false);
-    } finally {
-      setCreando(false);
-    }
   }
 
   const displayValue = seleccionada
@@ -85,7 +65,9 @@ function ComboboxCuenta({ cuentas, value, onChange, placeholder, onCrear }) {
       )}
       {abierto && (
         <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
-          {filtradas.map(c => (
+          {filtradas.length === 0 ? (
+            <p className="px-3 py-2 text-xs text-gray-400">Sin resultados</p>
+          ) : filtradas.map(c => (
             <button
               key={c.id}
               type="button"
@@ -96,22 +78,77 @@ function ComboboxCuenta({ cuentas, value, onChange, placeholder, onCrear }) {
               <span className="text-gray-500 text-xs truncate">{c.descripcion}</span>
             </button>
           ))}
-          {filtradas.length === 0 && !puedeCrear && (
-            <p className="px-3 py-2 text-xs text-gray-400">Sin resultados</p>
-          )}
-          {puedeCrear && (
-            <button
-              type="button"
-              onMouseDown={e => { e.preventDefault(); handleCrear(); }}
-              disabled={creando}
-              className="w-full text-left px-3 py-2 text-sm hover:bg-emerald-50 flex items-center gap-2 border-t border-gray-100 text-emerald-700 font-medium"
-            >
-              <span className="text-emerald-500 font-bold text-base leading-none flex-shrink-0">+</span>
-              <span>{creando ? 'Creando...' : `Crear cuenta "${textoCrear}"`}</span>
-            </button>
-          )}
         </div>
       )}
+    </div>
+  );
+}
+
+// ─── Selector de subcuenta (código base + sufijo de 5 dígitos) ────────────────
+
+function SelectorSubcuenta({ cuentaBase, planContable, onCreada, onSeleccionada }) {
+  const [sufijo,   setSufijo]   = useState('');
+  const [creando,  setCreando]  = useState(false);
+  const [errorSub, setErrorSub] = useState('');
+
+  if (!cuentaBase) return null;
+
+  const codigoCompleto = cuentaBase.codigo + sufijo;
+  const yaExiste = sufijo && planContable.find(c => c.codigo === codigoCompleto);
+
+  async function handleCrear() {
+    if (!sufijo || sufijo.length !== 5) return;
+    if (yaExiste) { onSeleccionada(yaExiste); setSufijo(''); return; }
+    setCreando(true); setErrorSub('');
+    try {
+      const nueva = await crearCuentaContable({
+        codigo:      codigoCompleto,
+        descripcion: codigoCompleto,
+        grupo:       cuentaBase.codigo.charAt(0),
+      });
+      onCreada(nueva);
+      onSeleccionada(nueva);
+      setSufijo('');
+    } catch (e) {
+      setErrorSub(e.message);
+    } finally {
+      setCreando(false);
+    }
+  }
+
+  return (
+    <div className="mt-2 space-y-1">
+      <div className="flex items-center gap-2">
+        <span className="text-xs text-gray-400">Subcuenta:</span>
+        <span className="font-mono text-xs font-semibold text-gray-700 bg-gray-100 px-2 py-1 rounded">
+          {cuentaBase.codigo}
+        </span>
+        <span className="text-gray-300 text-xs">+</span>
+        <input
+          type="text"
+          inputMode="numeric"
+          maxLength={5}
+          value={sufijo}
+          onChange={e => { setSufijo(e.target.value.replace(/\D/g, '')); setErrorSub(''); }}
+          onKeyDown={e => e.key === 'Enter' && sufijo.length === 5 && handleCrear()}
+          placeholder="00001"
+          className="w-20 rounded-lg border border-gray-200 px-2 py-1.5 text-sm font-mono text-center focus:outline-none focus:ring-2 focus:ring-blue-500"
+        />
+        {sufijo.length === 5 && (
+          <span className="font-mono text-xs font-bold text-blue-700 bg-blue-50 px-2 py-1 rounded">
+            → {codigoCompleto}
+          </span>
+        )}
+        <button
+          type="button"
+          onClick={handleCrear}
+          disabled={sufijo.length !== 5 || creando}
+          className="px-3 py-1.5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg disabled:opacity-40 transition-colors"
+        >
+          {creando ? '...' : yaExiste ? 'Seleccionar' : 'Crear y asignar'}
+        </button>
+      </div>
+      {errorSub && <p className="text-xs text-red-500">{errorSub}</p>}
     </div>
   );
 }
@@ -124,15 +161,8 @@ function ModalProveedor({ form, setForm, planContable, guardando, onGuardar, onC
 
   function set(k, v) { setForm(prev => ({ ...prev, [k]: v })); }
 
-  async function crearCuenta(codigo) {
-    const nueva = await crearCuentaContable({
-      codigo:      codigo.trim(),
-      descripcion: codigo.trim(),
-      grupo:       codigo.trim().charAt(0),
-    });
-    onCuentaCreada(nueva);
-    return nueva;
-  }
+  const cuentaBaseCC = planContable.find(c => String(c.id) === String(form.cuenta_contable_id));
+  const cuentaBaseCG = planContable.find(c => String(c.id) === String(form.cuenta_gasto_id));
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
@@ -176,7 +206,12 @@ function ModalProveedor({ form, setForm, planContable, guardando, onGuardar, onC
                 value={form.cuenta_contable_id}
                 onChange={v => set('cuenta_contable_id', v)}
                 placeholder="Escribe código o descripción..."
-                onCrear={crearCuenta}
+              />
+              <SelectorSubcuenta
+                cuentaBase={cuentaBaseCC}
+                planContable={planContable}
+                onCreada={onCuentaCreada}
+                onSeleccionada={c => set('cuenta_contable_id', String(c.id))}
               />
             </div>
             <div className="col-span-2">
@@ -188,7 +223,12 @@ function ModalProveedor({ form, setForm, planContable, guardando, onGuardar, onC
                 value={form.cuenta_gasto_id}
                 onChange={v => set('cuenta_gasto_id', v)}
                 placeholder="Escribe código o descripción..."
-                onCrear={crearCuenta}
+              />
+              <SelectorSubcuenta
+                cuentaBase={cuentaBaseCG}
+                planContable={planContable}
+                onCreada={onCuentaCreada}
+                onSeleccionada={c => set('cuenta_gasto_id', String(c.id))}
               />
             </div>
           </div>
