@@ -4,7 +4,7 @@ import {
   fetchConfigSistema, saveConfigSistema,
   fetchHistorialSync, triggerSyncManual, testNotificacion,
   fetchHistorialNotificaciones, fetchEmailTemplate, saveEmailTemplate,
-  fetchFacturas,
+  fetchFacturas, fetchDiagnosticoNotificacion,
 } from '../api.js';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -142,6 +142,8 @@ function PanelNotificaciones({ config, onChange }) {
   const [ok,      setOk]      = useState(false);
   const [testing, setTesting] = useState(false);
   const [testRes, setTestRes] = useState(null);
+  const [diag,    setDiag]    = useState(null);
+  const [diagLoad,setDiagLoad]= useState(false);
 
   useEffect(() => {
     if (config) setLocal({
@@ -149,6 +151,7 @@ function PanelNotificaciones({ config, onChange }) {
       notify_frecuencia: config.notify_frecuencia,
       notify_hora:       config.notify_hora,
       notify_app_url:    config.notify_app_url,
+      email_remitente:   config.email_remitente || '',
     });
   }, [config]);
 
@@ -165,11 +168,18 @@ function PanelNotificaciones({ config, onChange }) {
     setTesting(true); setTestRes(null);
     try {
       const r = await testNotificacion();
-      if (r.saltado)  setTestRes({ ok: true,  texto: `No enviado: ${r.motivo}` });
+      if (r.saltado)    setTestRes({ ok: true,  texto: `No enviado: ${r.motivo}` });
       else if (r.error) setTestRes({ ok: false, texto: r.error });
-      else             setTestRes({ ok: true,  texto: `Enviado a ${r.enviados} destinatario(s)` });
+      else              setTestRes({ ok: true,  texto: `Enviado a ${r.enviados} destinatario(s)` });
     } catch (e) { setTestRes({ ok: false, texto: e.message }); }
     finally { setTesting(false); }
+  }
+
+  async function handleDiag() {
+    setDiagLoad(true);
+    try { setDiag(await fetchDiagnosticoNotificacion()); }
+    catch (e) { setDiag({ advertencias: [e.message] }); }
+    finally { setDiagLoad(false); }
   }
 
   const mostrarHora = local.notify_frecuencia !== 'cada_hora';
@@ -177,9 +187,10 @@ function PanelNotificaciones({ config, onChange }) {
   return (
     <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
       <div className="px-5 py-4 border-b border-gray-100">
-        <p className="text-sm font-semibold text-gray-900">Notificaciones por email (Mailjet)</p>
+        <p className="text-sm font-semibold text-gray-900">Configuración de notificaciones (Mailjet)</p>
         <p className="text-xs text-gray-400 mt-0.5">
-          Envía un resumen de facturas pendientes a los usuarios de Gestoría. Requiere <code className="bg-gray-100 px-1 rounded">MAILJET_API_KEY</code> y <code className="bg-gray-100 px-1 rounded">MAILJET_API_SECRET</code> en el archivo <code className="bg-gray-100 px-1 rounded">.env</code>.
+          Envía un resumen de facturas pendientes a los usuarios con rol Gestoría.
+          Requiere <code className="bg-gray-100 px-1 rounded">MAILJET_API_KEY</code> y <code className="bg-gray-100 px-1 rounded">MAILJET_API_SECRET</code> en las variables de entorno del servidor.
         </p>
       </div>
       <div className="px-5 py-4 space-y-4">
@@ -210,8 +221,18 @@ function PanelNotificaciones({ config, onChange }) {
                 className={inputCls} />
             </div>
           )}
+        </div>
 
-          <div className="flex flex-col gap-1 min-w-[240px]">
+        <div className="flex flex-wrap gap-4">
+          <div className="flex flex-col gap-1 min-w-[260px]">
+            <label className="text-xs font-medium text-gray-500">Email remitente <span className="text-red-500">*</span></label>
+            <input type="email" value={local.email_remitente}
+              onChange={e => setLocal(p => ({ ...p, email_remitente: e.target.value }))}
+              placeholder="notificaciones@tudominio.com"
+              className={`${inputCls} w-full`} />
+            <p className="text-xs text-gray-400">Debe ser un dominio verificado en Mailjet.</p>
+          </div>
+          <div className="flex flex-col gap-1 min-w-[260px]">
             <label className="text-xs font-medium text-gray-500">URL de la aplicación (en el email)</label>
             <input type="url" value={local.notify_app_url}
               onChange={e => setLocal(p => ({ ...p, notify_app_url: e.target.value }))}
@@ -220,7 +241,7 @@ function PanelNotificaciones({ config, onChange }) {
           </div>
         </div>
 
-        <div className="flex items-center gap-3 pt-1">
+        <div className="flex items-center gap-3 pt-1 flex-wrap">
           <button onClick={handleSave} disabled={saving}
             className="px-4 py-1.5 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors disabled:opacity-50">
             {saving ? 'Guardando…' : ok ? '✓ Guardado' : 'Guardar'}
@@ -229,12 +250,67 @@ function PanelNotificaciones({ config, onChange }) {
             className="px-4 py-1.5 text-sm font-medium text-purple-700 bg-purple-50 hover:bg-purple-100 border border-purple-200 rounded-lg transition-colors disabled:opacity-50">
             {testing ? 'Enviando…' : 'Enviar prueba ahora'}
           </button>
+          <button onClick={handleDiag} disabled={diagLoad}
+            className="px-4 py-1.5 text-sm font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors disabled:opacity-50">
+            {diagLoad ? 'Comprobando…' : 'Diagnóstico'}
+          </button>
           {testRes && (
             <span className={`text-sm font-medium ${testRes.ok ? 'text-emerald-600' : 'text-red-600'}`}>
               {testRes.ok ? '✓' : '✗'} {testRes.texto}
             </span>
           )}
         </div>
+
+        {/* Resultado del diagnóstico */}
+        {diag && (
+          <div className="border border-gray-200 rounded-lg overflow-hidden text-xs">
+            <div className="bg-gray-50 px-4 py-2 font-semibold text-gray-600 border-b border-gray-200">Resultado del diagnóstico</div>
+            <div className="px-4 py-3 space-y-1.5">
+              <div className="flex gap-2">
+                <span className={diag.mailjet_key_presente ? 'text-emerald-500 font-bold' : 'text-red-500 font-bold'}>
+                  {diag.mailjet_key_presente ? '✓' : '✗'}
+                </span>
+                <span>MAILJET_API_KEY {diag.mailjet_key_presente ? 'presente' : 'NO configurada'}</span>
+              </div>
+              <div className="flex gap-2">
+                <span className={diag.mailjet_secret_presente ? 'text-emerald-500 font-bold' : 'text-red-500 font-bold'}>
+                  {diag.mailjet_secret_presente ? '✓' : '✗'}
+                </span>
+                <span>MAILJET_API_SECRET {diag.mailjet_secret_presente ? 'presente' : 'NO configurada'}</span>
+              </div>
+              <div className="flex gap-2">
+                <span className={diag.from_email && !diag.from_email.includes('(sin') ? 'text-emerald-500 font-bold' : 'text-red-500 font-bold'}>
+                  {diag.from_email && !diag.from_email.includes('(sin') ? '✓' : '✗'}
+                </span>
+                <span>Email remitente: <strong>{diag.from_email}</strong></span>
+              </div>
+              <div className="flex gap-2">
+                <span className={diag.destinatarios?.length ? 'text-emerald-500 font-bold' : 'text-amber-500 font-bold'}>
+                  {diag.destinatarios?.length ? '✓' : '⚠'}
+                </span>
+                <span>
+                  Destinatarios GESTORIA: {diag.destinatarios?.length
+                    ? diag.destinatarios.map(d => `${d.nombre} <${d.email}>`).join(', ')
+                    : 'ninguno'}
+                </span>
+              </div>
+              <div className="flex gap-2">
+                <span className="text-blue-500 font-bold">i</span>
+                <span>Facturas pendientes: <strong>{diag.facturas_pendientes}</strong> · Notificaciones automáticas: <strong>{diag.notify_activo === 'true' ? 'activas' : 'desactivadas'}</strong></span>
+              </div>
+              {diag.advertencias?.length > 0 && (
+                <div className="mt-2 space-y-1">
+                  {diag.advertencias.map((a, i) => (
+                    <div key={i} className="flex gap-2 text-amber-700 bg-amber-50 rounded px-3 py-1.5">
+                      <span className="font-bold flex-shrink-0">⚠</span>
+                      <span>{a}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -548,6 +624,8 @@ function PanelReanalizar({ onFacturasActualizadas }) {
   const [filtroEstado,    setFiltroEstado]    = useState('');
   const [filtroProveedor, setFiltroProveedor] = useState('');
   const [busqueda,        setBusqueda]        = useState('');
+  const [fechaDesde,      setFechaDesde]      = useState('');
+  const [fechaHasta,      setFechaHasta]      = useState('');
   const [seleccionados,   setSeleccionados]   = useState(new Set());
   const [ejecutando,      setEjecutando]      = useState(false);
   const [progreso,        setProgreso]        = useState(null);
@@ -571,6 +649,14 @@ function PanelReanalizar({ onFacturasActualizadas }) {
     if (filtroEstado    && f.estado    !== filtroEstado)                              return false;
     if (filtroProveedor && f.proveedor !== filtroProveedor)                           return false;
     if (busqueda        && !f.nombre_archivo?.toLowerCase().includes(busqueda.toLowerCase())) return false;
+    if (fechaDesde || fechaHasta) {
+      const datos = (() => { try { return f.datos_extraidos ? JSON.parse(f.datos_extraidos) : null; } catch { return null; } })();
+      const fe = datos?.fecha_emision ?? null;
+      if (fe) {
+        if (fechaDesde && fe < fechaDesde) return false;
+        if (fechaHasta && fe > fechaHasta) return false;
+      }
+    }
     return true;
   });
 
@@ -662,6 +748,16 @@ function PanelReanalizar({ onFacturasActualizadas }) {
           <label className="text-xs font-medium text-gray-500">Buscar</label>
           <input type="text" value={busqueda} onChange={e => setBusqueda(e.target.value)}
             placeholder="Nombre de archivo…" className={`${inputCls} w-48`} />
+        </div>
+        <div className="flex flex-col gap-1">
+          <label className="text-xs font-medium text-gray-500">Fecha factura desde</label>
+          <input type="date" value={fechaDesde} onChange={e => setFechaDesde(e.target.value)}
+            className={inputCls} />
+        </div>
+        <div className="flex flex-col gap-1">
+          <label className="text-xs font-medium text-gray-500">Fecha factura hasta</label>
+          <input type="date" value={fechaHasta} onChange={e => setFechaHasta(e.target.value)}
+            className={inputCls} />
         </div>
         <div className="ml-auto flex items-end">
           <button onClick={handleReanalizar} disabled={ejecutando || !idsParaReanalizar.length}
@@ -769,7 +865,13 @@ function PanelReanalizar({ onFacturasActualizadas }) {
 
 // ─── Componente principal ─────────────────────────────────────────────────────
 
+const TABS = [
+  { id: 'sync',  label: 'Sincronización de facturas' },
+  { id: 'notif', label: 'Notificaciones' },
+];
+
 export default function Configuracion({ todasFacturas, onFacturasActualizadas }) {
+  const [activeTab,     setActiveTab]     = useState('sync');
   const [prompt,        setPrompt]        = useState('');
   const [promptOrig,    setPromptOrig]    = useState('');
   const [loadingPrompt, setLoadingPrompt] = useState(true);
@@ -803,72 +905,86 @@ export default function Configuracion({ todasFacturas, onFacturasActualizadas })
   const promptCambiado = prompt !== promptOrig;
 
   return (
-    <div className="space-y-6 max-w-4xl">
+    <div className="space-y-5 max-w-4xl">
       <h2 className="text-base font-semibold text-gray-900">Configuración</h2>
 
-      {/* ── Sincronización con Drive ── */}
-      <PanelSync config={sistemaConfig} onChange={handleSaveSistema} />
-
-      {/* ── Notificaciones ── */}
-      <PanelNotificaciones config={sistemaConfig} onChange={handleSaveSistema} />
-
-      {/* ── Plantilla de email ── */}
-      <PanelEmailTemplate />
-
-      {/* ── Historial de notificaciones ── */}
-      <PanelHistorialNotificaciones />
-
-      {/* ── Historial de sincronizaciones ── */}
-      <PanelHistorialSync />
-
-      {/* ── Prompt de Gemini ── */}
-      <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-        <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between gap-3">
-          <div>
-            <p className="text-sm font-semibold text-gray-900">Prompt de extracción (Gemini)</p>
-            <p className="text-xs text-gray-400 mt-0.5">
-              Instrucciones que recibe la IA al analizar cada factura PDF. Los cambios afectan a los próximos análisis.
-            </p>
-          </div>
-          <div className="flex items-center gap-2 flex-shrink-0">
-            {savedOk && <span className="text-xs text-emerald-600 font-medium">Guardado ✓</span>}
-            <button onClick={async () => {
-                if (!confirm('¿Restaurar el prompt por defecto? Se perderán los cambios actuales.')) return;
-                const p = await resetPrompt();
-                setPrompt(p); setPromptOrig(p);
-              }}
-              disabled={savingPrompt}
-              className="px-3 py-1.5 text-xs font-medium text-gray-500 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors disabled:opacity-40">
-              Restaurar defecto
-            </button>
-            <button onClick={() => setPrompt(promptOrig)}
-              disabled={!promptCambiado || savingPrompt}
-              className="px-3 py-1.5 text-xs font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors disabled:opacity-40">
-              Descartar
-            </button>
-            <button onClick={handleSavePrompt}
-              disabled={!promptCambiado || savingPrompt}
-              className="px-4 py-1.5 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors disabled:opacity-40">
-              {savingPrompt ? 'Guardando…' : 'Guardar prompt'}
-            </button>
-          </div>
-        </div>
-        {loadingPrompt ? (
-          <div className="flex justify-center py-10">
-            <svg className="h-5 w-5 animate-spin text-blue-500" viewBox="0 0 24 24" fill="none">
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
-              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
-            </svg>
-          </div>
-        ) : (
-          <textarea value={prompt} onChange={e => setPrompt(e.target.value)}
-            rows={22} spellCheck={false}
-            className="w-full px-5 py-4 font-mono text-xs text-gray-800 bg-gray-50 resize-y focus:outline-none focus:ring-2 focus:ring-inset focus:ring-blue-500 border-0" />
-        )}
+      {/* ── Pestañas ── */}
+      <div className="flex gap-1 border-b border-gray-200">
+        {TABS.map(t => (
+          <button key={t.id} onClick={() => setActiveTab(t.id)}
+            className={`px-4 py-2 text-sm font-medium rounded-t-lg transition-colors ${
+              activeTab === t.id
+                ? 'bg-white border border-b-white border-gray-200 text-blue-700 -mb-px'
+                : 'text-gray-500 hover:text-gray-700'
+            }`}>
+            {t.label}
+          </button>
+        ))}
       </div>
 
-      {/* ── Re-analizar facturas ── */}
-      <PanelReanalizar onFacturasActualizadas={onFacturasActualizadas} />
+      {/* ── Pestaña: Sincronización de facturas ── */}
+      {activeTab === 'sync' && (
+        <div className="space-y-6">
+          <PanelSync config={sistemaConfig} onChange={handleSaveSistema} />
+          <PanelHistorialSync />
+          <PanelReanalizar onFacturasActualizadas={onFacturasActualizadas} />
+
+          {/* Prompt de Gemini */}
+          <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+            <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-semibold text-gray-900">Prompt de extracción (Gemini)</p>
+                <p className="text-xs text-gray-400 mt-0.5">
+                  Instrucciones que recibe la IA al analizar cada factura PDF.
+                </p>
+              </div>
+              <div className="flex items-center gap-2 flex-shrink-0">
+                {savedOk && <span className="text-xs text-emerald-600 font-medium">Guardado ✓</span>}
+                <button onClick={async () => {
+                    if (!confirm('¿Restaurar el prompt por defecto? Se perderán los cambios actuales.')) return;
+                    const p = await resetPrompt();
+                    setPrompt(p); setPromptOrig(p);
+                  }}
+                  disabled={savingPrompt}
+                  className="px-3 py-1.5 text-xs font-medium text-gray-500 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors disabled:opacity-40">
+                  Restaurar defecto
+                </button>
+                <button onClick={() => setPrompt(promptOrig)}
+                  disabled={!promptCambiado || savingPrompt}
+                  className="px-3 py-1.5 text-xs font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors disabled:opacity-40">
+                  Descartar
+                </button>
+                <button onClick={handleSavePrompt}
+                  disabled={!promptCambiado || savingPrompt}
+                  className="px-4 py-1.5 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors disabled:opacity-40">
+                  {savingPrompt ? 'Guardando…' : 'Guardar prompt'}
+                </button>
+              </div>
+            </div>
+            {loadingPrompt ? (
+              <div className="flex justify-center py-10">
+                <svg className="h-5 w-5 animate-spin text-blue-500" viewBox="0 0 24 24" fill="none">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
+                </svg>
+              </div>
+            ) : (
+              <textarea value={prompt} onChange={e => setPrompt(e.target.value)}
+                rows={22} spellCheck={false}
+                className="w-full px-5 py-4 font-mono text-xs text-gray-800 bg-gray-50 resize-y focus:outline-none focus:ring-2 focus:ring-inset focus:ring-blue-500 border-0" />
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── Pestaña: Notificaciones ── */}
+      {activeTab === 'notif' && (
+        <div className="space-y-6">
+          <PanelNotificaciones config={sistemaConfig} onChange={handleSaveSistema} />
+          <PanelEmailTemplate />
+          <PanelHistorialNotificaciones />
+        </div>
+      )}
     </div>
   );
 }

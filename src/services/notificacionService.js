@@ -41,9 +41,16 @@ async function enviarNotificaciones({ forzar = false, origen = 'MANUAL' } = {}) 
   if (!total) return { enviados: 0, motivo: 'sin facturas pendientes' };
 
   const appUrl    = config.notify_app_url || 'http://localhost:5173';
-  const fromEmail = process.env.MAILJET_FROM_EMAIL || 'noreply@gestoria.local';
-  const fromName  = 'Control de Facturas';
-  const mj        = Mailjet.apiConnect(apiKey, apiSecret);
+  const fromEmail = config.email_remitente
+    || process.env.MAILJET_FROM_EMAIL
+    || '';
+  if (!fromEmail) {
+    console.warn('[Notificaciones] email_remitente no configurado (ni en BD ni en MAILJET_FROM_EMAIL)');
+    return { error: 'Email remitente no configurado. Ajústalo en Configuración → Notificaciones.' };
+  }
+  const fromName = 'Control de Facturas';
+  const mj       = Mailjet.apiConnect(apiKey, apiSecret);
+  console.log(`[Notificaciones] Iniciando envío — from: ${fromEmail}, destinatarios: ${usuarios.map(u => u.email).join(', ')}, facturas pendientes: ${total}`);
 
   const s        = total === 1 ? '' : 's';
   const tplVars  = { total, s, url: appUrl };
@@ -92,11 +99,17 @@ async function enviarNotificaciones({ forzar = false, origen = 'MANUAL' } = {}) 
       logEntry.enviado = true;
       logEntry.mj_id   = msgRes?.To?.[0]?.MessageID ?? null;
       respuestasMj.push({ email: u.email, status: msgRes?.Status, id: logEntry.mj_id });
+      console.log(`[Notificaciones] OK → ${u.email} | status: ${msgRes?.Status} | id: ${logEntry.mj_id}`);
       enviados++;
     } catch (e) {
-      logEntry.error = e.message?.slice(0, 200);
-      respuestasMj.push({ email: u.email, error: logEntry.error });
-      console.error(`[Notificaciones] Error enviando a ${u.email}:`, e.message);
+      // Captura el cuerpo completo de la respuesta de Mailjet para diagnóstico
+      const mjBody = e.response?.data ?? e.response?.body ?? null;
+      const errorDetail = mjBody
+        ? JSON.stringify(mjBody).slice(0, 600)
+        : (e.message || 'Error desconocido');
+      logEntry.error = errorDetail;
+      respuestasMj.push({ email: u.email, httpStatus: e.statusCode ?? e.response?.status, error: errorDetail });
+      console.error(`[Notificaciones] ERROR → ${u.email} | HTTP ${e.statusCode ?? e.response?.status} |`, mjBody || e.message);
       errores++;
     }
     destinatariosLog.push(logEntry);

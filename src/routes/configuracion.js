@@ -68,7 +68,7 @@ router.get('/sistema', requireAdmin, async (req, res) => {
 const CAMPOS_SISTEMA = [
   'sync_activo', 'sync_frecuencia', 'sync_hora',
   'notify_activo', 'notify_frecuencia', 'notify_hora', 'notify_app_url',
-  'email_asunto', 'email_cuerpo',
+  'email_asunto', 'email_cuerpo', 'email_remitente',
 ];
 
 router.put('/sistema', requireAdmin, async (req, res) => {

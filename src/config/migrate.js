@@ -124,6 +124,7 @@ const confDefaults = {
   notify_app_url:    'http://localhost:5173',
   email_asunto:      '{{total}} factura{{s}} pendiente{{s}} de revisar',
   email_cuerpo:      'Tienes {{total}} factura{{s}} pendiente{{s}} de revisar en el sistema de Control de Facturas.',
+  email_remitente:   '',
 };
 
 // ─── Runner ───────────────────────────────────────────────────────────────────
