@@ -74,7 +74,7 @@ function ComboboxCuenta({ cuentas, value, onChange, placeholder }) {
               onMouseDown={e => { e.preventDefault(); handleSelect(c); }}
               className={`w-full text-left px-3 py-2 text-sm hover:bg-blue-50 flex items-center gap-2 ${String(c.id) === String(value) ? 'bg-blue-50' : ''}`}
             >
-              <span className="font-mono font-semibold text-gray-900 w-12 flex-shrink-0">{c.codigo}</span>
+              <span className="font-mono font-semibold text-gray-900 min-w-[6rem] flex-shrink-0">{c.codigo}</span>
               <span className="text-gray-500 text-xs truncate">{c.descripcion}</span>
             </button>
           ))}

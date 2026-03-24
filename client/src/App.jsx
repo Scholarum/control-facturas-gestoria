@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext.jsx';
 import Login          from './pages/Login.jsx';
 import Usuarios       from './pages/Usuarios.jsx';
@@ -37,6 +37,10 @@ function AppInner() {
   const [syncMsg,         setSyncMsg]         = useState(null); // { ok, texto }
   const [planContable,    setPlanContable]    = useState([]);
   const [alertaProveedores, setAlertaProveedores] = useState([]); // proveedores sin cuentas
+  const [adminMenuOpen,   setAdminMenuOpen]   = useState(false);
+  const [userMenuOpen,    setUserMenuOpen]    = useState(false);
+  const adminMenuRef = useRef(null);
+  const userMenuRef  = useRef(null);
 
   // Redirigir tabs inaccesibles si el rol cambia
   useEffect(() => {
@@ -68,9 +72,19 @@ function AppInner() {
   useEffect(() => {
     if (!user || loading) return;
     autodetectarProveedores()
-      .then(({ creados, sinCuentas }) => setAlertaProveedores(sinCuentas))
+      .then(({ sinCuentas }) => setAlertaProveedores(sinCuentas))
       .catch(() => {});
   }, [user, loading]);
+
+  // Cerrar dropdowns al clicar fuera
+  useEffect(() => {
+    function handler(e) {
+      if (adminMenuRef.current && !adminMenuRef.current.contains(e.target)) setAdminMenuOpen(false);
+      if (userMenuRef.current  && !userMenuRef.current.contains(e.target))  setUserMenuOpen(false);
+    }
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
 
   // Listas por estado (reactivas a todasFacturas)
   const pendientes     = useMemo(() => todasFacturas.filter(f => (f.estado_gestion || 'PENDIENTE') === 'PENDIENTE'), [todasFacturas]);
@@ -176,18 +190,15 @@ function AppInner() {
   // ── Login ───────────────────────────────────────────────────────────────────
   if (!user) return <Login />;
 
-  // ── Pestañas disponibles ────────────────────────────────────────────────────
+  // ── Pestañas principales (nav) ──────────────────────────────────────────────
   const tabs = [
-    { id: 'facturas',      label: 'Facturas' },
-    { id: 'conciliacion',  label: 'Conciliación de Mayor' },
-    { id: 'historial',     label: 'Historial' },
-    ...(esAdmin ? [
-      { id: 'usuarios',      label: 'Usuarios' },
-      { id: 'proveedores',   label: 'Proveedores' },
-      { id: 'configuracion', label: '⚙ Configuración' },
-    ] : []),
-    { id: 'perfil',        label: 'Mi Perfil' },
+    { id: 'facturas',     label: 'Facturas' },
+    { id: 'conciliacion', label: 'Conciliación de Mayor' },
+    { id: 'historial',    label: 'Historial' },
   ];
+
+  const ADMIN_TABS = ['usuarios', 'proveedores', 'configuracion'];
+  const tabAdminActivo = ADMIN_TABS.includes(tab);
 
   const subTabs = [
     { id: 'pendientes',     label: 'Pendientes',     count: stats.pendientes,     color: 'text-amber-600',   bg: 'bg-amber-600'   },
@@ -201,17 +212,19 @@ function AppInner() {
 
       {/* Header */}
       <header className="bg-white border-b border-gray-200 sticky top-0 z-40 shadow-sm">
-        <div className="max-w-screen-xl mx-auto px-6 h-14 flex items-center justify-between gap-4">
-          <div className="flex items-center gap-3 flex-shrink-0">
+        <div className="max-w-screen-xl mx-auto px-6 h-14 flex items-center gap-4">
+
+          {/* Logo */}
+          <div className="flex items-center gap-2 flex-shrink-0">
             <span className="text-xl">🧾</span>
-            <span className="font-semibold text-gray-900 text-base">Control de Facturas</span>
+            <span className="font-semibold text-gray-900 text-sm hidden sm:block">Control de Facturas</span>
           </div>
 
-          {/* Pestañas */}
-          <nav className="flex gap-1 overflow-x-auto">
+          {/* Pestañas principales */}
+          <nav className="flex gap-1 flex-1">
             {tabs.map(t => (
               <button key={t.id} onClick={() => setTab(t.id)}
-                className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors whitespace-nowrap ${
+                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors whitespace-nowrap ${
                   tab === t.id ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-100'
                 }`}>
                 {t.label}
@@ -219,19 +232,93 @@ function AppInner() {
             ))}
           </nav>
 
-          {/* Usuario + logout */}
-          <div className="flex items-center gap-3 flex-shrink-0">
-            <div className="text-right hidden sm:block">
-              <p className="text-sm font-medium text-gray-900 leading-none">{user.nombre}</p>
-              <p className="text-xs text-gray-400 mt-0.5">{user.rol === 'ADMIN' ? 'Administrador' : 'Gestoría'}</p>
+          {/* Dropdown Administración (solo admin) */}
+          {esAdmin && (
+            <div ref={adminMenuRef} className="relative flex-shrink-0">
+              <button
+                onClick={() => setAdminMenuOpen(o => !o)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                  tabAdminActivo ? 'bg-gray-800 text-white' : 'text-gray-600 hover:bg-gray-100'
+                }`}
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+                </svg>
+                <span className="hidden md:inline">Administración</span>
+                <svg xmlns="http://www.w3.org/2000/svg" className={`h-3.5 w-3.5 transition-transform ${adminMenuOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7"/>
+                </svg>
+              </button>
+              {adminMenuOpen && (
+                <div className="absolute right-0 top-full mt-1.5 w-48 bg-white border border-gray-200 rounded-xl shadow-lg py-1 z-50">
+                  {[
+                    { id: 'proveedores',   icon: '🏢', label: 'Proveedores' },
+                    { id: 'usuarios',      icon: '👥', label: 'Usuarios' },
+                    { id: 'configuracion', icon: '⚙️',  label: 'Configuración' },
+                  ].map(item => (
+                    <button
+                      key={item.id}
+                      onClick={() => { setTab(item.id); setAdminMenuOpen(false); }}
+                      className={`w-full text-left px-4 py-2 text-sm flex items-center gap-2.5 transition-colors ${
+                        tab === item.id ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-700 hover:bg-gray-50'
+                      }`}
+                    >
+                      <span>{item.icon}</span>
+                      {item.label}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
+          )}
+
+          {/* Menú de usuario */}
+          <div ref={userMenuRef} className="relative flex-shrink-0">
             <button
-              onClick={logout}
-              className="px-3 py-1.5 text-xs font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors border border-gray-200"
+              onClick={() => setUserMenuOpen(o => !o)}
+              className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm transition-colors ${
+                tab === 'perfil' ? 'bg-gray-100 text-gray-900 font-medium' : 'text-gray-600 hover:bg-gray-100'
+              }`}
             >
-              Cerrar sesión
+              <div className="h-6 w-6 rounded-full bg-blue-600 flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
+                {user.nombre?.charAt(0).toUpperCase()}
+              </div>
+              <span className="hidden sm:block max-w-[120px] truncate">{user.nombre}</span>
+              <svg xmlns="http://www.w3.org/2000/svg" className={`h-3.5 w-3.5 transition-transform ${userMenuOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7"/>
+              </svg>
             </button>
+            {userMenuOpen && (
+              <div className="absolute right-0 top-full mt-1.5 w-44 bg-white border border-gray-200 rounded-xl shadow-lg py-1 z-50">
+                <div className="px-4 py-2 border-b border-gray-100">
+                  <p className="text-xs font-medium text-gray-900 truncate">{user.nombre}</p>
+                  <p className="text-xs text-gray-400">{esAdmin ? 'Administrador' : 'Gestoría'}</p>
+                </div>
+                <button
+                  onClick={() => { setTab('perfil'); setUserMenuOpen(false); }}
+                  className={`w-full text-left px-4 py-2 text-sm flex items-center gap-2.5 transition-colors ${
+                    tab === 'perfil' ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-700 hover:bg-gray-50'
+                  }`}
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/>
+                  </svg>
+                  Mi Perfil
+                </button>
+                <button
+                  onClick={logout}
+                  className="w-full text-left px-4 py-2 text-sm flex items-center gap-2.5 text-red-600 hover:bg-red-50 transition-colors"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/>
+                  </svg>
+                  Cerrar sesión
+                </button>
+              </div>
+            )}
           </div>
+
         </div>
       </header>
 

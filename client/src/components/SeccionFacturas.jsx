@@ -121,7 +121,7 @@ function ComboboxCuentaMasiva({ cuentas, value, onChange }) {
               }}
               className={`w-full text-left px-3 py-1.5 text-xs hover:bg-blue-50 flex items-center gap-2 ${String(c.id) === String(value) ? 'bg-blue-50' : ''}`}
             >
-              <span className="font-mono font-semibold text-gray-900 w-12 flex-shrink-0">{c.codigo}</span>
+              <span className="font-mono font-semibold text-gray-900 min-w-[5.5rem] flex-shrink-0">{c.codigo}</span>
               <span className="text-gray-500 truncate">{c.descripcion}</span>
             </button>
           ))}
