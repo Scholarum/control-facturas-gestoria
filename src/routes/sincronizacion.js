@@ -88,4 +88,30 @@ router.post('/test-notificacion', requireAdmin, async (req, res) => {
   }
 });
 
+// ─── GET /api/sincronizacion/estado-mensaje/:messageId ───────────────────────
+
+router.get('/estado-mensaje/:messageId', requireAdmin, async (req, res) => {
+  const apiKey    = process.env.MAILJET_API_KEY;
+  const apiSecret = process.env.MAILJET_API_SECRET;
+  if (!apiKey || !apiSecret) {
+    return res.status(400).json({ ok: false, error: 'Credenciales Mailjet no configuradas' });
+  }
+  const { messageId } = req.params;
+  try {
+    const mjRes = await fetch(
+      `https://api.mailjet.com/v3/REST/message/${messageId}`,
+      {
+        headers: {
+          'Authorization': 'Basic ' + Buffer.from(`${apiKey}:${apiSecret}`).toString('base64'),
+          'Content-Type':  'application/json',
+        },
+      }
+    );
+    const data = await mjRes.json();
+    res.json({ ok: true, data });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
 module.exports = router;

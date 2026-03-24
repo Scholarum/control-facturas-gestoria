@@ -4,7 +4,7 @@ import {
   fetchConfigSistema, saveConfigSistema,
   fetchHistorialSync, triggerSyncManual, testNotificacion,
   fetchHistorialNotificaciones, fetchEmailTemplate, saveEmailTemplate,
-  fetchFacturas, fetchDiagnosticoNotificacion,
+  fetchFacturas, fetchDiagnosticoNotificacion, fetchEstadoMensaje,
 } from '../api.js';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -487,11 +487,25 @@ function PanelEmailTemplate() {
 
 // ─── Panel: Historial de notificaciones ──────────────────────────────────────
 
+const MJ_STATUS_COLOR = {
+  sent:      'text-emerald-700 bg-emerald-50',
+  opened:    'text-blue-700 bg-blue-50',
+  clicked:   'text-purple-700 bg-purple-50',
+  bounce:    'text-red-700 bg-red-50',
+  hardbounced: 'text-red-700 bg-red-50',
+  softbounced: 'text-orange-700 bg-orange-50',
+  spam:      'text-red-700 bg-red-50',
+  blocked:   'text-red-700 bg-red-50',
+  queued:    'text-gray-600 bg-gray-100',
+  deferred:  'text-amber-700 bg-amber-50',
+};
+
 function PanelHistorialNotificaciones() {
-  const [historial,  setHistorial]  = useState([]);
-  const [cargando,   setCargando]   = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [expanded,   setExpanded]   = useState(null);
+  const [historial,     setHistorial]     = useState([]);
+  const [cargando,      setCargando]      = useState(true);
+  const [refreshing,    setRefreshing]    = useState(false);
+  const [expanded,      setExpanded]      = useState(null);
+  const [estadosMj,     setEstadosMj]     = useState({});  // messageId → { loading, data, error }
 
   async function cargar() {
     setRefreshing(true);
@@ -504,6 +518,16 @@ function PanelHistorialNotificaciones() {
 
   function toggleRow(id) {
     setExpanded(prev => prev === id ? null : id);
+  }
+
+  async function verEstado(messageId) {
+    setEstadosMj(prev => ({ ...prev, [messageId]: { loading: true } }));
+    try {
+      const data = await fetchEstadoMensaje(messageId);
+      setEstadosMj(prev => ({ ...prev, [messageId]: { loading: false, data } }));
+    } catch (e) {
+      setEstadosMj(prev => ({ ...prev, [messageId]: { loading: false, error: e.message } }));
+    }
   }
 
   return (
@@ -590,9 +614,45 @@ function PanelHistorialNotificaciones() {
                             {mjRes.length > 0 && (
                               <div>
                                 <p className="font-semibold text-gray-500 mb-1 uppercase tracking-wide">Respuesta Mailjet</p>
-                                <pre className="bg-white border border-gray-200 rounded p-2 text-xs overflow-x-auto whitespace-pre-wrap">
-                                  {JSON.stringify(mjRes, null, 2)}
-                                </pre>
+                                <div className="space-y-2">
+                                  {mjRes.map((m, i) => {
+                                    const eid   = m.id ?? m.mj_id;
+                                    const est   = eid ? estadosMj[eid] : null;
+                                    const mjData = est?.data?.Data?.[0];
+                                    return (
+                                      <div key={i} className="bg-white border border-gray-200 rounded p-2 space-y-1">
+                                        <div className="flex items-center gap-2 flex-wrap">
+                                          <span className="font-medium text-gray-700">{m.email}</span>
+                                          <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${m.status === 'success' ? 'text-emerald-700 bg-emerald-50' : 'text-red-700 bg-red-50'}`}>
+                                            API: {m.status ?? '—'}
+                                          </span>
+                                          {eid && (
+                                            <button onClick={() => verEstado(eid)} disabled={est?.loading}
+                                              className="px-2 py-0.5 text-xs font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-full transition-colors disabled:opacity-50">
+                                              {est?.loading ? 'Consultando…' : 'Ver estado entrega'}
+                                            </button>
+                                          )}
+                                          {mjData?.Status && (
+                                            <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${MJ_STATUS_COLOR[mjData.Status.toLowerCase()] ?? 'text-gray-600 bg-gray-100'}`}>
+                                              Entrega: {mjData.Status}
+                                            </span>
+                                          )}
+                                        </div>
+                                        {eid && <p className="text-gray-400">ID: {eid}{m.uuid ? ` · UUID: ${m.uuid}` : ''}</p>}
+                                        {m.error && <p className="text-red-500 break-all">{m.error}</p>}
+                                        {mjData && (
+                                          <div className="text-gray-500 space-y-0.5 mt-1">
+                                            {mjData.ArrivedAt && <p>Recibido por Mailjet: {new Date(mjData.ArrivedAt).toLocaleString('es-ES')}</p>}
+                                            {mjData.Subject   && <p>Asunto: {mjData.Subject}</p>}
+                                            {mjData.SpamassassinScore != null && <p>SpamAssassin score: {mjData.SpamassassinScore}</p>}
+                                            {mjData.IsClickTracked != null && <p>Click tracking: {mjData.IsClickTracked ? 'sí' : 'no'}</p>}
+                                          </div>
+                                        )}
+                                        {est?.error && <p className="text-red-500">{est.error}</p>}
+                                      </div>
+                                    );
+                                  })}
+                                </div>
                               </div>
                             )}
                           </div>

@@ -265,6 +265,13 @@ export async function saveEmailTemplate({ asunto, cuerpo }) {
   if (!json.ok) throw new Error(json.error || 'Error al guardar plantilla');
 }
 
+export async function fetchEstadoMensaje(messageId) {
+  const res = await fetch(`${API_BASE}/api/sincronizacion/estado-mensaje/${messageId}`, { headers: authHeaders() });
+  if (!res.ok) throw new Error('Error al consultar estado del mensaje');
+  const { data } = await res.json();
+  return data;
+}
+
 export async function fetchDiagnosticoNotificacion() {
   const res = await fetch(`${API_BASE}/api/sincronizacion/diagnostico-notificacion`, { headers: authHeaders() });
   if (!res.ok) throw new Error('Error al obtener diagnóstico');
