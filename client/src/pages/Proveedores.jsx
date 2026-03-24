@@ -3,6 +3,7 @@ import {
   fetchProveedoresCrud, fetchPlanContable,
   crearProveedor, editarProveedor, eliminarProveedor,
   descargarExcelProveedores, importarProveedoresExcel,
+  crearCuentaContable,
 } from '../api.js';
 
 const FORM_VACIO = {
@@ -12,9 +13,10 @@ const FORM_VACIO = {
 
 // ─── Combobox de cuentas del Plan Contable ────────────────────────────────────
 
-function ComboboxCuenta({ cuentas, value, onChange, placeholder }) {
-  const [q,       setQ]       = useState('');
-  const [abierto, setAbierto] = useState(false);
+function ComboboxCuenta({ cuentas, value, onChange, placeholder, onCrear }) {
+  const [q,        setQ]        = useState('');
+  const [abierto,  setAbierto]  = useState(false);
+  const [creando,  setCreando]  = useState(false);
   const ref = useRef(null);
 
   const seleccionada = cuentas.find(c => String(c.id) === String(value));
@@ -25,6 +27,11 @@ function ComboboxCuenta({ cuentas, value, onChange, placeholder }) {
         c.descripcion.toLowerCase().includes(q.toLowerCase())
       )
     : cuentas;
+
+  // Mostrar opción "Crear" si hay texto, no hay coincidencia exacta de código, y parece un código contable
+  const textoCrear = q.trim();
+  const codigoExacto = textoCrear && cuentas.some(c => c.codigo === textoCrear);
+  const puedeCrear = onCrear && textoCrear.length >= 2 && !codigoExacto && /^\d/.test(textoCrear);
 
   useEffect(() => {
     function onClick(e) {
@@ -40,6 +47,19 @@ function ComboboxCuenta({ cuentas, value, onChange, placeholder }) {
     onChange(String(cuenta.id));
     setQ('');
     setAbierto(false);
+  }
+
+  async function handleCrear() {
+    if (!textoCrear || creando) return;
+    setCreando(true);
+    try {
+      const nueva = await onCrear(textoCrear);
+      onChange(String(nueva.id));
+      setQ('');
+      setAbierto(false);
+    } finally {
+      setCreando(false);
+    }
   }
 
   const displayValue = seleccionada
@@ -65,20 +85,30 @@ function ComboboxCuenta({ cuentas, value, onChange, placeholder }) {
       )}
       {abierto && (
         <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
-          {filtradas.length === 0 ? (
+          {filtradas.map(c => (
+            <button
+              key={c.id}
+              type="button"
+              onMouseDown={e => { e.preventDefault(); handleSelect(c); }}
+              className={`w-full text-left px-3 py-2 text-sm hover:bg-blue-50 flex items-center gap-2 ${String(c.id) === String(value) ? 'bg-blue-50' : ''}`}
+            >
+              <span className="font-mono font-semibold text-gray-900 w-12 flex-shrink-0">{c.codigo}</span>
+              <span className="text-gray-500 text-xs truncate">{c.descripcion}</span>
+            </button>
+          ))}
+          {filtradas.length === 0 && !puedeCrear && (
             <p className="px-3 py-2 text-xs text-gray-400">Sin resultados</p>
-          ) : (
-            filtradas.map(c => (
-              <button
-                key={c.id}
-                type="button"
-                onMouseDown={e => { e.preventDefault(); handleSelect(c); }}
-                className={`w-full text-left px-3 py-2 text-sm hover:bg-blue-50 flex items-center gap-2 ${String(c.id) === String(value) ? 'bg-blue-50' : ''}`}
-              >
-                <span className="font-mono font-semibold text-gray-900 w-12 flex-shrink-0">{c.codigo}</span>
-                <span className="text-gray-500 text-xs truncate">{c.descripcion}</span>
-              </button>
-            ))
+          )}
+          {puedeCrear && (
+            <button
+              type="button"
+              onMouseDown={e => { e.preventDefault(); handleCrear(); }}
+              disabled={creando}
+              className="w-full text-left px-3 py-2 text-sm hover:bg-emerald-50 flex items-center gap-2 border-t border-gray-100 text-emerald-700 font-medium"
+            >
+              <span className="text-emerald-500 font-bold text-base leading-none flex-shrink-0">+</span>
+              <span>{creando ? 'Creando...' : `Crear cuenta "${textoCrear}"`}</span>
+            </button>
           )}
         </div>
       )}
@@ -88,11 +118,21 @@ function ComboboxCuenta({ cuentas, value, onChange, placeholder }) {
 
 // ─── Modal Edición / Creación ─────────────────────────────────────────────────
 
-function ModalProveedor({ form, setForm, planContable, guardando, onGuardar, onCerrar, esEdicion, errorModal }) {
+function ModalProveedor({ form, setForm, planContable, guardando, onGuardar, onCerrar, esEdicion, errorModal, onCuentaCreada }) {
   const cuentas4 = planContable.filter(c => c.grupo === '4');
   const cuentas6 = planContable.filter(c => c.grupo === '6');
 
   function set(k, v) { setForm(prev => ({ ...prev, [k]: v })); }
+
+  async function crearCuenta(codigo) {
+    const nueva = await crearCuentaContable({
+      codigo:      codigo.trim(),
+      descripcion: codigo.trim(),
+      grupo:       codigo.trim().charAt(0),
+    });
+    onCuentaCreada(nueva);
+    return nueva;
+  }
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
@@ -136,6 +176,7 @@ function ModalProveedor({ form, setForm, planContable, guardando, onGuardar, onC
                 value={form.cuenta_contable_id}
                 onChange={v => set('cuenta_contable_id', v)}
                 placeholder="Escribe código o descripción..."
+                onCrear={crearCuenta}
               />
             </div>
             <div className="col-span-2">
@@ -147,6 +188,7 @@ function ModalProveedor({ form, setForm, planContable, guardando, onGuardar, onC
                 value={form.cuenta_gasto_id}
                 onChange={v => set('cuenta_gasto_id', v)}
                 placeholder="Escribe código o descripción..."
+                onCrear={crearCuenta}
               />
             </div>
           </div>
@@ -589,6 +631,9 @@ export default function Proveedores() {
           onCerrar={() => { setModal(null); setErrorModal(''); }}
           esEdicion={modal !== 'nuevo'}
           errorModal={errorModal}
+          onCuentaCreada={nueva =>
+            setPlanContable(prev => [...prev, nueva].sort((a, b) => a.codigo.localeCompare(b.codigo)))
+          }
         />
       )}
 

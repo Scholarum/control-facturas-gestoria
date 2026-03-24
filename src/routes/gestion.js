@@ -175,6 +175,38 @@ router.put('/contabilizar', async (req, res) => {
   res.json({ ok: true, data: { contabilizadas: archivos.length } });
 });
 
+// ─── PUT /api/drive/cc-masivo — asignar CC a varias facturas ─────────────────
+
+router.put('/cc-masivo', express.json(), async (req, res) => {
+  const { ids, cuenta_contable_id } = req.body;
+  if (!ids?.length) return res.status(400).json({ ok: false, error: 'ids requeridos' });
+
+  const db   = getDb();
+  const ccId = cuenta_contable_id ? parseInt(cuenta_contable_id, 10) : null;
+
+  const archivos = await db.all(
+    'SELECT id, estado_gestion FROM drive_archivos WHERE id = ANY($1::int[])',
+    [ids]
+  );
+  const contabilizadas = archivos.filter(a => a.estado_gestion === 'CONTABILIZADA');
+  if (contabilizadas.length > 0) {
+    return res.status(400).json({
+      ok:    false,
+      error: `${contabilizadas.length} factura(s) ya están contabilizadas`,
+      ids:   contabilizadas.map(a => a.id),
+    });
+  }
+
+  const nuevoEstado = ccId ? 'CC_ASIGNADA' : 'PENDIENTE';
+  await db.query(
+    `UPDATE drive_archivos SET cuenta_contable_id = $1, estado_gestion = $2
+     WHERE id = ANY($3::int[]) AND estado_gestion != 'CONTABILIZADA'`,
+    [ccId, nuevoEstado, ids]
+  );
+
+  res.json({ ok: true, data: { actualizadas: ids.length, cc_efectiva_id: ccId, estado_gestion: nuevoEstado } });
+});
+
 // ─── GET /api/drive/:id/stream — proxy PDF para vista previa ─────────────────
 
 router.get('/:id/stream', async (req, res) => {

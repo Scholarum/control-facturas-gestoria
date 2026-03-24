@@ -131,6 +131,17 @@ export async function contabilizar(ids) {
   return res.json();
 }
 
+export async function asignarCCMasivo(ids, ccId) {
+  const res = await fetch(`${API_BASE}/api/drive/cc-masivo`, {
+    method:  'PUT',
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ ids, cuenta_contable_id: ccId || null }),
+  });
+  const json = await res.json();
+  if (!json.ok) throw new Error(json.error || 'Error al asignar cuentas contables');
+  return json.data;
+}
+
 export async function asignarCuentaContable(id, ccId) {
   const res = await fetch(`${API_BASE}/api/drive/${id}/cc`, {
     method: 'PUT',

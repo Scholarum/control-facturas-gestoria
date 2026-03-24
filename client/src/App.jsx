@@ -8,7 +8,7 @@ import Historial      from './pages/Historial.jsx';
 import Configuracion  from './pages/Configuracion.jsx';
 import Proveedores    from './pages/Proveedores.jsx';
 import SeccionFacturas from './components/SeccionFacturas.jsx';
-import { fetchFacturas, fetchProveedores, exportarExcel, triggerSyncManual, fetchPlanContable, asignarCuentaContable } from './api.js';
+import { fetchFacturas, fetchProveedores, exportarExcel, triggerSyncManual, fetchPlanContable, asignarCuentaContable, asignarCCMasivo } from './api.js';
 
 // ─── Stats ────────────────────────────────────────────────────────────────────
 
@@ -102,6 +102,15 @@ function AppInner() {
     } catch (e) {
       setError(e.message);
     }
+  }
+
+  function handleAsignarCCMasivo(ids, ccId) {
+    setTodasFacturas(prev => prev.map(f =>
+      ids.includes(f.id)
+        ? { ...f, cc_manual_id: ccId, cc_efectiva_id: ccId, estado_gestion: 'CC_ASIGNADA' }
+        : f
+    ));
+    setSubTab('cc_asignada');
   }
 
   // Callback para re-extracción desde Configuración
@@ -345,6 +354,7 @@ function AppInner() {
                 planContable={planContable}
                 onEstadoActualizado={handleEstadoActualizado}
                 onAsignarCC={handleAsignarCC}
+                onAsignarCCMasivo={handleAsignarCCMasivo}
               />
             )}
             {subTab === 'descargadas' && (
@@ -357,6 +367,7 @@ function AppInner() {
                 planContable={planContable}
                 onEstadoActualizado={handleEstadoActualizado}
                 onAsignarCC={handleAsignarCC}
+                onAsignarCCMasivo={handleAsignarCCMasivo}
               />
             )}
             {subTab === 'cc_asignada' && (

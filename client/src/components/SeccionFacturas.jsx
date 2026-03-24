@@ -1,6 +1,6 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import TablaFacturas from './TablaFacturas.jsx';
-import { descargarZip, contabilizar, revertirEstado } from '../api.js';
+import { descargarZip, contabilizar, revertirEstado, asignarCCMasivo } from '../api.js';
 
 // ─── Filtros compactos por sección ────────────────────────────────────────────
 
@@ -65,6 +65,72 @@ function Spinner() {
   );
 }
 
+// ─── ComboboxCuenta compacto (para barra de acción masiva) ───────────────────
+
+function ComboboxCuentaMasiva({ cuentas, value, onChange }) {
+  const [q,       setQ]       = useState('');
+  const [abierto, setAbierto] = useState(false);
+  const ref = useRef(null);
+
+  const seleccionada = cuentas.find(c => String(c.id) === String(value));
+  const filtradas = q.trim()
+    ? cuentas.filter(c =>
+        c.codigo.startsWith(q.trim()) ||
+        c.descripcion.toLowerCase().includes(q.toLowerCase())
+      )
+    : cuentas;
+
+  useEffect(() => {
+    function onClick(e) { if (ref.current && !ref.current.contains(e.target)) setAbierto(false); }
+    document.addEventListener('mousedown', onClick);
+    return () => document.removeEventListener('mousedown', onClick);
+  }, []);
+
+  const displayValue = seleccionada ? `${seleccionada.codigo} — ${seleccionada.descripcion}` : '';
+
+  return (
+    <div ref={ref} className="relative">
+      <input
+        value={abierto ? q : displayValue}
+        onChange={e => setQ(e.target.value)}
+        onFocus={() => { setQ(''); setAbierto(true); }}
+        placeholder="Selecciona cuenta contable..."
+        className="rounded-lg border border-white/30 bg-white/10 text-white placeholder-white/50 px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-white/50 w-72 pr-6"
+        autoComplete="off"
+      />
+      {value && (
+        <button
+          type="button"
+          onMouseDown={e => { e.preventDefault(); onChange(''); }}
+          className="absolute right-1.5 top-1/2 -translate-y-1/2 text-white/50 hover:text-white leading-none text-sm"
+        >✕</button>
+      )}
+      {abierto && (
+        <div className="absolute z-50 top-full left-0 w-80 mt-1 bg-white border border-gray-200 rounded-lg shadow-xl max-h-48 overflow-y-auto">
+          {filtradas.length === 0 ? (
+            <p className="px-3 py-2 text-xs text-gray-400">Sin resultados</p>
+          ) : filtradas.map(c => (
+            <button
+              key={c.id}
+              type="button"
+              onMouseDown={e => {
+                e.preventDefault();
+                onChange(String(c.id));
+                setQ('');
+                setAbierto(false);
+              }}
+              className={`w-full text-left px-3 py-1.5 text-xs hover:bg-blue-50 flex items-center gap-2 ${String(c.id) === String(value) ? 'bg-blue-50' : ''}`}
+            >
+              <span className="font-mono font-semibold text-gray-900 w-12 flex-shrink-0">{c.codigo}</span>
+              <span className="text-gray-500 truncate">{c.descripcion}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Sección principal ────────────────────────────────────────────────────────
 
 /**
@@ -80,11 +146,14 @@ export default function SeccionFacturas({
   onEstadoActualizado,
   planContable = [],
   onAsignarCC,
+  onAsignarCCMasivo,
 }) {
   const [filtros,       setFiltros]       = useState({ proveedor: '', fechaDesde: '', fechaHasta: '' });
   const [seleccionados, setSeleccionados] = useState(new Set());
   const [descargando,        setDescargando]        = useState(false);
   const [contabilizando,     setContabilizando]     = useState(false);
+  const [asignandoCC,        setAsignandoCC]        = useState(false);
+  const [ccMasiva,           setCcMasiva]           = useState('');
   const [error,              setError]              = useState('');
 
   const filtradas = useMemo(() => facturas.filter(f => {
@@ -146,6 +215,22 @@ export default function SeccionFacturas({
     }
   }
 
+  async function handleAsignarCCMasivaLocal() {
+    if (!ccMasiva) return;
+    const ids = Array.from(seleccionados);
+    setAsignandoCC(true); setError('');
+    try {
+      await asignarCCMasivo(ids, parseInt(ccMasiva, 10));
+      onAsignarCCMasivo(ids, parseInt(ccMasiva, 10));
+      setCcMasiva('');
+      setSeleccionados(new Set());
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setAsignandoCC(false);
+    }
+  }
+
   async function handleRevertir(id) {
     try {
       await revertirEstado(id);
@@ -177,37 +262,61 @@ export default function SeccionFacturas({
 
       {/* Barra de acciones — visible siempre que haya selección */}
       {haySeleccion && (
-        <div className="flex items-center gap-3 bg-blue-600 text-white rounded-xl px-5 py-3 shadow-lg shadow-blue-200">
-          <span className="text-sm font-medium flex-1">
-            {n} {n === 1 ? 'factura seleccionada' : 'facturas seleccionadas'}
-          </span>
-          <button
-            onClick={() => setSeleccionados(new Set())}
-            className="px-3 py-1.5 text-xs font-medium bg-blue-500 hover:bg-blue-400 rounded-lg transition-colors"
-          >
-            Deseleccionar
-          </button>
-
-          {/* Descargar ZIP — disponible en todos los estados */}
-          <button
-            onClick={handleDescargar}
-            disabled={descargando || contabilizando}
-            className="flex items-center gap-1.5 px-4 py-1.5 text-xs font-semibold bg-white text-blue-700 hover:bg-blue-50 rounded-lg transition-colors disabled:opacity-60"
-          >
-            {descargando ? <Spinner /> : <IconoDescarga />}
-            {descargando ? 'Generando ZIP...' : `Descargar ZIP (${n})`}
-          </button>
-
-          {/* Marcar como CONTABILIZADAS — solo en CC Asignada */}
-          {tipo === 'cc_asignada' && !esAdmin && (
+        <div className="space-y-2">
+          <div className="flex items-center gap-3 bg-blue-600 text-white rounded-xl px-5 py-3 shadow-lg shadow-blue-200 flex-wrap">
+            <span className="text-sm font-medium flex-1">
+              {n} {n === 1 ? 'factura seleccionada' : 'facturas seleccionadas'}
+            </span>
             <button
-              onClick={handleContabilizar}
-              disabled={contabilizando || descargando}
-              className="flex items-center gap-1.5 px-4 py-1.5 text-xs font-semibold bg-emerald-500 hover:bg-emerald-400 text-white rounded-lg transition-colors disabled:opacity-60"
+              onClick={() => setSeleccionados(new Set())}
+              className="px-3 py-1.5 text-xs font-medium bg-blue-500 hover:bg-blue-400 rounded-lg transition-colors"
             >
-              {contabilizando ? <Spinner /> : <IconoCheck />}
-              {contabilizando ? 'Contabilizando...' : `Contabilizar (${n})`}
+              Deseleccionar
             </button>
+
+            {/* Descargar ZIP — disponible en todos los estados */}
+            <button
+              onClick={handleDescargar}
+              disabled={descargando || contabilizando || asignandoCC}
+              className="flex items-center gap-1.5 px-4 py-1.5 text-xs font-semibold bg-white text-blue-700 hover:bg-blue-50 rounded-lg transition-colors disabled:opacity-60"
+            >
+              {descargando ? <Spinner /> : <IconoDescarga />}
+              {descargando ? 'Generando ZIP...' : `Descargar ZIP (${n})`}
+            </button>
+
+            {/* Marcar como CONTABILIZADAS — solo en CC Asignada */}
+            {tipo === 'cc_asignada' && (
+              <button
+                onClick={handleContabilizar}
+                disabled={contabilizando || descargando || asignandoCC}
+                className="flex items-center gap-1.5 px-4 py-1.5 text-xs font-semibold bg-emerald-500 hover:bg-emerald-400 text-white rounded-lg transition-colors disabled:opacity-60"
+              >
+                {contabilizando ? <Spinner /> : <IconoCheck />}
+                {contabilizando ? 'Contabilizando...' : `Contabilizar (${n})`}
+              </button>
+            )}
+          </div>
+
+          {/* Asignación masiva de CC — solo en Pendientes y Descargadas */}
+          {(tipo === 'pendientes' || tipo === 'descargadas') && planContable.length > 0 && (
+            <div className="flex items-center gap-3 bg-purple-600 text-white rounded-xl px-5 py-3 shadow-lg shadow-purple-200 flex-wrap">
+              <span className="text-xs font-medium text-purple-100 flex-shrink-0">
+                Asignar CC a {n} {n === 1 ? 'factura' : 'facturas'}:
+              </span>
+              <ComboboxCuentaMasiva
+                cuentas={planContable}
+                value={ccMasiva}
+                onChange={setCcMasiva}
+              />
+              <button
+                onClick={handleAsignarCCMasivaLocal}
+                disabled={!ccMasiva || asignandoCC || descargando}
+                className="flex items-center gap-1.5 px-4 py-1.5 text-xs font-semibold bg-white text-purple-700 hover:bg-purple-50 rounded-lg transition-colors disabled:opacity-60 flex-shrink-0"
+              >
+                {asignandoCC ? <Spinner /> : <IconoCheck />}
+                {asignandoCC ? 'Asignando...' : 'Asignar CC'}
+              </button>
+            </div>
           )}
         </div>
       )}
