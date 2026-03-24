@@ -69,15 +69,18 @@ router.post('/descargar-zip', async (req, res) => {
 
   if (fallidos.length) zip.file('_errores.json', JSON.stringify(fallidos, null, 2));
 
-  // Marcar como DESCARGADA (salvo las ya CONTABILIZADAS)
-  const idsActualizar = archivos
-    .filter(a => a.estado_gestion !== 'CONTABILIZADA')
-    .map(a => a.id);
-  if (idsActualizar.length) {
-    await db.query(
-      "UPDATE drive_archivos SET estado_gestion='DESCARGADA' WHERE id = ANY($1::int[])",
-      [idsActualizar]
-    );
+  // Los admins no modifican el estado al descargar
+  const esAdmin = req.usuario?.rol === 'ADMIN';
+  if (!esAdmin) {
+    const idsActualizar = archivos
+      .filter(a => a.estado_gestion !== 'CONTABILIZADA')
+      .map(a => a.id);
+    if (idsActualizar.length) {
+      await db.query(
+        "UPDATE drive_archivos SET estado_gestion='DESCARGADA' WHERE id = ANY($1::int[])",
+        [idsActualizar]
+      );
+    }
   }
 
   const usuarioId = req.usuario?.id ?? null;

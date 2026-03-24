@@ -123,12 +123,13 @@ export default function SeccionFacturas({
     setDescargando(true); setError('');
     try {
       await descargarZip(ids);
-      if (tipo === 'pendientes') {
+      if (tipo === 'pendientes' && !esAdmin) {
         // El backend ya marcó como DESCARGADA; preguntamos si también contabilizar
         setModalPendiente({ ids });
-      } else {
+      } else if (!esAdmin) {
         onEstadoActualizado(ids, 'DESCARGADA');
       }
+      // Si es admin: no se cambia estado ni aparece modal
     } catch (e) {
       setError(e.message);
     } finally {
@@ -221,8 +222,8 @@ export default function SeccionFacturas({
             {descargando ? 'Generando ZIP...' : `Descargar ZIP (${n})`}
           </button>
 
-          {/* Marcar como CONTABILIZADAS — solo en sección Descargadas */}
-          {tipo === 'descargadas' && (
+          {/* Marcar como CONTABILIZADAS — solo en sección Descargadas y solo para no-admin */}
+          {tipo === 'descargadas' && !esAdmin && (
             <button
               onClick={handleContabilizar}
               disabled={contabilizando || descargando}
