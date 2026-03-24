@@ -8,7 +8,6 @@ function fmtEuro(n, { showZero = false } = {}) {
   return new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format(n);
 }
 
-// Para IVA: siempre muestra el valor aunque sea 0,00 € (da confianza contable)
 function fmtEuroIva(n) {
   if (n == null || n === '') return '—';
   return new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format(n);
@@ -28,7 +27,7 @@ function Th({ children, className = '' }) {
   );
 }
 
-// ─── Combobox de cuentas ──────────────────────────────────────────────────────
+// ─── Combobox de cuentas del Plan Contable ────────────────────────────────────
 
 function ComboboxCuenta({ cuentas, value, onChange, disabled }) {
   const [q,       setQ]       = useState('');
@@ -57,31 +56,31 @@ function ComboboxCuenta({ cuentas, value, onChange, disabled }) {
 
   if (disabled) {
     return (
-      <p className="text-sm text-gray-700">
+      <span className="text-xs text-gray-600">
         {displayValue || <span className="text-gray-400 italic">Sin cuenta asignada</span>}
-      </p>
+      </span>
     );
   }
 
   return (
-    <div ref={ref} className="relative">
+    <div ref={ref} className="relative" onClick={e => e.stopPropagation()}>
       <input
         value={abierto ? q : displayValue}
         onChange={e => setQ(e.target.value)}
         onFocus={() => { setQ(''); setAbierto(true); }}
         placeholder="Sin CC asignada..."
-        className="w-full rounded-lg border border-gray-200 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400 pr-7"
+        className="w-full rounded-md border border-gray-200 px-2.5 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-purple-400 pr-6"
         autoComplete="off"
       />
       {value && (
         <button
           type="button"
           onMouseDown={e => { e.preventDefault(); onChange(''); }}
-          className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-300 hover:text-gray-500 text-base leading-none"
+          className="absolute right-1.5 top-1/2 -translate-y-1/2 text-gray-300 hover:text-gray-500 leading-none text-sm"
         >✕</button>
       )}
       {abierto && (
-        <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-44 overflow-y-auto">
+        <div className="absolute z-50 top-full left-0 w-72 mt-1 bg-white border border-gray-200 rounded-lg shadow-xl max-h-44 overflow-y-auto">
           {filtradas.length === 0 ? (
             <p className="px-3 py-2 text-xs text-gray-400">Sin resultados</p>
           ) : (
@@ -95,10 +94,10 @@ function ComboboxCuenta({ cuentas, value, onChange, disabled }) {
                   setQ('');
                   setAbierto(false);
                 }}
-                className={`w-full text-left px-3 py-1.5 text-sm hover:bg-purple-50 flex items-center gap-2 ${String(c.id) === String(value) ? 'bg-purple-50' : ''}`}
+                className={`w-full text-left px-3 py-1.5 text-xs hover:bg-purple-50 flex items-center gap-2 ${String(c.id) === String(value) ? 'bg-purple-50' : ''}`}
               >
-                <span className="font-mono font-semibold text-gray-900 w-12 flex-shrink-0">{c.codigo}</span>
-                <span className="text-gray-500 text-xs truncate">{c.descripcion}</span>
+                <span className="font-mono font-semibold text-gray-900 w-10 flex-shrink-0">{c.codigo}</span>
+                <span className="text-gray-500 truncate">{c.descripcion}</span>
               </button>
             ))
           )}
@@ -108,22 +107,16 @@ function ComboboxCuenta({ cuentas, value, onChange, disabled }) {
   );
 }
 
-// ─── Panel de detalle (acordeón) ─────────────────────────────────────────────
+// ─── Sub-fila: CC + Vista previa (siempre visible) ───────────────────────────
 
-const TIPOS_IVA = [0, 4, 10, 21];
+function FilaCcPreview({ f, planContable, onAsignarCC, selected }) {
+  const [ccId,          setCcId]          = useState(String(f.cc_efectiva_id || ''));
+  const [guardando,     setGuardando]     = useState(false);
+  const [ccError,       setCcError]       = useState('');
+  const [previewUrl,    setPreviewUrl]    = useState(null);
+  const [previewLoading,setPreviewLoading]= useState(false);
+  const [previewError,  setPreviewError]  = useState('');
 
-function PanelDetalle({ f, planContable, onAsignarCC }) {
-  const d   = f.datos_extraidos || {};
-  const iva = Array.isArray(d.iva) ? d.iva : [];
-
-  const ivaMap = {};
-  for (const e of iva) ivaMap[e.tipo] = e;
-  const tiposPresentes = TIPOS_IVA.filter(t => ivaMap[t]);
-
-  // CC state
-  const [ccId,      setCcId]      = useState(String(f.cc_efectiva_id || ''));
-  const [guardando, setGuardando] = useState(false);
-  const [ccError,   setCcError]   = useState('');
   const esContabilizada = f.estado_gestion === 'CONTABILIZADA';
 
   useEffect(() => {
@@ -145,187 +138,213 @@ function PanelDetalle({ f, planContable, onAsignarCC }) {
     }
   }
 
-  // Document preview state
-  const [previewUrl,     setPreviewUrl]     = useState(null);
-  const [previewLoading, setPreviewLoading] = useState(false);
-  const [previewError,   setPreviewError]   = useState('');
-
   async function cargarPreview() {
     setPreviewLoading(true);
     setPreviewError('');
     try {
       const { url, type } = await fetchPreviewFactura(f.id);
-      if (!type.includes('pdf')) {
-        setPreviewError('Vista previa no disponible para este formato. Descarga el archivo para verlo.');
-      } else {
+      // Verificar si es PDF tanto por MIME como por extensión del archivo
+      const ext = (f.nombre_archivo || '').split('.').pop().toLowerCase();
+      if (type.includes('pdf') || ext === 'pdf') {
         setPreviewUrl(url);
+      } else {
+        setPreviewError(`Este archivo (${ext.toUpperCase()}) no admite vista previa. Descárgalo para verlo.`);
       }
     } catch (e) {
-      setPreviewError('No se pudo cargar la vista previa: ' + e.message);
+      setPreviewError('No se pudo cargar: ' + e.message);
     } finally {
       setPreviewLoading(false);
     }
   }
 
+  const bgCls = selected ? 'bg-blue-50/70' : 'bg-gray-50/60';
+
   return (
-    <tr>
-      <td colSpan={100} className="px-0 pb-0 bg-blue-50/60 border-b border-blue-100">
-        <div className="px-6 py-4 space-y-5">
+    <>
+      {/* Fila de controles: CC + preview */}
+      <tr className={`${bgCls} border-b border-gray-100/80`}>
+        {/* Columna vacía (alineada con el botón expand) */}
+        <td className="px-3 py-1.5 w-8" />
+        {/* Columna vacía (alineada con el checkbox) */}
+        <td className="px-4 py-1.5 w-10" />
+        {/* Contenido */}
+        <td colSpan={100} className="px-2 py-1.5">
+          <div className="flex items-center gap-3 flex-wrap" onClick={e => e.stopPropagation()}>
 
-          {/* ── Fila 1: Datos fiscales / IVA / Totales ── */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-
-            {/* Datos fiscales */}
-            <div>
-              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Datos fiscales</p>
-              <div className="space-y-3">
-                <div>
-                  <p className="text-xs text-gray-400 mb-0.5">Emisor</p>
-                  <p className="text-sm font-medium text-gray-900">{d.nombre_emisor || '—'}</p>
-                  <p className="text-xs font-mono text-gray-500">{d.cif_emisor || '—'}</p>
-                </div>
-                <div className="border-t border-blue-100 pt-3">
-                  <p className="text-xs text-gray-400 mb-0.5">Receptor</p>
-                  <p className="text-sm font-medium text-gray-900">{d.nombre_receptor || '—'}</p>
-                  <p className="text-xs font-mono text-gray-500">{d.cif_receptor || '—'}</p>
-                </div>
+            {/* Cuenta Contable */}
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-gray-400 flex-shrink-0">Cta. Contable:</span>
+              <div className="w-64">
+                <ComboboxCuenta
+                  cuentas={planContable}
+                  value={ccId}
+                  onChange={handleCcChange}
+                  disabled={esContabilizada}
+                />
               </div>
-            </div>
-
-            {/* Desglose IVA */}
-            <div>
-              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Desglose IVA</p>
-              {tiposPresentes.length === 0 ? (
-                <p className="text-sm text-gray-400 italic">Sin desglose disponible</p>
-              ) : (
-                <table className="w-full text-xs">
-                  <thead>
-                    <tr className="text-gray-400">
-                      <th className="text-left pb-1.5 font-medium">Tipo</th>
-                      <th className="text-right pb-1.5 font-medium">Base</th>
-                      <th className="text-right pb-1.5 font-medium">Cuota</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-blue-100">
-                    {tiposPresentes.map(tipo => (
-                      <tr key={tipo}>
-                        <td className="py-1.5 font-medium text-gray-700">IVA {tipo}%</td>
-                        <td className="py-1.5 text-right text-gray-700">{fmtEuroIva(ivaMap[tipo].base)}</td>
-                        <td className="py-1.5 text-right text-gray-700">{fmtEuroIva(ivaMap[tipo].cuota)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+              {guardando && <span className="text-xs text-purple-400">Guardando...</span>}
+              {ccError  && <span className="text-xs text-red-500">{ccError}</span>}
+              {!ccId && !esContabilizada && (
+                <span className="text-xs text-amber-500">Asigna CC para poder contabilizar</span>
+              )}
+              {ccId && !esContabilizada && f.cc_efectiva_id && !f.cc_manual_id && (
+                <span className="text-xs text-gray-400">(por defecto del proveedor)</span>
               )}
             </div>
 
-            {/* Totales y pago */}
-            <div>
-              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Totales y pago</p>
-              <div className="space-y-2">
-                <div className="flex justify-between">
-                  <span className="text-xs text-gray-500">Total base (sin IVA)</span>
-                  <span className="text-sm font-bold text-gray-900">{fmtEuro(d.total_sin_iva)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-xs text-gray-500">Total IVA</span>
-                  <span className="text-sm font-bold text-gray-900">{fmtEuro(d.total_iva)}</span>
-                </div>
-                <div className="flex justify-between border-t border-blue-100 pt-2 mt-1">
-                  <span className="text-xs font-semibold text-gray-700">Total factura</span>
-                  <span className={`text-sm font-bold ${d.total_factura < 0 ? 'text-red-600' : 'text-gray-900'}`}>
-                    {fmtEuro(d.total_factura)}
-                  </span>
-                </div>
-                <div className="border-t border-blue-100 pt-2 space-y-1.5">
-                  <div className="flex justify-between">
-                    <span className="text-xs text-gray-500">Forma de pago</span>
-                    <span className="text-xs font-medium text-gray-700">{d.forma_pago || '—'}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-xs text-gray-500">Vencimiento</span>
-                    <span className="text-xs font-medium text-gray-700">{fmtFecha(d.fecha_vencimiento)}</span>
-                  </div>
-                </div>
+            {/* Separador */}
+            <span className="text-gray-200 select-none">|</span>
+
+            {/* Botón Vista previa */}
+            {!previewUrl && !previewError && (
+              <button
+                onClick={cargarPreview}
+                disabled={previewLoading}
+                className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-blue-600 bg-white border border-blue-200 rounded-md hover:bg-blue-50 disabled:opacity-50 transition-colors flex-shrink-0"
+              >
+                {previewLoading ? (
+                  <>
+                    <svg className="h-3 w-3 animate-spin" viewBox="0 0 24 24" fill="none">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
+                    </svg>
+                    Cargando...
+                  </>
+                ) : (
+                  <>
+                    <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
+                    </svg>
+                    Ver documento
+                  </>
+                )}
+              </button>
+            )}
+            {previewUrl && (
+              <button
+                onClick={() => setPreviewUrl(null)}
+                className="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600 flex-shrink-0"
+              >
+                <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21"/>
+                </svg>
+                Cerrar vista previa
+              </button>
+            )}
+            {previewError && (
+              <span className="text-xs text-amber-600">{previewError}</span>
+            )}
+          </div>
+        </td>
+      </tr>
+
+      {/* Fila del iframe (solo cuando preview está cargado) */}
+      {previewUrl && (
+        <tr className={`${bgCls} border-b border-gray-200`}>
+          <td colSpan={100} className="px-4 pb-4 pt-1">
+            <iframe
+              src={previewUrl}
+              className="w-full rounded-lg border border-blue-200 shadow-sm"
+              style={{ height: '520px' }}
+              title={`Vista previa — ${f.nombre_archivo}`}
+            />
+          </td>
+        </tr>
+      )}
+    </>
+  );
+}
+
+// ─── Panel de detalle fiscal (acordeón) ──────────────────────────────────────
+
+const TIPOS_IVA = [0, 4, 10, 21];
+
+function PanelDetalleFiscal({ f }) {
+  const d   = f.datos_extraidos || {};
+  const iva = Array.isArray(d.iva) ? d.iva : [];
+
+  const ivaMap = {};
+  for (const e of iva) ivaMap[e.tipo] = e;
+  const tiposPresentes = TIPOS_IVA.filter(t => ivaMap[t]);
+
+  return (
+    <tr>
+      <td colSpan={100} className="px-0 pb-0 bg-blue-50/60 border-b border-blue-100">
+        <div className="px-6 py-4 grid grid-cols-1 md:grid-cols-3 gap-6">
+
+          {/* Datos fiscales */}
+          <div>
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Datos fiscales</p>
+            <div className="space-y-3">
+              <div>
+                <p className="text-xs text-gray-400 mb-0.5">Emisor</p>
+                <p className="text-sm font-medium text-gray-900">{d.nombre_emisor || '—'}</p>
+                <p className="text-xs font-mono text-gray-500">{d.cif_emisor || '—'}</p>
+              </div>
+              <div className="border-t border-blue-100 pt-3">
+                <p className="text-xs text-gray-400 mb-0.5">Receptor</p>
+                <p className="text-sm font-medium text-gray-900">{d.nombre_receptor || '—'}</p>
+                <p className="text-xs font-mono text-gray-500">{d.cif_receptor || '—'}</p>
               </div>
             </div>
           </div>
 
-          {/* ── Fila 2: Cuenta Contable + Vista Previa ── */}
-          <div className="border-t border-blue-100 pt-4 grid grid-cols-1 md:grid-cols-2 gap-6">
+          {/* Desglose IVA */}
+          <div>
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Desglose IVA</p>
+            {tiposPresentes.length === 0 ? (
+              <p className="text-sm text-gray-400 italic">Sin desglose disponible</p>
+            ) : (
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="text-gray-400">
+                    <th className="text-left pb-1.5 font-medium">Tipo</th>
+                    <th className="text-right pb-1.5 font-medium">Base</th>
+                    <th className="text-right pb-1.5 font-medium">Cuota</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-blue-100">
+                  {tiposPresentes.map(tipo => (
+                    <tr key={tipo}>
+                      <td className="py-1.5 font-medium text-gray-700">IVA {tipo}%</td>
+                      <td className="py-1.5 text-right text-gray-700">{fmtEuroIva(ivaMap[tipo].base)}</td>
+                      <td className="py-1.5 text-right text-gray-700">{fmtEuroIva(ivaMap[tipo].cuota)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
 
-            {/* Cuenta Contable */}
-            <div>
-              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
-                Cuenta Contable
-                {f.cc_efectiva_id && !f.cc_manual_id && (
-                  <span className="ml-2 text-xs font-normal text-gray-400 normal-case">(por defecto del proveedor)</span>
-                )}
-              </p>
-              <ComboboxCuenta
-                cuentas={planContable}
-                value={ccId}
-                onChange={handleCcChange}
-                disabled={esContabilizada}
-              />
-              {guardando && <p className="text-xs text-purple-500 mt-1">Guardando...</p>}
-              {ccError && <p className="text-xs text-red-500 mt-1">{ccError}</p>}
-              {!esContabilizada && (
-                <p className="text-xs text-gray-400 mt-1">
-                  {ccId
-                    ? 'CC asignada — esta factura aparece en la sección "CC Asignada"'
-                    : 'Asigna una cuenta contable para poder contabilizar esta factura'}
-                </p>
-              )}
-            </div>
-
-            {/* Vista previa del documento */}
-            <div>
-              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Vista previa</p>
-              {!previewUrl && !previewError && (
-                <button
-                  onClick={cargarPreview}
-                  disabled={previewLoading}
-                  className="flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg transition-colors disabled:opacity-50"
-                >
-                  {previewLoading ? (
-                    <>
-                      <svg className="h-3.5 w-3.5 animate-spin" viewBox="0 0 24 24" fill="none">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
-                      </svg>
-                      Cargando...
-                    </>
-                  ) : (
-                    <>
-                      <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
-                      </svg>
-                      Ver documento
-                    </>
-                  )}
-                </button>
-              )}
-              {previewError && (
-                <p className="text-xs text-red-500">{previewError}</p>
-              )}
-              {previewUrl && (
-                <div className="mt-2">
-                  <iframe
-                    src={previewUrl}
-                    className="w-full rounded-lg border border-blue-200 shadow-sm"
-                    style={{ height: '480px' }}
-                    title={`Vista previa — ${f.nombre_archivo}`}
-                  />
-                  <button
-                    onClick={() => setPreviewUrl(null)}
-                    className="mt-1 text-xs text-gray-400 hover:text-gray-600"
-                  >
-                    Cerrar vista previa
-                  </button>
+          {/* Totales y pago */}
+          <div>
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Totales y pago</p>
+            <div className="space-y-2">
+              <div className="flex justify-between">
+                <span className="text-xs text-gray-500">Total base (sin IVA)</span>
+                <span className="text-sm font-bold text-gray-900">{fmtEuro(d.total_sin_iva)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-xs text-gray-500">Total IVA</span>
+                <span className="text-sm font-bold text-gray-900">{fmtEuro(d.total_iva)}</span>
+              </div>
+              <div className="flex justify-between border-t border-blue-100 pt-2 mt-1">
+                <span className="text-xs font-semibold text-gray-700">Total factura</span>
+                <span className={`text-sm font-bold ${d.total_factura < 0 ? 'text-red-600' : 'text-gray-900'}`}>
+                  {fmtEuro(d.total_factura)}
+                </span>
+              </div>
+              <div className="border-t border-blue-100 pt-2 space-y-1.5">
+                <div className="flex justify-between">
+                  <span className="text-xs text-gray-500">Forma de pago</span>
+                  <span className="text-xs font-medium text-gray-700">{d.forma_pago || '—'}</span>
                 </div>
-              )}
+                <div className="flex justify-between">
+                  <span className="text-xs text-gray-500">Vencimiento</span>
+                  <span className="text-xs font-medium text-gray-700">{fmtFecha(d.fecha_vencimiento)}</span>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -385,7 +404,6 @@ export default function TablaFacturas({
         <table className="w-full text-sm">
           <thead className="bg-gray-50 border-b border-gray-200">
             <tr>
-              {/* Flecha expand */}
               <th className="px-3 py-3 w-8" />
               <th className="px-4 py-3 w-10">
                 <input
@@ -423,11 +441,11 @@ export default function TablaFacturas({
               <EmptyState hayFiltros={hayFiltros} colspan={colspan} />
             ) : (
               facturas.flatMap(f => {
-                const datos       = f.datos_extraidos;
-                const selected    = seleccionados.has(f.id);
-                const expanded    = expandidos.has(f.id);
-                const total       = datos?.total_factura;
-                const negativo    = total != null && total < 0;
+                const datos    = f.datos_extraidos;
+                const selected = seleccionados.has(f.id);
+                const expanded = expandidos.has(f.id);
+                const total    = datos?.total_factura;
+                const negativo = total != null && total < 0;
                 const puedeRevertir = esAdmin && f.estado_gestion && f.estado_gestion !== 'PENDIENTE';
 
                 const mainRow = (
@@ -436,9 +454,9 @@ export default function TablaFacturas({
                     onClick={() => onToggle(f.id)}
                     className={`cursor-pointer transition-colors ${selected ? 'bg-blue-50 hover:bg-blue-100' : expanded ? 'bg-gray-50' : 'hover:bg-gray-50'}`}
                   >
-                    {/* Botón expandir */}
+                    {/* Botón expandir (solo datos fiscales) */}
                     <td className="px-3 py-3" onClick={e => toggleExpand(f.id, e)}>
-                      <button className="text-gray-400 hover:text-gray-600 transition-colors p-0.5 rounded">
+                      <button className="text-gray-400 hover:text-gray-600 transition-colors p-0.5 rounded" title="Ver datos fiscales">
                         <svg
                           xmlns="http://www.w3.org/2000/svg"
                           className={`h-3.5 w-3.5 transition-transform ${expanded ? 'rotate-90' : ''}`}
@@ -498,9 +516,23 @@ export default function TablaFacturas({
                   </tr>
                 );
 
-                return expanded
-                  ? [mainRow, <PanelDetalle key={`detail-${f.id}`} f={f} planContable={planContable} onAsignarCC={onAsignarCC} />]
-                  : [mainRow];
+                // Sub-fila siempre visible: CC + Vista previa
+                const ccPreviewRow = planContable.length > 0 && (
+                  <FilaCcPreview
+                    key={`cc-${f.id}`}
+                    f={f}
+                    planContable={planContable}
+                    onAsignarCC={onAsignarCC}
+                    selected={selected}
+                  />
+                );
+
+                // Panel de detalle fiscal (solo cuando se expande)
+                const detailRow = expanded && (
+                  <PanelDetalleFiscal key={`detail-${f.id}`} f={f} />
+                );
+
+                return [mainRow, ccPreviewRow, detailRow].filter(Boolean);
               })
             )}
           </tbody>
