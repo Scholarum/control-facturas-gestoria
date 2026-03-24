@@ -37,7 +37,7 @@ router.post('/manual', requireAdmin, async (req, res) => {
 
 router.post('/test-notificacion', requireAdmin, async (req, res) => {
   try {
-    const result = await enviarNotificaciones();
+    const result = await enviarNotificaciones({ forzar: true });
     res.json({ ok: true, data: result });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });

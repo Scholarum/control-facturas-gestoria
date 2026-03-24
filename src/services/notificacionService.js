@@ -2,10 +2,10 @@ const Mailjet              = require('node-mailjet');
 const { getDb }            = require('../config/database');
 const { getSistemaConfig } = require('./sistemaConfigService');
 
-async function enviarNotificaciones() {
+async function enviarNotificaciones({ forzar = false } = {}) {
   const config = await getSistemaConfig();
 
-  if (config.notify_activo !== 'true') {
+  if (!forzar && config.notify_activo !== 'true') {
     return { saltado: true, motivo: 'notificaciones desactivadas' };
   }
 
