@@ -1,5 +1,9 @@
 import { useState } from 'react';
-import { descargarPdfConciliacion, descargarExcelConciliacion } from '../api.js';
+import {
+  descargarPdfConciliacion,
+  descargarExcelConciliacion,
+  actualizarEstadoLineaConciliacion,
+} from '../api.js';
 
 const ESTADO_CFG = {
   OK:               { label: 'OK',             cls: 'bg-emerald-50 text-emerald-700 ring-emerald-200' },
@@ -11,6 +15,11 @@ function fmtFecha(iso) {
   if (!iso) return '—';
   const [y, m, d] = iso.split('-');
   return `${d}/${m}/${y}`;
+}
+
+function fmtFechaHora(iso) {
+  if (!iso) return null;
+  return new Date(iso).toLocaleString('es-ES', { dateStyle: 'short', timeStyle: 'short' });
 }
 
 function fmtEuro(n) {
@@ -48,16 +57,47 @@ function StatCard({ label, value, color, bg }) {
   );
 }
 
-export default function ResultadoConciliacion({ resumen, resultados }) {
-  const [filtroEstado, setFiltroEstado] = useState('');
+export default function ResultadoConciliacion({ resumen, resultados, conciliacionId, lineaEstados: lineaEstadosIniciales }) {
+  const [filtroEstado,     setFiltroEstado]     = useState('');
   const [descargandoPdf,   setDescargandoPdf]   = useState(false);
   const [descargandoExcel, setDescargandoExcel] = useState(false);
+
+  // Estado local de revisiones (optimistic update)
+  const [revisiones, setRevisiones] = useState(() => {
+    const m = {};
+    if (lineaEstadosIniciales) {
+      for (const [k, v] of Object.entries(lineaEstadosIniciales)) {
+        m[Number(k)] = v;
+      }
+    }
+    return m;
+  });
+  const [guardando, setGuardando] = useState({}); // idx → true mientras guarda
 
   const filtrados = filtroEstado
     ? resultados.filter(r => r.estado === filtroEstado)
     : resultados;
 
-  const conError = resultados.filter(r => r.estado !== 'OK');
+  // Error lines con su índice original en el array resultados
+  const conError = resultados
+    .map((r, idx) => ({ ...r, _idx: idx }))
+    .filter(r => r.estado !== 'OK');
+
+  async function cambiarRevision(idx, nuevoEstado) {
+    if (!conciliacionId) return;
+    setGuardando(prev => ({ ...prev, [idx]: true }));
+    const anterior = revisiones[idx]?.estado_revision || 'PENDIENTE';
+    // Optimistic update
+    setRevisiones(prev => ({ ...prev, [idx]: { ...prev[idx], estado_revision: nuevoEstado } }));
+    try {
+      await actualizarEstadoLineaConciliacion(conciliacionId, idx, nuevoEstado);
+    } catch {
+      // Revertir si falla
+      setRevisiones(prev => ({ ...prev, [idx]: { ...prev[idx], estado_revision: anterior } }));
+    } finally {
+      setGuardando(prev => ({ ...prev, [idx]: false }));
+    }
+  }
 
   async function descargarPdf() {
     setDescargandoPdf(true);
@@ -67,7 +107,7 @@ export default function ResultadoConciliacion({ resumen, resultados }) {
 
   async function descargarExcel() {
     setDescargandoExcel(true);
-    try { await descargarExcelConciliacion(resumen, resultados); }
+    try { await descargarExcelConciliacion(resumen, resultados, revisiones); }
     finally { setDescargandoExcel(false); }
   }
 
@@ -85,38 +125,20 @@ export default function ResultadoConciliacion({ resumen, resultados }) {
             </p>
           </div>
           <div className="flex items-center gap-2 flex-wrap justify-end">
-            <button
-              onClick={descargarExcel}
-              disabled={descargandoExcel}
-              className="flex items-center gap-2 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-60 whitespace-nowrap"
-            >
-              {descargandoExcel ? (
-                <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
-                </svg>
-              ) : (
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M3 14h18M10 3v18M14 3v18" />
-                </svg>
-              )}
+            <button onClick={descargarExcel} disabled={descargandoExcel}
+              className="flex items-center gap-2 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-60 whitespace-nowrap">
+              {descargandoExcel
+                ? <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/></svg>
+                : <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M3 14h18M10 3v18M14 3v18"/></svg>
+              }
               {descargandoExcel ? 'Generando...' : 'Exportar Excel'}
             </button>
-            <button
-              onClick={descargarPdf}
-              disabled={descargandoPdf}
-              className="flex items-center gap-2 px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-60 whitespace-nowrap"
-            >
-              {descargandoPdf ? (
-                <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
-                </svg>
-              ) : (
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
-                </svg>
-              )}
+            <button onClick={descargarPdf} disabled={descargandoPdf}
+              className="flex items-center gap-2 px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-60 whitespace-nowrap">
+              {descargandoPdf
+                ? <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/></svg>
+                : <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg>
+              }
               {descargandoPdf ? 'Generando...' : 'Descargar PDF'}
             </button>
           </div>
@@ -130,36 +152,73 @@ export default function ResultadoConciliacion({ resumen, resultados }) {
         </div>
       </div>
 
-      {/* Detalle de errores */}
+      {/* Tabla de incidencias con estado de revisión */}
       {conError.length > 0 && (
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-          <div className="px-4 py-3 border-b border-gray-100 bg-red-50/60">
+          <div className="px-4 py-3 border-b border-gray-100 bg-red-50/60 flex items-center justify-between">
             <h4 className="text-sm font-semibold text-red-800">
               Facturas con incidencias ({conError.length})
             </h4>
+            {conciliacionId && (
+              <span className="text-xs text-gray-400">Los cambios de estado se guardan automáticamente</span>
+            )}
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="bg-gray-50 border-b border-gray-200">
                 <tr>
-                  {['Estado','Nº Factura Drive','Archivo','Fecha','Importe Drive','Nº SAGE','Importe SAGE','Motivo'].map(h => (
+                  {['Estado','Nº Factura Drive','Fecha','Importe Drive','Nº SAGE','Importe SAGE','Motivo','Revisión'].map(h => (
                     <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {conError.map((r, i) => (
-                  <tr key={i} className={r.estado === 'ERROR_IMPORTE' ? 'bg-red-50/40' : 'bg-amber-50/40'}>
-                    <td className="px-4 py-3"><Badge estado={r.estado} /></td>
-                    <td className="px-4 py-3 font-mono text-xs font-medium text-gray-900">{r.numero_factura || '—'}</td>
-                    <td className="px-4 py-3 text-xs text-gray-500 max-w-[180px] truncate">{r.nombre_archivo || '—'}</td>
-                    <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{fmtFecha(r.fecha_emision)}</td>
-                    <td className="px-4 py-3 text-right font-semibold text-gray-900 whitespace-nowrap">{fmtEuro(r.importe_drive)}</td>
-                    <td className="px-4 py-3 font-mono text-xs text-gray-500">{r.sage?.numero_factura || '—'}</td>
-                    <td className="px-4 py-3 text-right text-gray-600 whitespace-nowrap">{fmtEuro(r.sage?.importe)}</td>
-                    <td className="px-4 py-3 text-xs text-gray-700 max-w-[260px]">{motivoError(r)}</td>
-                  </tr>
-                ))}
+                {conError.map(r => {
+                  const idx     = r._idx;
+                  const rev     = revisiones[idx];
+                  const estRev  = rev?.estado_revision || 'PENDIENTE';
+                  const revisada = estRev === 'REVISADA';
+                  return (
+                    <tr key={idx} className={`transition-colors ${
+                      revisada
+                        ? 'bg-gray-50 opacity-60'
+                        : r.estado === 'ERROR_IMPORTE' ? 'bg-red-50/40' : 'bg-amber-50/40'
+                    }`}>
+                      <td className="px-4 py-3"><Badge estado={r.estado} /></td>
+                      <td className={`px-4 py-3 font-mono text-xs font-medium text-gray-900 ${revisada ? 'line-through' : ''}`}>
+                        {r.numero_factura || '—'}
+                      </td>
+                      <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{fmtFecha(r.fecha_emision)}</td>
+                      <td className="px-4 py-3 text-right font-semibold text-gray-900 whitespace-nowrap">{fmtEuro(r.importe_drive)}</td>
+                      <td className="px-4 py-3 font-mono text-xs text-gray-500">{r.sage?.numero_factura || '—'}</td>
+                      <td className="px-4 py-3 text-right text-gray-600 whitespace-nowrap">{fmtEuro(r.sage?.importe)}</td>
+                      <td className="px-4 py-3 text-xs text-gray-700 max-w-[220px]">{motivoError(r)}</td>
+                      <td className="px-4 py-3">
+                        <div className="flex flex-col gap-1">
+                          <select
+                            value={estRev}
+                            disabled={!conciliacionId || guardando[idx]}
+                            onChange={e => cambiarRevision(idx, e.target.value)}
+                            className={`text-xs rounded-lg border px-2 py-1.5 font-medium cursor-pointer transition-colors focus:outline-none focus:ring-2 focus:ring-blue-400 ${
+                              revisada
+                                ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                : 'bg-amber-50 text-amber-700 border-amber-200'
+                            } disabled:cursor-not-allowed disabled:opacity-50`}
+                          >
+                            <option value="PENDIENTE">Pendiente</option>
+                            <option value="REVISADA">Revisada</option>
+                          </select>
+                          {rev?.usuario_nombre && (
+                            <span className="text-[10px] text-gray-400 leading-tight">
+                              {rev.usuario_nombre}
+                              {rev.actualizado_en ? ` · ${fmtFechaHora(rev.actualizado_en)}` : ''}
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -168,7 +227,6 @@ export default function ResultadoConciliacion({ resumen, resultados }) {
 
       {/* Tabla completa con filtro */}
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-
         <div className="px-4 py-3 border-b border-gray-100 flex items-center gap-2 flex-wrap">
           <span className="text-xs font-medium text-gray-500">Filtrar:</span>
           {['', 'OK', 'PENDIENTE_EN_SAGE', 'ERROR_IMPORTE'].map(estado => (

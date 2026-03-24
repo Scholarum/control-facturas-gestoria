@@ -108,7 +108,37 @@ const tablas = [
     ok              INTEGER NOT NULL DEFAULT 0,
     pendientes_sage INTEGER NOT NULL DEFAULT 0,
     error_importe   INTEGER NOT NULL DEFAULT 0,
-    resultado_json  JSONB NOT NULL
+    resultado_json  JSONB NOT NULL,
+    usuario_id      INTEGER REFERENCES usuarios(id),
+    usuario_nombre  TEXT
+  )`,
+
+  // Columnas de usuario añadidas a posteriori (idempotentes)
+  `ALTER TABLE historial_conciliaciones ADD COLUMN IF NOT EXISTS usuario_id     INTEGER REFERENCES usuarios(id)`,
+  `ALTER TABLE historial_conciliaciones ADD COLUMN IF NOT EXISTS usuario_nombre TEXT`,
+
+  `CREATE TABLE IF NOT EXISTS conciliacion_lineas_estado (
+    id              SERIAL PRIMARY KEY,
+    conciliacion_id INTEGER NOT NULL REFERENCES historial_conciliaciones(id) ON DELETE CASCADE,
+    linea_idx       INTEGER NOT NULL,
+    numero_factura  TEXT,
+    estado_revision TEXT NOT NULL DEFAULT 'PENDIENTE',
+    usuario_id      INTEGER REFERENCES usuarios(id),
+    usuario_nombre  TEXT,
+    actualizado_en  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(conciliacion_id, linea_idx)
+  )`,
+
+  `CREATE TABLE IF NOT EXISTS conciliacion_lineas_historial (
+    id              SERIAL PRIMARY KEY,
+    conciliacion_id INTEGER NOT NULL,
+    linea_idx       INTEGER NOT NULL,
+    numero_factura  TEXT,
+    estado_anterior TEXT,
+    estado_nuevo    TEXT NOT NULL,
+    usuario_id      INTEGER REFERENCES usuarios(id),
+    usuario_nombre  TEXT,
+    creado_en       TIMESTAMPTZ NOT NULL DEFAULT NOW()
   )`,
 
   // Índices

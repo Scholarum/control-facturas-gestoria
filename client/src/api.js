@@ -303,11 +303,21 @@ export async function fetchConciliacion(id) {
   return data;
 }
 
-export async function descargarExcelConciliacion(resumen, resultados) {
+export async function actualizarEstadoLineaConciliacion(conciliacionId, lineaIdx, estado_revision) {
+  const res = await fetch(`${API_BASE}/api/conciliacion/historial/${conciliacionId}/lineas/${lineaIdx}`, {
+    method:  'PUT',
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
+    body:    JSON.stringify({ estado_revision }),
+  });
+  const json = await res.json();
+  if (!json.ok) throw new Error(json.error || 'Error al actualizar estado');
+}
+
+export async function descargarExcelConciliacion(resumen, resultados, lineaEstados) {
   const res = await fetch(`${API_BASE}/api/conciliacion/excel`, {
     method:  'POST',
     headers: authHeaders({ 'Content-Type': 'application/json' }),
-    body:    JSON.stringify({ resumen, resultados }),
+    body:    JSON.stringify({ resumen, resultados, lineaEstados }),
   });
   if (!res.ok) throw new Error('Error al generar Excel');
   const blob = await res.blob();

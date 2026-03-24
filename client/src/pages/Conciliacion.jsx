@@ -201,7 +201,12 @@ export default function Conciliacion({ proveedores }) {
             Nueva conciliación
           </button>
         </div>
-        <ResultadoConciliacion resumen={resultado.resumen} resultados={resultado.resultados} />
+        <ResultadoConciliacion
+          resumen={resultado.resumen}
+          resultados={resultado.resultados}
+          conciliacionId={resultado.conciliacionId ?? null}
+          lineaEstados={resultado.lineaEstados ?? {}}
+        />
       </div>
     );
   }

@@ -23,7 +23,7 @@ const upload = multer({
   },
 });
 
-// ─── Descripción de motivo de error ──────────────────────────────────────────
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function motivoError(r) {
   if (r.estado === 'OK') return '';
@@ -36,6 +36,18 @@ function motivoError(r) {
     if (fechaDif)               return `Fecha diferente (Drive: ${r.fecha_emision} / SAGE: ${r.sage?.fecha})`;
   }
   return '';
+}
+
+function buildLineaEstados(lineas) {
+  const m = {};
+  for (const l of lineas) {
+    m[l.linea_idx] = {
+      estado_revision: l.estado_revision,
+      usuario_nombre:  l.usuario_nombre  || null,
+      actualizado_en:  l.actualizado_en  || null,
+    };
+  }
+  return m;
 }
 
 // ─── POST /api/conciliacion ───────────────────────────────────────────────────
@@ -64,13 +76,19 @@ router.post('/', resolveUser, upload.single('archivo'), async (req, res) => {
     return res.status(err.status || 500).json({ ok: false, error: err.message });
   }
 
+  const usuarioId     = req.usuario?.id     ?? null;
+  const usuarioNombre = req.usuario?.nombre ?? null;
+
   // Guardar en historial
+  let conciliacionId = null;
+  const lineaEstados = {};
   try {
     const db = getDb();
-    await db.query(
+    const row = await db.one(
       `INSERT INTO historial_conciliaciones
-         (proveedor, fecha_desde, fecha_hasta, total, ok, pendientes_sage, error_importe, resultado_json)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+         (proveedor, fecha_desde, fecha_hasta, total, ok, pendientes_sage, error_importe, resultado_json, usuario_id, usuario_nombre)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+       RETURNING id`,
       [
         proveedor,
         fechaDesde || null,
@@ -80,15 +98,31 @@ router.post('/', resolveUser, upload.single('archivo'), async (req, res) => {
         resultado.resumen.pendientesSage,
         resultado.resumen.errorImporte,
         JSON.stringify(resultado),
+        usuarioId,
+        usuarioNombre,
       ]
     );
+    conciliacionId = row.id;
+
+    // Insertar estado inicial PENDIENTE para cada línea con incidencia
+    for (let idx = 0; idx < resultado.resultados.length; idx++) {
+      const r = resultado.resultados[idx];
+      if (r.estado !== 'OK') {
+        await db.query(
+          `INSERT INTO conciliacion_lineas_estado (conciliacion_id, linea_idx, numero_factura)
+           VALUES ($1, $2, $3)`,
+          [conciliacionId, idx, r.numero_factura || null]
+        );
+        lineaEstados[idx] = { estado_revision: 'PENDIENTE', usuario_nombre: null, actualizado_en: null };
+      }
+    }
   } catch (e) {
     console.error('[Conciliacion] Error guardando historial:', e.message);
   }
 
   registrarEvento({
     evento:    EVENTOS.UPLOAD_CONCILIACION,
-    usuarioId: req.usuario?.id ?? null,
+    usuarioId,
     ip:        req.clientIp,
     userAgent: req.userAgent,
     detalle:   {
@@ -103,7 +137,7 @@ router.post('/', resolveUser, upload.single('archivo'), async (req, res) => {
     },
   }).catch(() => {});
 
-  res.json({ ok: true, data: resultado });
+  res.json({ ok: true, data: { ...resultado, conciliacionId, lineaEstados } });
 });
 
 // ─── GET /api/conciliacion/historial ─────────────────────────────────────────
@@ -112,7 +146,8 @@ router.get('/historial', resolveUser, async (req, res) => {
   const db   = getDb();
   const rows = await db.all(
     `SELECT id, creado_en, proveedor, fecha_desde, fecha_hasta,
-            total, ok, pendientes_sage, error_importe
+            total, ok, pendientes_sage, error_importe,
+            usuario_nombre
      FROM historial_conciliaciones
      ORDER BY creado_en DESC
      LIMIT 100`
@@ -123,16 +158,67 @@ router.get('/historial', resolveUser, async (req, res) => {
 // ─── GET /api/conciliacion/historial/:id ─────────────────────────────────────
 
 router.get('/historial/:id', resolveUser, async (req, res) => {
+  const id = parseInt(req.params.id, 10);
   const db  = getDb();
+
   const row = await db.one(
     'SELECT resultado_json FROM historial_conciliaciones WHERE id = $1',
-    [parseInt(req.params.id, 10)]
+    [id]
   );
   if (!row) return res.status(404).json({ ok: false, error: 'No encontrado' });
+
   const resultado = typeof row.resultado_json === 'string'
     ? JSON.parse(row.resultado_json)
     : row.resultado_json;
-  res.json({ ok: true, data: resultado });
+
+  const lineas = await db.all(
+    `SELECT linea_idx, estado_revision, usuario_nombre, actualizado_en
+     FROM conciliacion_lineas_estado
+     WHERE conciliacion_id = $1`,
+    [id]
+  );
+
+  res.json({ ok: true, data: { ...resultado, conciliacionId: id, lineaEstados: buildLineaEstados(lineas) } });
+});
+
+// ─── PUT /api/conciliacion/historial/:id/lineas/:idx ─────────────────────────
+
+router.put('/historial/:id/lineas/:idx', resolveUser, express.json(), async (req, res) => {
+  const conciliacionId = parseInt(req.params.id,  10);
+  const lineaIdx       = parseInt(req.params.idx, 10);
+  const { estado_revision } = req.body;
+
+  if (!['PENDIENTE', 'REVISADA'].includes(estado_revision)) {
+    return res.status(400).json({ ok: false, error: 'estado_revision inválido' });
+  }
+
+  const db            = getDb();
+  const usuarioId     = req.usuario?.id     ?? null;
+  const usuarioNombre = req.usuario?.nombre ?? null;
+
+  const actual = await db.one(
+    `SELECT estado_revision, numero_factura
+     FROM conciliacion_lineas_estado
+     WHERE conciliacion_id = $1 AND linea_idx = $2`,
+    [conciliacionId, lineaIdx]
+  );
+  if (!actual) return res.status(404).json({ ok: false, error: 'Línea no encontrada' });
+
+  await db.query(
+    `UPDATE conciliacion_lineas_estado
+     SET estado_revision = $1, usuario_id = $2, usuario_nombre = $3, actualizado_en = NOW()
+     WHERE conciliacion_id = $4 AND linea_idx = $5`,
+    [estado_revision, usuarioId, usuarioNombre, conciliacionId, lineaIdx]
+  );
+
+  await db.query(
+    `INSERT INTO conciliacion_lineas_historial
+       (conciliacion_id, linea_idx, numero_factura, estado_anterior, estado_nuevo, usuario_id, usuario_nombre)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+    [conciliacionId, lineaIdx, actual.numero_factura, actual.estado_revision, estado_revision, usuarioId, usuarioNombre]
+  );
+
+  res.json({ ok: true });
 });
 
 // ─── POST /api/conciliacion/pdf ───────────────────────────────────────────────
@@ -160,31 +246,37 @@ router.post('/pdf', express.json(), async (req, res) => {
 // ─── POST /api/conciliacion/excel ─────────────────────────────────────────────
 
 router.post('/excel', express.json(), async (req, res) => {
-  const { resumen, resultados } = req.body;
+  const { resumen, resultados, lineaEstados } = req.body;
   if (!resumen || !resultados) return res.status(400).json({ ok: false, error: 'resumen y resultados requeridos' });
 
-  const estadoLabel = { OK: 'OK', PENDIENTE_EN_SAGE: 'Pendiente SAGE', ERROR_IMPORTE: 'Error importe' };
+  const estadoLabel    = { OK: 'OK', PENDIENTE_EN_SAGE: 'Pendiente SAGE', ERROR_IMPORTE: 'Error importe' };
+  const revisionLabel  = { PENDIENTE: 'Pendiente revisión', REVISADA: 'Revisada' };
 
-  const filas = resultados.map(r => ({
-    'Estado':          estadoLabel[r.estado] || r.estado,
-    'Motivo':          motivoError(r),
-    'Nº Factura Drive': r.numero_factura || '',
-    'Archivo':         r.nombre_archivo  || '',
-    'Fecha emisión':   r.fecha_emision   || '',
-    'Importe Drive':   r.importe_drive   ?? '',
-    'Nº Factura SAGE': r.sage?.numero_factura || '',
-    'Fecha SAGE':      r.sage?.fecha          || '',
-    'Importe SAGE':    r.sage?.importe        ?? '',
-    'Diferencia':      r.diferencia           ?? '',
-  }));
+  const filas = resultados.map((r, idx) => {
+    const rev = lineaEstados?.[idx];
+    return {
+      'Estado':              estadoLabel[r.estado] || r.estado,
+      'Motivo':              motivoError(r),
+      'Revisión':            r.estado !== 'OK' ? (revisionLabel[rev?.estado_revision] || 'Pendiente revisión') : '',
+      'Revisado por':        r.estado !== 'OK' ? (rev?.usuario_nombre || '') : '',
+      'Nº Factura Drive':    r.numero_factura || '',
+      'Archivo':             r.nombre_archivo  || '',
+      'Fecha emisión':       r.fecha_emision   || '',
+      'Importe Drive':       r.importe_drive   ?? '',
+      'Nº Factura SAGE':     r.sage?.numero_factura || '',
+      'Fecha SAGE':          r.sage?.fecha          || '',
+      'Importe SAGE':        r.sage?.importe        ?? '',
+      'Diferencia':          r.diferencia           ?? '',
+    };
+  });
 
   const ws = XLSX.utils.json_to_sheet(filas);
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Conciliación');
 
   ws['!cols'] = [
-    {wch:16},{wch:50},{wch:18},{wch:36},{wch:14},
-    {wch:14},{wch:18},{wch:14},{wch:14},{wch:12},
+    {wch:16},{wch:50},{wch:20},{wch:22},{wch:18},{wch:36},
+    {wch:14},{wch:14},{wch:18},{wch:14},{wch:14},{wch:12},
   ];
 
   const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
