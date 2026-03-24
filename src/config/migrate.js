@@ -98,6 +98,19 @@ const tablas = [
     detalle       TEXT
   )`,
 
+  `CREATE TABLE IF NOT EXISTS historial_conciliaciones (
+    id              SERIAL PRIMARY KEY,
+    creado_en       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    proveedor       TEXT NOT NULL,
+    fecha_desde     TEXT,
+    fecha_hasta     TEXT,
+    total           INTEGER NOT NULL DEFAULT 0,
+    ok              INTEGER NOT NULL DEFAULT 0,
+    pendientes_sage INTEGER NOT NULL DEFAULT 0,
+    error_importe   INTEGER NOT NULL DEFAULT 0,
+    resultado_json  JSONB NOT NULL
+  )`,
+
   // Índices
   `CREATE INDEX IF NOT EXISTS idx_logs_factura    ON logs_auditoria(factura_id)`,
   `CREATE INDEX IF NOT EXISTS idx_logs_evento     ON logs_auditoria(evento)`,

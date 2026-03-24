@@ -60,7 +60,7 @@ async function obtenerFacturasDrive(proveedor, fechaDesde, fechaHasta) {
 function conciliar(facturasDrive, entradasSage) {
   const usadas = new Set();
 
-  const resultados = facturasDrive.map(factura => {
+  return facturasDrive.map(factura => {
     const datos        = factura.datos;
     const numDrive     = datos?.numero_factura;
     const importeDrive = round2(datos?.total_factura);
@@ -96,36 +96,16 @@ function conciliar(facturasDrive, entradasSage) {
       estado,
     };
   });
-
-  // Entradas SAGE que no se han podido emparejar con ninguna factura en Drive
-  entradasSage.forEach((e, idx) => {
-    if (!usadas.has(idx)) {
-      resultados.push({
-        id: null,
-        numero_factura: e.numero_factura,
-        fecha_emision: e.fecha,
-        importe_drive: null,
-        proveedor: null,
-        nombre_archivo: null,
-        sage: { numero_factura: e.numero_factura, fecha: e.fecha, importe: round2(e.importe) },
-        diferencia: null,
-        estado: 'PENDIENTE_EN_DRIVE',
-      });
-    }
-  });
-
-  return resultados;
 }
 
 function calcularResumen(resultados, proveedor, fechaDesde, fechaHasta) {
   return {
     proveedor, fechaDesde, fechaHasta,
-    total:           resultados.length,
-    ok:              resultados.filter(r => r.estado === 'OK').length,
-    pendientesSage:  resultados.filter(r => r.estado === 'PENDIENTE_EN_SAGE').length,
-    errorImporte:    resultados.filter(r => r.estado === 'ERROR_IMPORTE').length,
-    pendientesDrive: resultados.filter(r => r.estado === 'PENDIENTE_EN_DRIVE').length,
-    generadoEn:      new Date().toISOString(),
+    total:          resultados.length,
+    ok:             resultados.filter(r => r.estado === 'OK').length,
+    pendientesSage: resultados.filter(r => r.estado === 'PENDIENTE_EN_SAGE').length,
+    errorImporte:   resultados.filter(r => r.estado === 'ERROR_IMPORTE').length,
+    generadoEn:     new Date().toISOString(),
   };
 }
 

@@ -289,6 +289,36 @@ export async function testNotificacion() {
   return json.data;
 }
 
+export async function fetchHistorialConciliaciones() {
+  const res = await fetch(`${API_BASE}/api/conciliacion/historial`, { headers: authHeaders() });
+  if (!res.ok) throw new Error('Error al cargar historial de conciliaciones');
+  const { data } = await res.json();
+  return data;
+}
+
+export async function fetchConciliacion(id) {
+  const res = await fetch(`${API_BASE}/api/conciliacion/historial/${id}`, { headers: authHeaders() });
+  if (!res.ok) throw new Error('Error al cargar conciliación');
+  const { data } = await res.json();
+  return data;
+}
+
+export async function descargarExcelConciliacion(resumen, resultados) {
+  const res = await fetch(`${API_BASE}/api/conciliacion/excel`, {
+    method:  'POST',
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
+    body:    JSON.stringify({ resumen, resultados }),
+  });
+  if (!res.ok) throw new Error('Error al generar Excel');
+  const blob = await res.blob();
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href     = url;
+  a.download = `conciliacion-${resumen.proveedor.replace(/\s+/g, '-')}-${new Date().toISOString().slice(0, 10)}.xlsx`;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
 export async function descargarPdfConciliacion(resumen, resultados) {
   const res = await fetch(`${API_BASE}/api/conciliacion/pdf`, {
     method:  'POST',

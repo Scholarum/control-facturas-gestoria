@@ -20,7 +20,15 @@
       "Bash(npm uninstall:*)",
       "Bash(curl -s http://localhost:3000/api/drive)",
       "Bash(node -e \"const d=JSON.parse\\(require\\(''''fs''''\\).readFileSync\\(''''/dev/stdin'''',''''utf8''''\\)\\); console.log\\(''''OK - facturas:'''', d.data.length\\); d.data.forEach\\(f=>console.log\\('''' '''', f.id, f.proveedor, ''''|'''', f.estado_gestion, ''''|'''', f.datos_extraidos?.numero_factura\\)\\)\")",
-      "Bash(python3 -c \":*)"
+      "Bash(python3 -c \":*)",
+      "Bash(npm audit:*)",
+      "Bash(node -e \"require\\(''crypto''\\).randomBytes\\(48\\).toString\\(''hex''\\)\")",
+      "Bash(cd:*)",
+      "Bash(ls client/.env*)",
+      "Bash(ping -n 2 8.8.8.8)",
+      "Bash(curl -s --max-time 5 -o /dev/null -w \"%{http_code}\" https://supabase.co)",
+      "Bash(nslookup:*)",
+      "Bash(curl:*)"
     ]
   }
 }
