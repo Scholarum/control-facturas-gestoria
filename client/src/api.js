@@ -403,6 +403,30 @@ export async function ejecutarConciliacion(formData) {
   return json.data;
 }
 
+// ─── Conciliación V2 ─────────────────────────────────────────────────────────
+
+export async function parsearMayorV2(formData) {
+  const res = await fetch(`${API_BASE}/api/conciliacion/v2/parsear`, {
+    method: 'POST',
+    headers: authHeaders(),
+    body: formData,
+  });
+  const json = await res.json();
+  if (!json.ok) throw new Error(json.error || 'Error al parsear el archivo');
+  return json.data;
+}
+
+export async function ejecutarConciliacionV2(proveedores, alcance) {
+  const res = await fetch(`${API_BASE}/api/conciliacion/v2/ejecutar`, {
+    method: 'POST',
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify({ proveedores, alcance }),
+  });
+  const json = await res.json();
+  if (!json.ok) throw new Error(json.error || 'Error en la conciliación');
+  return json.data;
+}
+
 // ─── Plan Contable ────────────────────────────────────────────────────────────
 
 export async function fetchPlanContable(q = '') {

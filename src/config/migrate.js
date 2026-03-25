@@ -117,6 +117,11 @@ const tablas = [
   `ALTER TABLE historial_conciliaciones ADD COLUMN IF NOT EXISTS usuario_id     INTEGER REFERENCES usuarios(id)`,
   `ALTER TABLE historial_conciliaciones ADD COLUMN IF NOT EXISTS usuario_nombre TEXT`,
 
+  // Conciliación v2: columnas adicionales
+  `ALTER TABLE historial_conciliaciones ADD COLUMN IF NOT EXISTS version TEXT NOT NULL DEFAULT 'v1'`,
+  `ALTER TABLE historial_conciliaciones ADD COLUMN IF NOT EXISTS alcance TEXT`,
+  `ALTER TABLE historial_conciliaciones ADD COLUMN IF NOT EXISTS num_proveedores INTEGER DEFAULT 1`,
+
   // Estado SINCRONIZADA: nueva columna default (idempotente)
   `ALTER TABLE drive_archivos ALTER COLUMN estado SET DEFAULT 'SINCRONIZADA'`,
 

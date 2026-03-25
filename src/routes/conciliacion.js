@@ -3,12 +3,13 @@ const multer    = require('multer');
 const XLSX      = require('xlsx');
 const router    = express.Router();
 
-const { getDb }                       = require('../config/database');
-const { parsearSage }                 = require('../services/sageParser');
-const { ejecutarConciliacion }        = require('../services/conciliacionService');
-const { generarPdfConciliacion }      = require('../services/pdfReporte');
-const { registrarEvento, EVENTOS }    = require('../services/auditService');
-const { resolveUser }                 = require('../middleware/auth');
+const { getDb }                                       = require('../config/database');
+const { parsearSage }                                 = require('../services/sageParser');
+const { ejecutarConciliacion, ejecutarConciliacionV2 }= require('../services/conciliacionService');
+const { parsearMayor }                                = require('../services/mayorParser');
+const { generarPdfConciliacion }                      = require('../services/pdfReporte');
+const { registrarEvento, EVENTOS }                    = require('../services/auditService');
+const { resolveUser }                                 = require('../middleware/auth');
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -147,7 +148,7 @@ router.get('/historial', resolveUser, async (req, res) => {
   const rows = await db.all(
     `SELECT id, creado_en, proveedor, fecha_desde, fecha_hasta,
             total, ok, pendientes_sage, error_importe,
-            usuario_nombre
+            usuario_nombre, version, alcance, num_proveedores
      FROM historial_conciliaciones
      ORDER BY creado_en DESC
      LIMIT 100`
@@ -319,6 +320,128 @@ router.post('/excel', express.json(), async (req, res) => {
     'Content-Length':      buffer.length,
   });
   res.send(buffer);
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// V2: Conciliación con parseo directo y segmentación por proveedor
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// ─── POST /api/conciliacion/v2/parsear ──────────────────────────────────────
+
+router.post('/v2/parsear', resolveUser, upload.single('archivo'), async (req, res) => {
+  if (!req.file) return res.status(400).json({ ok: false, error: 'Archivo del Mayor requerido' });
+
+  const ext = req.file.originalname.toLowerCase().split('.').pop();
+  if (!['xlsx', 'xls', 'csv'].includes(ext)) {
+    return res.status(400).json({ ok: false, error: 'Formato no soportado. Use Excel (.xlsx/.xls) o CSV.' });
+  }
+
+  try {
+    const resultado = await parsearMayor(req.file.buffer, req.file.mimetype, req.file.originalname);
+
+    if (!resultado.proveedores.length) {
+      return res.status(422).json({ ok: false, error: 'No se encontraron proveedores en el archivo. Verifica que el Mayor contenga cuentas contables de 8 dígitos.' });
+    }
+
+    // Devolver resumen por proveedor + líneas completas para paso 2
+    const proveedores = resultado.proveedores.map(p => ({
+      codigoCuenta:  p.codigoCuenta,
+      nombreMayor:   p.nombreMayor,
+      proveedorId:   p.proveedorId,
+      nombreCarpeta: p.nombreCarpeta,
+      razonSocial:   p.razonSocial,
+      cifProveedor:  p.cifProveedor,
+      numLineas:     p.lineas.length,
+      numFacturas:   p.lineas.filter(l => l.esFactura && l.debe > 0).length,
+      lineas:        p.lineas,
+    }));
+
+    res.json({ ok: true, data: { proveedores, totalLineas: resultado.totalLineas, totalProveedores: resultado.totalProveedores } });
+  } catch (err) {
+    res.status(422).json({ ok: false, error: err.message });
+  }
+});
+
+// ─── POST /api/conciliacion/v2/ejecutar ─────────────────────────────────────
+
+router.post('/v2/ejecutar', resolveUser, express.json({ limit: '5mb' }), async (req, res) => {
+  const { proveedores, alcance } = req.body;
+  if (!proveedores?.length) return res.status(400).json({ ok: false, error: 'Proveedores requeridos' });
+
+  const usuarioId     = req.usuario?.id     ?? null;
+  const usuarioNombre = req.usuario?.nombre ?? null;
+
+  let resultado;
+  try {
+    resultado = await ejecutarConciliacionV2(proveedores);
+  } catch (err) {
+    return res.status(err.status || 500).json({ ok: false, error: err.message });
+  }
+
+  // Guardar en historial
+  let conciliacionId = null;
+  const lineaEstados = {};
+  try {
+    const db = getDb();
+    const r = resultado.resumenGlobal;
+    const provNombres = proveedores.map(p => p.razonSocial || p.nombreMayor || p.codigoCuenta).join(', ');
+
+    const row = await db.one(
+      `INSERT INTO historial_conciliaciones
+         (proveedor, total, ok, pendientes_sage, error_importe, resultado_json, usuario_id, usuario_nombre, version, alcance, num_proveedores)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'v2', $9, $10)
+       RETURNING id`,
+      [
+        provNombres.substring(0, 200),
+        r.totalLineas,
+        r.conciliadas,
+        r.sinMatch,
+        r.parciales,
+        JSON.stringify(resultado),
+        usuarioId,
+        usuarioNombre,
+        alcance || null,
+        proveedores.length,
+      ]
+    );
+    conciliacionId = row.id;
+
+    // Crear estado inicial para líneas no conciliadas (PARCIAL y SIN_MATCH)
+    let globalIdx = 0;
+    for (const prov of resultado.resultadosPorProveedor) {
+      for (const r of prov.resultados) {
+        if (r.estado !== 'CONCILIADA') {
+          await db.query(
+            `INSERT INTO conciliacion_lineas_estado (conciliacion_id, linea_idx, numero_factura)
+             VALUES ($1, $2, $3)`,
+            [conciliacionId, globalIdx, r.factura?.numero_factura || r.mayor.concepto?.substring(0, 50) || null]
+          );
+          lineaEstados[globalIdx] = { estado_revision: 'PENDIENTE', usuario_nombre: null, actualizado_en: null };
+        }
+        globalIdx++;
+      }
+    }
+  } catch (e) {
+    console.error('[ConciliacionV2] Error guardando historial:', e.message);
+  }
+
+  registrarEvento({
+    evento:    EVENTOS.UPLOAD_CONCILIACION,
+    usuarioId,
+    ip:        req.clientIp,
+    userAgent: req.userAgent,
+    detalle:   {
+      version:  'v2',
+      alcance,
+      proveedores: proveedores.length,
+      total:       resultado.resumenGlobal.totalLineas,
+      conciliadas: resultado.resumenGlobal.conciliadas,
+      parciales:   resultado.resumenGlobal.parciales,
+      sinMatch:    resultado.resumenGlobal.sinMatch,
+    },
+  }).catch(() => {});
+
+  res.json({ ok: true, data: { ...resultado, conciliacionId, lineaEstados, lineasHistorial: [] } });
 });
 
 module.exports = router;
