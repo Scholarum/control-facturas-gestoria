@@ -30,15 +30,19 @@ router.post('/exportar', async (req, res) => {
         FROM proveedores p2
         WHERE p2.activo = true
           AND (
-            p2.nombre_carpeta = da.proveedor
-            OR (
+            (
               p2.cif IS NOT NULL
               AND da.datos_extraidos IS NOT NULL
               AND da.datos_extraidos ~ '^\\s*\\{'
-              AND (da.datos_extraidos::jsonb)->>'cif_emisor' = p2.cif
+              AND normalizar_cif((da.datos_extraidos::jsonb)->>'cif_emisor') = normalizar_cif(p2.cif)
             )
+            OR p2.nombre_carpeta = da.proveedor
           )
-        ORDER BY (p2.nombre_carpeta = da.proveedor) DESC NULLS LAST
+        ORDER BY (p2.cif IS NOT NULL
+                  AND da.datos_extraidos IS NOT NULL
+                  AND da.datos_extraidos ~ '^\\s*\\{'
+                  AND normalizar_cif((da.datos_extraidos::jsonb)->>'cif_emisor') = normalizar_cif(p2.cif)
+                 ) DESC NULLS LAST
         LIMIT 1
       ) p ON true
       LEFT JOIN plan_contable pg  ON pg.id  = p.cuenta_gasto_id

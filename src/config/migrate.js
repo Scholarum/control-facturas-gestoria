@@ -238,6 +238,17 @@ async function runMigrations() {
     await db.query(sql);
   }
 
+  // Función para normalizar CIF (quita prefijo de país de 2 letras)
+  await db.query(`
+    CREATE OR REPLACE FUNCTION normalizar_cif(cif TEXT)
+    RETURNS TEXT LANGUAGE sql IMMUTABLE AS $$
+      SELECT CASE
+        WHEN cif ~ '^[A-Za-z]{2}[A-Za-z0-9]' THEN UPPER(SUBSTRING(cif FROM 3))
+        ELSE UPPER(cif)
+      END
+    $$
+  `);
+
   // Seed usuarios
   for (const u of usuariosSeed) {
     await db.query(

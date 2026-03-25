@@ -106,13 +106,13 @@ async function ejecutarSync(origen = 'MANUAL') {
                WHERE p.activo = true
                  AND p.cuenta_gasto_id IS NOT NULL
                  AND (
-                   p.nombre_carpeta = da.proveedor
-                   OR (
+                   (
                      p.cif IS NOT NULL
                      AND da.datos_extraidos IS NOT NULL
                      AND da.datos_extraidos ~ '^\\s*\\{'
-                     AND (da.datos_extraidos::jsonb)->>'cif_emisor' = p.cif
+                     AND normalizar_cif((da.datos_extraidos::jsonb)->>'cif_emisor') = normalizar_cif(p.cif)
                    )
+                   OR p.nombre_carpeta = da.proveedor
                  )
              )`,
           [idsParaExtraer]

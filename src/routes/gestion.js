@@ -40,15 +40,19 @@ router.get('/', async (req, res) => {
       FROM proveedores p2
       WHERE p2.activo = true
         AND (
-          p2.nombre_carpeta = da.proveedor
-          OR (
+          (
             p2.cif IS NOT NULL
             AND da.datos_extraidos IS NOT NULL
             AND da.datos_extraidos ~ '^\\s*\\{'
-            AND (da.datos_extraidos::jsonb)->>'cif_emisor' = p2.cif
+            AND normalizar_cif((da.datos_extraidos::jsonb)->>'cif_emisor') = normalizar_cif(p2.cif)
           )
+          OR p2.nombre_carpeta = da.proveedor
         )
-      ORDER BY (p2.nombre_carpeta = da.proveedor) DESC NULLS LAST
+      ORDER BY (p2.cif IS NOT NULL
+                AND da.datos_extraidos IS NOT NULL
+                AND da.datos_extraidos ~ '^\\s*\\{'
+                AND normalizar_cif((da.datos_extraidos::jsonb)->>'cif_emisor') = normalizar_cif(p2.cif)
+               ) DESC NULLS LAST
       LIMIT 1
     ) p ON true
     LEFT JOIN plan_contable pg  ON pg.id  = p.cuenta_gasto_id
@@ -164,15 +168,19 @@ router.put('/contabilizar', async (req, res) => {
        SELECT p2.cuenta_gasto_id FROM proveedores p2
        WHERE p2.activo = true
          AND (
-           p2.nombre_carpeta = da.proveedor
-           OR (
+           (
              p2.cif IS NOT NULL
              AND da.datos_extraidos IS NOT NULL
              AND da.datos_extraidos ~ '^\\s*\\{'
-             AND (da.datos_extraidos::jsonb)->>'cif_emisor' = p2.cif
+             AND normalizar_cif((da.datos_extraidos::jsonb)->>'cif_emisor') = normalizar_cif(p2.cif)
            )
+           OR p2.nombre_carpeta = da.proveedor
          )
-       ORDER BY (p2.nombre_carpeta = da.proveedor) DESC NULLS LAST
+       ORDER BY (p2.cif IS NOT NULL
+                 AND da.datos_extraidos IS NOT NULL
+                 AND da.datos_extraidos ~ '^\\s*\\{'
+                 AND normalizar_cif((da.datos_extraidos::jsonb)->>'cif_emisor') = normalizar_cif(p2.cif)
+                ) DESC NULLS LAST
        LIMIT 1
      ) p ON true
      WHERE da.id = ANY($1::int[])`,
@@ -338,7 +346,26 @@ router.post('/exportar-excel', async (req, res) => {
             pc.codigo AS cuenta_contable_codigo,
             pg.codigo AS cuenta_gasto_codigo
      FROM drive_archivos da
-     LEFT JOIN proveedores p  ON p.nombre_carpeta = da.proveedor AND p.activo = true
+     LEFT JOIN LATERAL (
+       SELECT p2.*
+       FROM proveedores p2
+       WHERE p2.activo = true
+         AND (
+           (
+             p2.cif IS NOT NULL
+             AND da.datos_extraidos IS NOT NULL
+             AND da.datos_extraidos ~ '^\\s*\\{'
+             AND normalizar_cif((da.datos_extraidos::jsonb)->>'cif_emisor') = normalizar_cif(p2.cif)
+           )
+           OR p2.nombre_carpeta = da.proveedor
+         )
+       ORDER BY (p2.cif IS NOT NULL
+                 AND da.datos_extraidos IS NOT NULL
+                 AND da.datos_extraidos ~ '^\\s*\\{'
+                 AND normalizar_cif((da.datos_extraidos::jsonb)->>'cif_emisor') = normalizar_cif(p2.cif)
+                ) DESC NULLS LAST
+       LIMIT 1
+     ) p ON true
      LEFT JOIN plan_contable pc ON pc.id = p.cuenta_contable_id
      LEFT JOIN plan_contable pg ON pg.id = p.cuenta_gasto_id
      WHERE da.id = ANY($1::int[])`,
@@ -431,13 +458,13 @@ router.put('/aplicar-cuentas-proveedor', requireAuth, async (req, res) => {
            WHERE p.activo = true
              AND p.cuenta_gasto_id IS NOT NULL
              AND (
-               p.nombre_carpeta = da.proveedor
-               OR (
+               (
                  p.cif IS NOT NULL
                  AND da.datos_extraidos IS NOT NULL
                  AND da.datos_extraidos ~ '^\\s*\\{'
-                 AND (da.datos_extraidos::jsonb)->>'cif_emisor' = p.cif
+                 AND normalizar_cif((da.datos_extraidos::jsonb)->>'cif_emisor') = normalizar_cif(p.cif)
                )
+               OR p.nombre_carpeta = da.proveedor
              )
          )`
     );
