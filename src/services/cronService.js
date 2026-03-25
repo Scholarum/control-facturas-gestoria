@@ -29,14 +29,17 @@ async function iniciarCrons() {
     return;
   }
 
+  // Zona horaria: variable de entorno CRON_TIMEZONE o 'Europe/Madrid' por defecto
+  const timezone = process.env.CRON_TIMEZONE || 'Europe/Madrid';
+
   if (config.sync_activo === 'true' && config.sync_frecuencia !== 'manual') {
     const expr = buildCronExpr(config.sync_hora, config.sync_frecuencia);
     if (expr && cron.validate(expr)) {
       syncTask = cron.schedule(expr, () => {
         console.log('[Cron] Iniciando sincronización automática...');
         ejecutarSync('CRON').catch(e => console.error('[Cron] Error sync:', e.message));
-      });
-      console.log(`[Cron] Sync programada → ${expr} (${config.sync_frecuencia} a las ${config.sync_hora})`);
+      }, { timezone });
+      console.log(`[Cron] Sync programada → ${expr} (${config.sync_frecuencia} a las ${config.sync_hora} ${timezone})`);
     }
   }
 
@@ -46,8 +49,8 @@ async function iniciarCrons() {
       notifyTask = cron.schedule(expr, () => {
         console.log('[Cron] Enviando notificaciones automáticas...');
         enviarNotificaciones({ origen: 'CRON' }).catch(e => console.error('[Cron] Error notif:', e.message));
-      });
-      console.log(`[Cron] Notificaciones programadas → ${expr} (${config.notify_frecuencia} a las ${config.notify_hora})`);
+      }, { timezone });
+      console.log(`[Cron] Notificaciones programadas → ${expr} (${config.notify_frecuencia} a las ${config.notify_hora} ${timezone})`);
     }
   }
 }

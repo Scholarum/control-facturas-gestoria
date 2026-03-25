@@ -77,16 +77,23 @@ async function ejecutarSync(origen = 'MANUAL') {
       }
     }
 
-    // Extraer con Gemini las facturas recién añadidas
+    // Extraer con Gemini TODOS los archivos en estado PENDIENTE
+    // (no solo los recién insertados, para procesar también los que quedaron
+    // pendientes de sincronizaciones anteriores)
+    const pendienteRows = await db.all(
+      "SELECT id FROM drive_archivos WHERE estado = 'PENDIENTE'"
+    );
+    const idsParaExtraer = pendienteRows.map(r => r.id);
+
     let extraccion = { procesada: 0, revision: 0 };
-    if (nuevosIds.length > 0) {
+    if (idsParaExtraer.length > 0) {
       try {
-        extraccion = await ejecutarExtraccion(nuevosIds);
+        extraccion = await ejecutarExtraccion(idsParaExtraer);
       } catch (e) {
         console.error('[Sync] Error en extracción:', e.message);
       }
 
-      // Tras extracción: pasar a CC_ASIGNADA las nuevas facturas cuyo proveedor
+      // Tras extracción: pasar a CC_ASIGNADA las facturas cuyo proveedor
       // ya tiene cuenta de gasto definida (match por carpeta o por CIF extraído)
       try {
         await db.query(
@@ -108,7 +115,7 @@ async function ejecutarSync(origen = 'MANUAL') {
                    )
                  )
              )`,
-          [nuevosIds]
+          [idsParaExtraer]
         );
       } catch (e) {
         console.error('[Sync] Error al asignar estado CC_ASIGNADA:', e.message);
