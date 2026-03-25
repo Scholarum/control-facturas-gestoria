@@ -346,6 +346,17 @@ function PanelDetalleFiscal({ f }) {
                   <span className="text-xs font-medium text-gray-700">{fmtFecha(d.fecha_vencimiento)}</span>
                 </div>
               </div>
+              {f.lote_a3_nombre && (
+                <div className="border-t border-blue-100 pt-2 mt-2">
+                  <p className="text-xs text-gray-400 mb-1">Lote A3 exportado</p>
+                  <p className="text-xs font-mono font-medium text-orange-700 break-all">{f.lote_a3_nombre}</p>
+                  {f.lote_a3_fecha && (
+                    <p className="text-xs text-gray-500 mt-0.5">
+                      {new Date(f.lote_a3_fecha).toLocaleString('es-ES')}
+                    </p>
+                  )}
+                </div>
+              )}
             </div>
           </div>
 

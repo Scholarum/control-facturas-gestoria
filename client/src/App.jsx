@@ -8,6 +8,7 @@ import Historial      from './pages/Historial.jsx';
 import Configuracion  from './pages/Configuracion.jsx';
 import Proveedores    from './pages/Proveedores.jsx';
 import SeccionFacturas from './components/SeccionFacturas.jsx';
+import HistorialA3    from './pages/HistorialA3.jsx';
 import { fetchFacturas, fetchProveedores, exportarExcel, triggerSyncManual, fetchPlanContable, asignarCuentaGasto, asignarCGMasivo, autodetectarProveedores, aplicarCuentasProveedor } from './api.js';
 
 // ─── Stats ────────────────────────────────────────────────────────────────────
@@ -137,6 +138,13 @@ function AppInner() {
     setSubTab('cc_asignada');
   }
 
+  async function handleRefreshFacturas() {
+    try {
+      const nuevas = await fetchFacturas();
+      setTodasFacturas(nuevas);
+    } catch (_) {}
+  }
+
   // Callback para re-extracción desde Configuración
   function handleFacturaActualizada(id, estado, datos) {
     setTodasFacturas(prev => prev.map(f =>
@@ -210,6 +218,7 @@ function AppInner() {
   const tabs = [
     { id: 'facturas',     label: 'Facturas',              visible: puedeVer('facturas')     },
     { id: 'conciliacion', label: 'Conciliación de Mayor', visible: puedeVer('conciliacion') },
+    { id: 'historial_a3', label: 'Historial A3',          visible: puedeVer('facturas')     },
     { id: 'historial',    label: 'Historial',             visible: puedeVer('historial')    },
   ].filter(t => t.visible);
 
@@ -379,6 +388,9 @@ function AppInner() {
         {/* ── Pestaña Conciliación ── */}
         {tab === 'conciliacion' && <Conciliacion proveedores={proveedores} />}
 
+        {/* ── Pestaña Historial A3 ── */}
+        {tab === 'historial_a3' && <HistorialA3 />}
+
         {/* ── Pestaña Historial ── */}
         {tab === 'historial' && <Historial usuario={user} />}
 
@@ -545,6 +557,7 @@ function AppInner() {
                 loading={loading}
                 planContable={planContable}
                 onEstadoActualizado={handleEstadoActualizado}
+                onRefreshFacturas={handleRefreshFacturas}
                 onAsignarCG={handleAsignarCG}
               />
             )}

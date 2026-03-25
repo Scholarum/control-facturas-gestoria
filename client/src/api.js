@@ -540,6 +540,44 @@ export async function importarProveedoresExcel(file) {
   return json.data; // { insertados, actualizados, errores }
 }
 
+// ─── Exportación A3 ───────────────────────────────────────────────────────────
+
+export async function exportarLoteA3(ids) {
+  const res = await fetch(`${API_BASE}/api/exportacion-a3/exportar`, {
+    method:  'POST',
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
+    body:    JSON.stringify({ ids }),
+  });
+  const json = await res.json();
+  if (!json.ok) throw new Error(json.error || 'Error al exportar lote A3');
+  const { nombre_fichero, contenido_csv } = json.data;
+  const blob = new Blob([contenido_csv], { type: 'text/csv;charset=utf-8;' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href = url; a.download = nombre_fichero;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  return json.data;
+}
+
+export async function fetchHistorialA3() {
+  const res = await fetch(`${API_BASE}/api/exportacion-a3`, { headers: authHeaders() });
+  if (!res.ok) throw new Error('Error al cargar historial A3');
+  const { data } = await res.json();
+  return data;
+}
+
+export async function reDescargarA3(id, nombreFichero) {
+  const res = await fetch(`${API_BASE}/api/exportacion-a3/${id}/descargar`, { headers: authHeaders() });
+  if (!res.ok) throw new Error('Error al descargar lote A3');
+  const blob = await res.blob();
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href = url; a.download = nombreFichero;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
 export async function reextraer(ids, onProgress) {
   const res = await fetch(`${API_BASE}/api/configuracion/reextraer`, {
     method:  'POST',

@@ -180,6 +180,22 @@ const tablas = [
     PRIMARY KEY (rol_id, recurso)
   )`,
 
+  `CREATE TABLE IF NOT EXISTS lotes_exportacion_a3 (
+    id             SERIAL PRIMARY KEY,
+    fecha          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    usuario_id     INTEGER REFERENCES usuarios(id),
+    usuario_nombre TEXT,
+    nombre_fichero TEXT NOT NULL,
+    num_facturas   INTEGER NOT NULL DEFAULT 0,
+    total_base     NUMERIC,
+    total_cuota    NUMERIC,
+    total_factura  NUMERIC,
+    ids_facturas   JSONB NOT NULL DEFAULT '[]',
+    contenido_csv  TEXT NOT NULL
+  )`,
+
+  `ALTER TABLE drive_archivos ADD COLUMN IF NOT EXISTS lote_a3_id INTEGER REFERENCES lotes_exportacion_a3(id)`,
+
   // Índices
   `CREATE INDEX IF NOT EXISTS idx_logs_factura    ON logs_auditoria(factura_id)`,
   `CREATE INDEX IF NOT EXISTS idx_logs_evento     ON logs_auditoria(evento)`,

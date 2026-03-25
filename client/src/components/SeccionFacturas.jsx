@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, useRef } from 'react';
 import TablaFacturas from './TablaFacturas.jsx';
-import { descargarZip, contabilizar, revertirEstado, asignarCGMasivo } from '../api.js';
+import { descargarZip, contabilizar, revertirEstado, asignarCGMasivo, exportarLoteA3 } from '../api.js';
 
 // ─── Filtros compactos por sección ────────────────────────────────────────────
 
@@ -145,6 +145,7 @@ export default function SeccionFacturas({
   soloLectura = false,
   loading,
   onEstadoActualizado,
+  onRefreshFacturas,
   planContable = [],
   onAsignarCG,
   onAsignarCGMasivo,
@@ -154,6 +155,8 @@ export default function SeccionFacturas({
   const [descargando,        setDescargando]        = useState(false);
   const [contabilizando,     setContabilizando]     = useState(false);
   const [asignandoCC,        setAsignandoCC]        = useState(false);
+  const [exportandoA3,       setExportandoA3]       = useState(false);
+  const [modalA3Open,        setModalA3Open]        = useState(false);
   const [ccMasiva,           setCcMasiva]           = useState('');
   const [error,              setError]              = useState('');
 
@@ -232,6 +235,21 @@ export default function SeccionFacturas({
     }
   }
 
+  async function handleExportarA3() {
+    const ids = Array.from(seleccionados);
+    setExportandoA3(true); setError(''); setModalA3Open(false);
+    try {
+      await exportarLoteA3(ids);
+      onEstadoActualizado(ids, 'CONTABILIZADA');
+      setSeleccionados(new Set());
+      if (onRefreshFacturas) onRefreshFacturas();
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setExportandoA3(false);
+    }
+  }
+
   async function handleRevertir(id) {
     try {
       await revertirEstado(id);
@@ -289,11 +307,27 @@ export default function SeccionFacturas({
             {tipo === 'cc_asignada' && !soloLectura && (
               <button
                 onClick={handleContabilizar}
-                disabled={contabilizando || descargando || asignandoCC}
+                disabled={contabilizando || descargando || asignandoCC || exportandoA3}
                 className="flex items-center gap-1.5 px-4 py-1.5 text-xs font-semibold bg-emerald-500 hover:bg-emerald-400 text-white rounded-lg transition-colors disabled:opacity-60"
               >
                 {contabilizando ? <Spinner /> : <IconoCheck />}
                 {contabilizando ? 'Contabilizando...' : `Contabilizar (${n})`}
+              </button>
+            )}
+
+            {/* Exportar Lote a A3 — solo en CC Asignada y con permisos */}
+            {tipo === 'cc_asignada' && !soloLectura && (
+              <button
+                onClick={() => setModalA3Open(true)}
+                disabled={exportandoA3 || contabilizando || descargando || asignandoCC}
+                className="flex items-center gap-1.5 px-4 py-1.5 text-xs font-semibold bg-orange-500 hover:bg-orange-400 text-white rounded-lg transition-colors disabled:opacity-60"
+              >
+                {exportandoA3 ? <Spinner /> : (
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  </svg>
+                )}
+                {exportandoA3 ? 'Exportando...' : `Exportar A3 (${n})`}
               </button>
             )}
           </div>
@@ -321,6 +355,57 @@ export default function SeccionFacturas({
           )}
         </div>
       )}
+
+      {/* Modal confirmación exportación A3 */}
+      {modalA3Open && (() => {
+        const sel = filtradas.filter(f => seleccionados.has(f.id));
+        const base    = sel.reduce((s, f) => s + parseFloat(f.datos_extraidos?.total_sin_iva ?? f.datos_extraidos?.total_factura ?? 0), 0);
+        const cuota   = sel.reduce((s, f) => s + (Array.isArray(f.datos_extraidos?.iva) ? f.datos_extraidos.iva.reduce((x, e) => x + parseFloat(e.cuota ?? 0), 0) : 0), 0);
+        const factura = sel.reduce((s, f) => s + parseFloat(f.datos_extraidos?.total_factura ?? 0), 0);
+        const fmt     = v => new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format(v);
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setModalA3Open(false)}>
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 overflow-hidden" onClick={e => e.stopPropagation()}>
+              <div className="px-6 py-5 border-b border-gray-100">
+                <h2 className="text-base font-semibold text-gray-900">Exportar Lote a A3</h2>
+                <p className="text-sm text-gray-500 mt-0.5">Se generará el fichero CSV y las facturas pasarán a <strong>Contabilizadas</strong>.</p>
+              </div>
+              <div className="px-6 py-5 space-y-3">
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-500">Facturas seleccionadas</span>
+                  <span className="font-semibold text-gray-900">{n}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-500">Total base (sin IVA)</span>
+                  <span className="font-semibold text-gray-900">{fmt(base)}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-500">Total IVA</span>
+                  <span className="font-semibold text-gray-900">{fmt(cuota)}</span>
+                </div>
+                <div className="flex justify-between text-sm border-t border-gray-100 pt-3">
+                  <span className="font-semibold text-gray-700">Total factura</span>
+                  <span className="font-bold text-gray-900">{fmt(factura)}</span>
+                </div>
+              </div>
+              <div className="px-6 py-4 bg-gray-50 flex justify-end gap-3">
+                <button
+                  onClick={() => setModalA3Open(false)}
+                  className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={handleExportarA3}
+                  className="px-4 py-2 text-sm font-semibold text-white bg-orange-500 hover:bg-orange-600 rounded-lg transition-colors"
+                >
+                  Confirmar y Exportar
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Tabla */}
       <TablaFacturas

@@ -24,12 +24,16 @@ router.get('/', async (req, res) => {
       da.id, da.google_id, da.nombre_archivo, da.ruta_completa,
       da.proveedor, da.fecha_subida, da.estado, da.estado_gestion,
       da.datos_extraidos, da.error_extraccion, da.procesado_at, da.ultima_sync,
+      da.lote_a3_id,
       p.razon_social,
       p.cif                                                       AS proveedor_cif,
       da.cuenta_gasto_id                                          AS cg_manual_id,
       COALESCE(da.cuenta_gasto_id, p.cuenta_gasto_id)             AS cg_efectiva_id,
       COALESCE(cgd.codigo,  pg.codigo)                            AS cuenta_gasto_codigo,
-      COALESCE(cgd.descripcion, pg.descripcion)                   AS cuenta_gasto_desc
+      COALESCE(cgd.descripcion, pg.descripcion)                   AS cuenta_gasto_desc,
+      cc.codigo                                                   AS cta_proveedor_codigo,
+      la.nombre_fichero                                           AS lote_a3_nombre,
+      la.fecha                                                    AS lote_a3_fecha
     FROM drive_archivos da
     LEFT JOIN LATERAL (
       SELECT p2.*
@@ -49,6 +53,8 @@ router.get('/', async (req, res) => {
     ) p ON true
     LEFT JOIN plan_contable pg  ON pg.id  = p.cuenta_gasto_id
     LEFT JOIN plan_contable cgd ON cgd.id = da.cuenta_gasto_id
+    LEFT JOIN plan_contable cc  ON cc.id  = p.cuenta_contable_id
+    LEFT JOIN lotes_exportacion_a3 la ON la.id = da.lote_a3_id
     ORDER BY da.id DESC
   `);
   res.json({ ok: true, data: archivos.map(parsearArchivo) });

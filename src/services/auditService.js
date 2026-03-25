@@ -13,6 +13,7 @@ const EVENTOS = {
   UPLOAD_CONCILIACION:   'UPLOAD_CONCILIACION',
   REVERTIR_ESTADO:       'REVERTIR_ESTADO',
   EXPORT_EXCEL:          'EXPORT_EXCEL',
+  EXPORT_A3:             'EXPORT_A3',
 };
 
 async function registrarEvento({ evento, facturaId, usuarioId, ip, userAgent, tokenUsado, detalle }) {
