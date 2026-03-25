@@ -164,6 +164,22 @@ const tablas = [
   `ALTER TABLE drive_archivos ADD COLUMN IF NOT EXISTS cuenta_contable_id INTEGER REFERENCES plan_contable(id)`,
   `ALTER TABLE drive_archivos ADD COLUMN IF NOT EXISTS cuenta_gasto_id INTEGER REFERENCES plan_contable(id)`,
 
+  `CREATE TABLE IF NOT EXISTS roles (
+    id          SERIAL PRIMARY KEY,
+    nombre      TEXT NOT NULL UNIQUE,
+    descripcion TEXT,
+    es_builtin  BOOLEAN NOT NULL DEFAULT false,
+    activo      BOOLEAN NOT NULL DEFAULT true,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`,
+
+  `CREATE TABLE IF NOT EXISTS rol_permisos (
+    rol_id  INTEGER NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
+    recurso TEXT NOT NULL,
+    nivel   TEXT NOT NULL DEFAULT 'none',
+    PRIMARY KEY (rol_id, recurso)
+  )`,
+
   // Índices
   `CREATE INDEX IF NOT EXISTS idx_logs_factura    ON logs_auditoria(factura_id)`,
   `CREATE INDEX IF NOT EXISTS idx_logs_evento     ON logs_auditoria(evento)`,
@@ -264,6 +280,45 @@ async function runMigrations() {
         [c.codigo, c.descripcion, c.grupo]
       );
     }
+  }
+
+  // Seed roles built-in
+  await db.query(`
+    INSERT INTO roles (nombre, descripcion, es_builtin) VALUES
+      ('ADMIN',    'Administrador del sistema', true),
+      ('GESTORIA', 'Usuario de gestoría',       true)
+    ON CONFLICT (nombre) DO NOTHING
+  `);
+
+  const RECURSOS = ['facturas','conciliacion','historial','proveedores','usuarios','configuracion','aplicar_cuentas'];
+
+  // ADMIN: todo → edit
+  for (const recurso of RECURSOS) {
+    await db.query(
+      `INSERT INTO rol_permisos (rol_id, recurso, nivel)
+       SELECT id, $1, 'edit' FROM roles WHERE nombre = 'ADMIN'
+       ON CONFLICT (rol_id, recurso) DO NOTHING`,
+      [recurso]
+    );
+  }
+
+  // GESTORIA: permisos por defecto
+  const gestoriaPerms = {
+    facturas:        'edit',
+    conciliacion:    'read',
+    historial:       'read',
+    proveedores:     'none',
+    usuarios:        'none',
+    configuracion:   'none',
+    aplicar_cuentas: 'edit',
+  };
+  for (const [recurso, nivel] of Object.entries(gestoriaPerms)) {
+    await db.query(
+      `INSERT INTO rol_permisos (rol_id, recurso, nivel)
+       SELECT id, $1, $2 FROM roles WHERE nombre = 'GESTORIA'
+       ON CONFLICT (rol_id, recurso) DO NOTHING`,
+      [recurso, nivel]
+    );
   }
 
   console.log('Migración PostgreSQL completada.');

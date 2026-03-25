@@ -36,6 +36,7 @@ app.use('/api/configuracion',  require('./routes/configuracion'));
 app.use('/api/sincronizacion', require('./routes/sincronizacion'));
 app.use('/api/plan-contable', require('./routes/planContable'));
 app.use('/api/proveedores',   require('./routes/proveedores'));
+app.use('/api/roles',         require('./routes/roles'));
 app.use('/ver',               require('./routes/acceso'));
 app.get('/health', (_req, res) => res.json({ ok: true, uptime: process.uptime() }));
 

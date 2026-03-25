@@ -24,7 +24,7 @@ function StatCard({ label, value, color }) {
 // ─── Inner app (requires auth context) ───────────────────────────────────────
 
 function AppInner() {
-  const { user, loading: authLoading, logout } = useAuth();
+  const { user, loading: authLoading, logout, puedeVer, puedeEditar } = useAuth();
 
   const [tab,             setTab]             = useState('facturas');
   const [subTab,          setSubTab]          = useState('pendientes');
@@ -208,13 +208,14 @@ function AppInner() {
 
   // ── Pestañas principales (nav) ──────────────────────────────────────────────
   const tabs = [
-    { id: 'facturas',     label: 'Facturas' },
-    { id: 'conciliacion', label: 'Conciliación de Mayor' },
-    { id: 'historial',    label: 'Historial' },
-  ];
+    { id: 'facturas',     label: 'Facturas',              visible: puedeVer('facturas')     },
+    { id: 'conciliacion', label: 'Conciliación de Mayor', visible: puedeVer('conciliacion') },
+    { id: 'historial',    label: 'Historial',             visible: puedeVer('historial')    },
+  ].filter(t => t.visible);
 
   const ADMIN_TABS = ['usuarios', 'proveedores', 'configuracion'];
-  const tabAdminActivo = ADMIN_TABS.includes(tab);
+  const tabAdminActivo  = ADMIN_TABS.includes(tab);
+  const hayMenuAdmin    = puedeVer('usuarios') || puedeVer('proveedores') || puedeVer('configuracion');
 
   const subTabs = [
     { id: 'pendientes',     label: 'Pendientes',     count: stats.pendientes,     color: 'text-amber-600',   bg: 'bg-amber-600'   },
@@ -248,8 +249,8 @@ function AppInner() {
             ))}
           </nav>
 
-          {/* Dropdown Administración (solo admin) */}
-          {esAdmin && (
+          {/* Dropdown Administración */}
+          {hayMenuAdmin && (
             <div ref={adminMenuRef} className="relative flex-shrink-0">
               <button
                 onClick={() => setAdminMenuOpen(o => !o)}
@@ -269,10 +270,10 @@ function AppInner() {
               {adminMenuOpen && (
                 <div className="absolute right-0 top-full mt-1.5 w-48 bg-white border border-gray-200 rounded-xl shadow-lg py-1 z-50">
                   {[
-                    { id: 'proveedores',   icon: '🏢', label: 'Proveedores' },
-                    { id: 'usuarios',      icon: '👥', label: 'Usuarios' },
-                    { id: 'configuracion', icon: '⚙️',  label: 'Configuración' },
-                  ].map(item => (
+                    { id: 'proveedores',   icon: '🏢', label: 'Proveedores',  visible: puedeVer('proveedores')   },
+                    { id: 'usuarios',      icon: '👥', label: 'Usuarios',     visible: puedeVer('usuarios')      },
+                    { id: 'configuracion', icon: '⚙️',  label: 'Configuración', visible: puedeVer('configuracion') },
+                  ].filter(i => i.visible).map(item => (
                     <button
                       key={item.id}
                       onClick={() => { setTab(item.id); setAdminMenuOpen(false); }}
@@ -369,11 +370,11 @@ function AppInner() {
           </div>
         )}
 
-        {/* ── Pestaña Usuarios (solo ADMIN) ── */}
-        {tab === 'usuarios' && esAdmin && <Usuarios />}
+        {/* ── Pestaña Usuarios ── */}
+        {tab === 'usuarios' && puedeVer('usuarios') && <Usuarios />}
 
-        {/* ── Pestaña Proveedores (solo ADMIN) ── */}
-        {tab === 'proveedores' && esAdmin && <Proveedores />}
+        {/* ── Pestaña Proveedores ── */}
+        {tab === 'proveedores' && puedeVer('proveedores') && <Proveedores />}
 
         {/* ── Pestaña Conciliación ── */}
         {tab === 'conciliacion' && <Conciliacion proveedores={proveedores} />}
@@ -381,8 +382,8 @@ function AppInner() {
         {/* ── Pestaña Historial ── */}
         {tab === 'historial' && <Historial usuario={user} />}
 
-        {/* ── Pestaña Configuración (solo ADMIN) ── */}
-        {tab === 'configuracion' && esAdmin && (
+        {/* ── Pestaña Configuración ── */}
+        {tab === 'configuracion' && puedeVer('configuracion') && (
           <Configuracion
             todasFacturas={todasFacturas}
             onFacturasActualizadas={handleFacturaActualizada}
@@ -405,43 +406,47 @@ function AppInner() {
               <StatCard label="Contabilizadas" value={stats.contabilizadas} color="text-emerald-600" />
             </div>
 
-            {/* Botones de administración (solo admin) */}
-            {esAdmin && (
+            {/* Botones de administración */}
+            {(esAdmin || puedeEditar('aplicar_cuentas')) && (
               <div className="flex items-center gap-3 flex-wrap">
-                <button
-                  onClick={handleSyncManual}
-                  disabled={sincronizando}
-                  className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 border border-gray-200 rounded-lg shadow-sm transition-colors disabled:opacity-60"
-                >
-                  {sincronizando ? (
-                    <svg className="h-4 w-4 animate-spin text-blue-500" viewBox="0 0 24 24" fill="none">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
-                    </svg>
-                  ) : (
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                    </svg>
-                  )}
-                  {sincronizando ? 'Sincronizando...' : 'Sincronizar con Drive'}
-                </button>
-                <button
-                  onClick={handleAplicarCuentasProveedor}
-                  disabled={aplicandoCuentas || sincronizando}
-                  className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-purple-700 bg-purple-50 hover:bg-purple-100 border border-purple-200 rounded-lg shadow-sm transition-colors disabled:opacity-60"
-                >
-                  {aplicandoCuentas ? (
-                    <svg className="h-4 w-4 animate-spin text-purple-500" viewBox="0 0 24 24" fill="none">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
-                    </svg>
-                  ) : (
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
-                    </svg>
-                  )}
-                  {aplicandoCuentas ? 'Aplicando...' : 'Aplicar cuentas de proveedor'}
-                </button>
+                {esAdmin && (
+                  <button
+                    onClick={handleSyncManual}
+                    disabled={sincronizando}
+                    className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 border border-gray-200 rounded-lg shadow-sm transition-colors disabled:opacity-60"
+                  >
+                    {sincronizando ? (
+                      <svg className="h-4 w-4 animate-spin text-blue-500" viewBox="0 0 24 24" fill="none">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
+                      </svg>
+                    ) : (
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                      </svg>
+                    )}
+                    {sincronizando ? 'Sincronizando...' : 'Sincronizar con Drive'}
+                  </button>
+                )}
+                {puedeEditar('aplicar_cuentas') && (
+                  <button
+                    onClick={handleAplicarCuentasProveedor}
+                    disabled={aplicandoCuentas || sincronizando}
+                    className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-purple-700 bg-purple-50 hover:bg-purple-100 border border-purple-200 rounded-lg shadow-sm transition-colors disabled:opacity-60"
+                  >
+                    {aplicandoCuentas ? (
+                      <svg className="h-4 w-4 animate-spin text-purple-500" viewBox="0 0 24 24" fill="none">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
+                      </svg>
+                    ) : (
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
+                      </svg>
+                    )}
+                    {aplicandoCuentas ? 'Aplicando...' : 'Aplicar cuentas de proveedor'}
+                  </button>
+                )}
                 {syncMsg && (
                   <span className={`text-sm font-medium ${syncMsg.ok ? 'text-emerald-600' : 'text-red-600'}`}>
                     {syncMsg.ok ? '✓' : '✗'} {syncMsg.texto}
@@ -508,6 +513,7 @@ function AppInner() {
                 facturas={pendientes}
                 proveedores={proveedores}
                 esAdmin={esAdmin}
+                soloLectura={!puedeEditar('facturas')}
                 loading={loading}
                 planContable={planContable}
                 onEstadoActualizado={handleEstadoActualizado}
@@ -521,6 +527,7 @@ function AppInner() {
                 facturas={descargadas}
                 proveedores={proveedores}
                 esAdmin={esAdmin}
+                soloLectura={!puedeEditar('facturas')}
                 loading={loading}
                 planContable={planContable}
                 onEstadoActualizado={handleEstadoActualizado}
@@ -534,6 +541,7 @@ function AppInner() {
                 facturas={ccAsignadas}
                 proveedores={proveedores}
                 esAdmin={esAdmin}
+                soloLectura={!puedeEditar('facturas')}
                 loading={loading}
                 planContable={planContable}
                 onEstadoActualizado={handleEstadoActualizado}
@@ -546,6 +554,7 @@ function AppInner() {
                 facturas={contabilizadas}
                 proveedores={proveedores}
                 esAdmin={esAdmin}
+                soloLectura={!puedeEditar('facturas')}
                 loading={loading}
                 planContable={planContable}
                 onEstadoActualizado={handleEstadoActualizado}

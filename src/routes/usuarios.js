@@ -29,8 +29,12 @@ router.post('/', requireAdmin, async (req, res) => {
   if (!nombre || !email || !password) {
     return res.status(400).json({ ok: false, error: 'nombre, email y contraseña son obligatorios' });
   }
-  if (!['ADMIN', 'GESTORIA'].includes(rol)) {
-    return res.status(400).json({ ok: false, error: 'rol debe ser ADMIN o GESTORIA' });
+  // Validar que el rol existe
+  const db2   = getDb();
+  const roles = await db2.all('SELECT nombre FROM roles WHERE activo = true');
+  const nombresRoles = roles.map(r => r.nombre);
+  if (!nombresRoles.includes(rol)) {
+    return res.status(400).json({ ok: false, error: `Rol inválido. Roles disponibles: ${nombresRoles.join(', ')}` });
   }
   if (password.length < 8) {
     return res.status(400).json({ ok: false, error: 'La contraseña debe tener al menos 8 caracteres' });
@@ -76,7 +80,12 @@ router.put('/:id', async (req, res) => {
 
   const nuevoNombre = nombre?.trim() || user.nombre;
   const nuevoEmail  = email ? email.trim().toLowerCase() : user.email;
-  const nuevoRol    = (isAdmin && rol && ['ADMIN','GESTORIA'].includes(rol)) ? rol : user.rol;
+  let nuevoRol = user.rol;
+  if (isAdmin && rol) {
+    const db3   = getDb();
+    const roles = await db3.all('SELECT nombre FROM roles WHERE activo = true');
+    if (roles.some(r => r.nombre === rol)) nuevoRol = rol;
+  }
   const nuevoActivo = (isAdmin && activo !== undefined) ? (activo ? 1 : 0) : user.activo;
 
   try {

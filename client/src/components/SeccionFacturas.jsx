@@ -142,6 +142,7 @@ export default function SeccionFacturas({
   facturas,
   proveedores,
   esAdmin,
+  soloLectura = false,
   loading,
   onEstadoActualizado,
   planContable = [],
@@ -284,8 +285,8 @@ export default function SeccionFacturas({
               {descargando ? 'Generando ZIP...' : `Descargar ZIP (${n})`}
             </button>
 
-            {/* Marcar como CONTABILIZADAS — solo en CC Asignada */}
-            {tipo === 'cc_asignada' && (
+            {/* Marcar como CONTABILIZADAS — solo en CC Asignada y con permisos */}
+            {tipo === 'cc_asignada' && !soloLectura && (
               <button
                 onClick={handleContabilizar}
                 disabled={contabilizando || descargando || asignandoCC}
@@ -297,8 +298,8 @@ export default function SeccionFacturas({
             )}
           </div>
 
-          {/* Asignación masiva de Cta. Gasto — solo en Pendientes y Descargadas */}
-          {(tipo === 'pendientes' || tipo === 'descargadas') && planContable.length > 0 && (
+          {/* Asignación masiva de Cta. Gasto — solo en Pendientes y Descargadas con permisos */}
+          {(tipo === 'pendientes' || tipo === 'descargadas') && !soloLectura && planContable.length > 0 && (
             <div className="flex items-center gap-3 bg-purple-600 text-white rounded-xl px-5 py-3 shadow-lg shadow-purple-200 flex-wrap">
               <span className="text-xs font-medium text-purple-100 flex-shrink-0">
                 Asignar Cta. Gasto a {n} {n === 1 ? 'factura' : 'facturas'}:

@@ -6,7 +6,7 @@ const router  = express.Router();
 const { getDb }                     = require('../config/database');
 const { registrarEvento, EVENTOS }  = require('../services/auditService');
 const { buildDriveClient }          = require('../services/driveService');
-const { resolveUser, requireAdmin } = require('../middleware/auth');
+const { resolveUser, requireAdmin, requireAuth } = require('../middleware/auth');
 
 function parsearArchivo(a) {
   const datos = a.datos_extraidos ? JSON.parse(a.datos_extraidos) : null;
@@ -413,7 +413,7 @@ router.post('/exportar-excel', async (req, res) => {
 // Pasa a CC_ASIGNADA todas las facturas PENDIENTE cuyo proveedor ya tiene
 // cuenta de gasto definida (por nombre de carpeta o por CIF extraído)
 
-router.put('/aplicar-cuentas-proveedor', requireAdmin, async (req, res) => {
+router.put('/aplicar-cuentas-proveedor', requireAuth, async (req, res) => {
   try {
     const db = getDb();
     const result = await db.query(

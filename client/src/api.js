@@ -27,14 +27,14 @@ export async function apiLogin(email, password) {
   });
   const json = await res.json();
   if (!json.ok) throw new Error(json.error || 'Error al iniciar sesión');
-  return json.data; // { token, user }
+  return json.data; // { token, user, permisos }
 }
 
 export async function apiMe() {
   const res = await fetch(`${API_BASE}/api/auth/me`, { headers: authHeaders() });
   if (!res.ok) return null;
   const { data } = await res.json();
-  return data.user;
+  return data; // { user, permisos }
 }
 
 // ─── Usuarios ─────────────────────────────────────────────────────────────────
@@ -416,6 +416,46 @@ export async function crearCuentaContable(datos) {
 }
 
 // ─── Proveedores ──────────────────────────────────────────────────────────────
+
+// ─── Roles ────────────────────────────────────────────────────────────────────
+
+export async function fetchRoles() {
+  const res = await fetch(`${API_BASE}/api/roles`, { headers: authHeaders() });
+  if (!res.ok) throw new Error('Error al cargar roles');
+  const { data } = await res.json();
+  return data;
+}
+
+export async function crearRol(datos) {
+  const res = await fetch(`${API_BASE}/api/roles`, {
+    method: 'POST',
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify(datos),
+  });
+  const json = await res.json();
+  if (!json.ok) throw new Error(json.error || 'Error al crear rol');
+  return json.data;
+}
+
+export async function editarRol(id, datos) {
+  const res = await fetch(`${API_BASE}/api/roles/${id}`, {
+    method: 'PUT',
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify(datos),
+  });
+  const json = await res.json();
+  if (!json.ok) throw new Error(json.error || 'Error al editar rol');
+  return json.data;
+}
+
+export async function eliminarRol(id) {
+  const res = await fetch(`${API_BASE}/api/roles/${id}`, {
+    method: 'DELETE',
+    headers: authHeaders(),
+  });
+  const json = await res.json();
+  if (!json.ok) throw new Error(json.error || 'Error al eliminar rol');
+}
 
 export async function aplicarCuentasProveedor() {
   const res = await fetch(`${API_BASE}/api/drive/aplicar-cuentas-proveedor`, {
