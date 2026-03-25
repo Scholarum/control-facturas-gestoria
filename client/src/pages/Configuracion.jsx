@@ -322,6 +322,10 @@ function PanelHistorialSync() {
   const [historial,  setHistorial]  = useState([]);
   const [cargando,   setCargando]   = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [filtros,    setFiltros]    = useState({ fechaDesde: '', fechaHasta: '', origen: '', estado: '' });
+
+  function setF(k, v) { setFiltros(prev => ({ ...prev, [k]: v })); }
+  const hayFiltros = Object.values(filtros).some(Boolean);
 
   async function cargar() {
     setRefreshing(true);
@@ -332,12 +336,22 @@ function PanelHistorialSync() {
 
   useEffect(() => { cargar(); }, []);
 
+  const filtrados = historial.filter(r => {
+    if (filtros.origen && r.origen !== filtros.origen) return false;
+    if (filtros.estado && r.estado !== filtros.estado) return false;
+    if (filtros.fechaDesde && r.fecha && r.fecha.slice(0, 10) < filtros.fechaDesde) return false;
+    if (filtros.fechaHasta && r.fecha && r.fecha.slice(0, 10) > filtros.fechaHasta) return false;
+    return true;
+  });
+
+  const inputCls = 'rounded-lg border border-gray-200 bg-white px-2.5 py-1 text-xs text-gray-800 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500';
+
   return (
     <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
       <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
         <div>
           <p className="text-sm font-semibold text-gray-900">Historial de sincronizaciones</p>
-          <p className="text-xs text-gray-400 mt-0.5">Últimas 50 ejecuciones (manuales y automáticas).</p>
+          <p className="text-xs text-gray-400 mt-0.5">Ultimas 50 ejecuciones (manuales y automaticas).</p>
         </div>
         <button onClick={cargar} disabled={refreshing}
           className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors disabled:opacity-50">
@@ -347,56 +361,66 @@ function PanelHistorialSync() {
           Actualizar
         </button>
       </div>
+      {/* Filtros */}
+      {!cargando && historial.length > 0 && (
+        <div className="px-5 py-3 border-b border-gray-100 flex flex-wrap gap-3 items-end">
+          <div className="flex flex-col gap-0.5">
+            <label className="text-[10px] font-medium text-gray-500">Desde</label>
+            <input type="date" value={filtros.fechaDesde} onChange={e => setF('fechaDesde', e.target.value)} className={inputCls} />
+          </div>
+          <div className="flex flex-col gap-0.5">
+            <label className="text-[10px] font-medium text-gray-500">Hasta</label>
+            <input type="date" value={filtros.fechaHasta} onChange={e => setF('fechaHasta', e.target.value)} className={inputCls} />
+          </div>
+          <div className="flex flex-col gap-0.5">
+            <label className="text-[10px] font-medium text-gray-500">Origen</label>
+            <select value={filtros.origen} onChange={e => setF('origen', e.target.value)} className={inputCls}>
+              <option value="">Todos</option><option value="CRON">CRON</option><option value="MANUAL">MANUAL</option>
+            </select>
+          </div>
+          <div className="flex flex-col gap-0.5">
+            <label className="text-[10px] font-medium text-gray-500">Estado</label>
+            <select value={filtros.estado} onChange={e => setF('estado', e.target.value)} className={inputCls}>
+              <option value="">Todos</option><option value="OK">OK</option><option value="ERROR">ERROR</option>
+            </select>
+          </div>
+          {hayFiltros && <button onClick={() => setFiltros({ fechaDesde: '', fechaHasta: '', origen: '', estado: '' })} className="text-xs text-gray-500 hover:text-gray-800 self-end pb-0.5">Limpiar</button>}
+          <span className="text-[10px] text-gray-400 ml-auto self-end">{filtrados.length} de {historial.length}</span>
+        </div>
+      )}
       <div className="overflow-x-auto">
         {cargando ? (
           <div className="flex justify-center py-10">
-            <svg className="h-5 w-5 animate-spin text-blue-500" viewBox="0 0 24 24" fill="none">
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
-              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
-            </svg>
+            <svg className="h-5 w-5 animate-spin text-blue-500" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/></svg>
           </div>
-        ) : historial.length === 0 ? (
-          <p className="text-sm text-gray-400 text-center py-10">Sin registros todavía</p>
+        ) : filtrados.length === 0 ? (
+          <p className="text-sm text-gray-400 text-center py-10">{hayFiltros ? 'Sin resultados con estos filtros' : 'Sin registros'}</p>
         ) : (
           <table className="w-full text-sm">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
-                {['Fecha', 'Origen', 'Estado', 'Nuevas', 'En revisión', 'Duración', 'Detalle'].map(h => (
+                {['Fecha', 'Origen', 'Estado', 'Nuevas', 'En revision', 'Duracion', 'Detalle'].map(h => (
                   <th key={h} className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {historial.map(row => (
+              {filtrados.map(row => (
                 <tr key={row.id} className="hover:bg-gray-50">
                   <td className="px-4 py-2.5 text-xs text-gray-600 whitespace-nowrap">{fmtFecha(row.fecha)}</td>
                   <td className="px-4 py-2.5">
-                    <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ring-1 ring-inset ${
-                      row.origen === 'CRON'
-                        ? 'bg-purple-50 text-purple-700 ring-purple-200'
-                        : 'bg-blue-50 text-blue-700 ring-blue-200'
-                    }`}>{row.origen}</span>
+                    <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ring-1 ring-inset ${row.origen === 'CRON' ? 'bg-purple-50 text-purple-700 ring-purple-200' : 'bg-blue-50 text-blue-700 ring-blue-200'}`}>{row.origen}</span>
                   </td>
                   <td className="px-4 py-2.5">
-                    <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ring-1 ring-inset ${
-                      row.estado === 'OK'
-                        ? 'bg-emerald-50 text-emerald-700 ring-emerald-200'
-                        : 'bg-red-50 text-red-700 ring-red-200'
-                    }`}>{row.estado}</span>
+                    <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ring-1 ring-inset ${row.estado === 'OK' ? 'bg-emerald-50 text-emerald-700 ring-emerald-200' : 'bg-red-50 text-red-700 ring-red-200'}`}>{row.estado}</span>
                   </td>
                   <td className="px-4 py-2.5 text-sm font-semibold text-gray-900">{row.facturas_nuevas}</td>
                   <td className="px-4 py-2.5">
-                    {row.facturas_error > 0
-                      ? <span className="text-sm font-semibold text-red-600">{row.facturas_error}</span>
-                      : <span className="text-sm text-gray-400">—</span>}
+                    {row.facturas_error > 0 ? <span className="text-sm font-semibold text-red-600">{row.facturas_error}</span> : <span className="text-sm text-gray-400">0</span>}
                   </td>
                   <td className="px-4 py-2.5 text-xs text-gray-500">{fmtMs(row.duracion_ms)}</td>
                   <td className="px-4 py-2.5 text-xs text-gray-400 max-w-[200px] truncate" title={row.detalle?.error || ''}>
-                    {row.detalle?.error
-                      ? <span className="text-red-500">{row.detalle.error}</span>
-                      : row.detalle?.total_escaneadas != null
-                        ? `${row.detalle.total_escaneadas} PDFs escaneados`
-                        : '—'}
+                    {row.detalle?.error ? <span className="text-red-500">{row.detalle.error}</span> : row.detalle?.total_escaneadas != null ? `${row.detalle.total_escaneadas} PDFs escaneados` : '-'}
                   </td>
                 </tr>
               ))}
@@ -505,7 +529,11 @@ function PanelHistorialNotificaciones() {
   const [cargando,      setCargando]      = useState(true);
   const [refreshing,    setRefreshing]    = useState(false);
   const [expanded,      setExpanded]      = useState(null);
-  const [estadosMj,     setEstadosMj]     = useState({});  // messageId → { loading, data, error }
+  const [estadosMj,     setEstadosMj]     = useState({});
+  const [filtros,       setFiltros]       = useState({ fechaDesde: '', fechaHasta: '', origen: '' });
+
+  function setF(k, v) { setFiltros(prev => ({ ...prev, [k]: v })); }
+  const hayFiltrosN = Object.values(filtros).some(Boolean);
 
   async function cargar() {
     setRefreshing(true);
@@ -515,6 +543,13 @@ function PanelHistorialNotificaciones() {
   }
 
   useEffect(() => { cargar(); }, []);
+
+  const filtradosN = historial.filter(r => {
+    if (filtros.origen && r.origen !== filtros.origen) return false;
+    if (filtros.fechaDesde && r.fecha && r.fecha.slice(0, 10) < filtros.fechaDesde) return false;
+    if (filtros.fechaHasta && r.fecha && r.fecha.slice(0, 10) > filtros.fechaHasta) return false;
+    return true;
+  });
 
   function toggleRow(id) {
     setExpanded(prev => prev === id ? null : id);
@@ -545,16 +580,37 @@ function PanelHistorialNotificaciones() {
           Actualizar
         </button>
       </div>
+      {/* Filtros */}
+      {!cargando && historial.length > 0 && (
+        <div className="px-5 py-3 border-b border-gray-100 flex flex-wrap gap-3 items-end">
+          <div className="flex flex-col gap-0.5">
+            <label className="text-[10px] font-medium text-gray-500">Desde</label>
+            <input type="date" value={filtros.fechaDesde} onChange={e => setF('fechaDesde', e.target.value)}
+              className="rounded-lg border border-gray-200 bg-white px-2.5 py-1 text-xs text-gray-800 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          </div>
+          <div className="flex flex-col gap-0.5">
+            <label className="text-[10px] font-medium text-gray-500">Hasta</label>
+            <input type="date" value={filtros.fechaHasta} onChange={e => setF('fechaHasta', e.target.value)}
+              className="rounded-lg border border-gray-200 bg-white px-2.5 py-1 text-xs text-gray-800 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          </div>
+          <div className="flex flex-col gap-0.5">
+            <label className="text-[10px] font-medium text-gray-500">Origen</label>
+            <select value={filtros.origen} onChange={e => setF('origen', e.target.value)}
+              className="rounded-lg border border-gray-200 bg-white px-2.5 py-1 text-xs text-gray-800 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+              <option value="">Todos</option><option value="CRON">CRON</option><option value="MANUAL">MANUAL</option><option value="TEST">TEST</option>
+            </select>
+          </div>
+          {hayFiltrosN && <button onClick={() => setFiltros({ fechaDesde: '', fechaHasta: '', origen: '' })} className="text-xs text-gray-500 hover:text-gray-800 self-end pb-0.5">Limpiar</button>}
+          <span className="text-[10px] text-gray-400 ml-auto self-end">{filtradosN.length} de {historial.length}</span>
+        </div>
+      )}
       <div className="overflow-x-auto">
         {cargando ? (
           <div className="flex justify-center py-10">
-            <svg className="h-5 w-5 animate-spin text-blue-500" viewBox="0 0 24 24" fill="none">
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
-              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
-            </svg>
+            <svg className="h-5 w-5 animate-spin text-blue-500" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/></svg>
           </div>
-        ) : historial.length === 0 ? (
-          <p className="text-sm text-gray-400 text-center py-10">Sin registros todavía</p>
+        ) : filtradosN.length === 0 ? (
+          <p className="text-sm text-gray-400 text-center py-10">{hayFiltrosN ? 'Sin resultados con estos filtros' : 'Sin registros'}</p>
         ) : (
           <table className="w-full text-sm">
             <thead className="bg-gray-50 border-b border-gray-200">
@@ -565,7 +621,7 @@ function PanelHistorialNotificaciones() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {historial.map(row => {
+              {filtradosN.map(row => {
                 const dests = (() => { try { return JSON.parse(row.destinatarios || '[]'); } catch { return []; } })();
                 const mjRes = (() => { try { return JSON.parse(row.respuesta_mj || '[]'); } catch { return []; } })();
                 return (
