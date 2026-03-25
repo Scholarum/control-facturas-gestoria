@@ -2,6 +2,7 @@ const cron                   = require('node-cron');
 const { ejecutarSync }       = require('./syncService');
 const { enviarNotificaciones } = require('./notificacionService');
 const { getSistemaConfig }   = require('./sistemaConfigService');
+const { getDb }              = require('../config/database');
 
 let syncTask   = null;
 let notifyTask = null;
@@ -41,6 +42,10 @@ async function iniciarCrons() {
       }, { timezone });
       console.log(`[Cron] Sync programada → ${expr} (${config.sync_frecuencia} a las ${config.sync_hora} ${timezone})`);
     }
+    // Si el servidor arrancó después de la hora programada, recuperar la ejecución perdida
+    catchupSyncSiNecesario(config, timezone).catch(e =>
+      console.warn('[Cron] Error comprobando catch-up:', e.message)
+    );
   }
 
   if (config.notify_activo === 'true') {
@@ -53,6 +58,37 @@ async function iniciarCrons() {
       console.log(`[Cron] Notificaciones programadas → ${expr} (${config.notify_frecuencia} a las ${config.notify_hora} ${timezone})`);
     }
   }
+}
+
+// ─── Catch-up: ejecutar sync si el servidor arrancó pasada la hora programada ─
+// Cubre el caso habitual de restart/deploy después de la hora del cron diario.
+
+async function catchupSyncSiNecesario(config, timezone) {
+  if (config.sync_activo !== 'true' || config.sync_frecuencia !== 'diaria') return;
+
+  const [h, m] = (config.sync_hora || '08:00').split(':').map(Number);
+
+  // Hora actual en la zona configurada
+  const now    = new Date();
+  const hhmm   = now.toLocaleTimeString('es-ES', { timeZone: timezone, hour12: false, hour: '2-digit', minute: '2-digit' });
+  const [hNow, mNow] = hhmm.split(':').map(Number);
+
+  // Si todavía no ha llegado la hora programada, nada que hacer
+  if (hNow < h || (hNow === h && mNow < m)) return;
+
+  // Comprobar si ya hay una ejecución CRON en las últimas 20 horas
+  try {
+    const db      = getDb();
+    const reciente = await db.one(
+      "SELECT id FROM historial_sincronizaciones WHERE origen = 'CRON' AND fecha >= NOW() - INTERVAL '20 hours' LIMIT 1"
+    );
+    if (reciente) return; // Ya corrió hoy
+  } catch (_) {
+    return; // Si falla la consulta, no hacemos catch-up
+  }
+
+  console.log(`[Cron] Sync diaria de las ${config.sync_hora} no ejecutada hoy. Lanzando ahora...`);
+  ejecutarSync('CRON').catch(e => console.error('[Cron] Error en sync de recuperación:', e.message));
 }
 
 module.exports = { iniciarCrons };

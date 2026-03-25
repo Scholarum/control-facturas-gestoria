@@ -60,8 +60,8 @@ async function ejecutarSync(origen = 'MANUAL') {
         [a.google_id]
       );
       await db.query(
-        `INSERT INTO drive_archivos (google_id, nombre_archivo, ruta_completa, proveedor, fecha_subida)
-         VALUES ($1, $2, $3, $4, $5)
+        `INSERT INTO drive_archivos (google_id, nombre_archivo, ruta_completa, proveedor, fecha_subida, estado)
+         VALUES ($1, $2, $3, $4, $5, 'SINCRONIZADA')
          ON CONFLICT (google_id) DO UPDATE SET
            nombre_archivo = EXCLUDED.nombre_archivo,
            ruta_completa  = EXCLUDED.ruta_completa,
@@ -77,13 +77,13 @@ async function ejecutarSync(origen = 'MANUAL') {
       }
     }
 
-    // Extraer con Gemini TODOS los archivos en estado PENDIENTE
-    // (no solo los recién insertados, para procesar también los que quedaron
-    // pendientes de sincronizaciones anteriores)
-    const pendienteRows = await db.all(
-      "SELECT id FROM drive_archivos WHERE estado = 'PENDIENTE'"
+    // Extraer con Gemini todos los archivos recién sincronizados (estado SINCRONIZADA).
+    // Este estado lo asigna el sync al insertar; tras la extracción pasa a
+    // PROCESADA o REVISION_MANUAL, por lo que no se reprocesarán en la siguiente sync.
+    const sincRows = await db.all(
+      "SELECT id FROM drive_archivos WHERE estado = 'SINCRONIZADA'"
     );
-    const idsParaExtraer = pendienteRows.map(r => r.id);
+    const idsParaExtraer = sincRows.map(r => r.id);
 
     let extraccion = { procesada: 0, revision: 0 };
     if (idsParaExtraer.length > 0) {

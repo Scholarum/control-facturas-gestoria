@@ -233,7 +233,7 @@ async function ejecutarExtraccion(ids, onProgress = () => {}) {
     ).filter(Boolean);
   } else {
     archivos = await db.all(
-      "SELECT * FROM drive_archivos WHERE estado IN ('PENDIENTE','REVISION_MANUAL','PROCESADA') ORDER BY id"
+      "SELECT * FROM drive_archivos WHERE estado IN ('SINCRONIZADA','REVISION_MANUAL','PROCESADA') ORDER BY id"
     );
   }
 

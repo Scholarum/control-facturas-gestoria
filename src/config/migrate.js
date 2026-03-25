@@ -117,6 +117,9 @@ const tablas = [
   `ALTER TABLE historial_conciliaciones ADD COLUMN IF NOT EXISTS usuario_id     INTEGER REFERENCES usuarios(id)`,
   `ALTER TABLE historial_conciliaciones ADD COLUMN IF NOT EXISTS usuario_nombre TEXT`,
 
+  // Estado SINCRONIZADA: nueva columna default (idempotente)
+  `ALTER TABLE drive_archivos ALTER COLUMN estado SET DEFAULT 'SINCRONIZADA'`,
+
   `CREATE TABLE IF NOT EXISTS conciliacion_lineas_estado (
     id              SERIAL PRIMARY KEY,
     conciliacion_id INTEGER NOT NULL REFERENCES historial_conciliaciones(id) ON DELETE CASCADE,
@@ -320,6 +323,13 @@ async function runMigrations() {
       [recurso, nivel]
     );
   }
+
+  // Migración de datos: renombrar PENDIENTE → SINCRONIZADA
+  // Las facturas en PENDIENTE son archivos que llegaron por sync pero aún
+  // no pasaron por Gemini; el nuevo estado equivalente es SINCRONIZADA.
+  await db.query(
+    "UPDATE drive_archivos SET estado = 'SINCRONIZADA' WHERE estado = 'PENDIENTE'"
+  );
 
   console.log('Migración PostgreSQL completada.');
 }
