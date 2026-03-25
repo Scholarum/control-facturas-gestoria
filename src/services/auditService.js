@@ -14,6 +14,7 @@ const EVENTOS = {
   REVERTIR_ESTADO:       'REVERTIR_ESTADO',
   EXPORT_EXCEL:          'EXPORT_EXCEL',
   EXPORT_A3:             'EXPORT_A3',
+  ELIMINAR_FACTURA:      'ELIMINAR_FACTURA',
 };
 
 async function registrarEvento({ evento, facturaId, usuarioId, ip, userAgent, tokenUsado, detalle }) {

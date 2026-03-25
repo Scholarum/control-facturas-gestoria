@@ -182,6 +182,15 @@ export async function revertirEstado(id) {
   return res.json();
 }
 
+export async function eliminarFactura(id) {
+  const res = await fetch(`${API_BASE}/api/drive/${id}`, {
+    method: 'DELETE', headers: authHeaders(),
+  });
+  const json = await res.json();
+  if (!json.ok) throw new Error(json.error || 'Error al eliminar factura');
+  return json;
+}
+
 export async function exportarExcel(ids) {
   const res = await fetch(`${API_BASE}/api/drive/exportar-excel`, {
     method:  'POST',

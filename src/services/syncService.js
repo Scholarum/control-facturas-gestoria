@@ -93,6 +93,48 @@ async function ejecutarSync(origen = 'MANUAL') {
         console.error('[Sync] Error en extracción:', e.message);
       }
 
+      // Tras extracción: detectar duplicados (mismo CIF emisor + mismo nº factura)
+      let facturas_duplicadas = 0;
+      try {
+        const duplicadas = await db.all(`
+          SELECT da.id, da.nombre_archivo,
+                 (da.datos_extraidos::jsonb)->>'cif_emisor'     AS cif,
+                 (da.datos_extraidos::jsonb)->>'numero_factura' AS num
+          FROM drive_archivos da
+          WHERE da.id = ANY($1::int[])
+            AND da.estado = 'PROCESADA'
+            AND da.datos_extraidos IS NOT NULL
+            AND da.datos_extraidos ~ '^\\s*\\{'
+            AND EXISTS (
+              SELECT 1 FROM drive_archivos otro
+              WHERE otro.id <> da.id
+                AND otro.estado IN ('PROCESADA','REVISION_MANUAL')
+                AND otro.datos_extraidos IS NOT NULL
+                AND otro.datos_extraidos ~ '^\\s*\\{'
+                AND normalizar_cif((otro.datos_extraidos::jsonb)->>'cif_emisor')
+                    = normalizar_cif((da.datos_extraidos::jsonb)->>'cif_emisor')
+                AND UPPER(TRIM((otro.datos_extraidos::jsonb)->>'numero_factura'))
+                    = UPPER(TRIM((da.datos_extraidos::jsonb)->>'numero_factura'))
+                AND (da.datos_extraidos::jsonb)->>'numero_factura' IS NOT NULL
+                AND TRIM((da.datos_extraidos::jsonb)->>'numero_factura') <> ''
+            )
+        `, [idsParaExtraer]);
+
+        if (duplicadas.length > 0) {
+          const dupIds = duplicadas.map(d => d.id);
+          await db.query(
+            `UPDATE drive_archivos
+             SET estado = 'DUPLICADA', error_extraccion = 'Factura duplicada: mismo CIF emisor y número de factura'
+             WHERE id = ANY($1::int[])`,
+            [dupIds]
+          );
+          facturas_duplicadas = duplicadas.length;
+          console.log(`[Sync] ${facturas_duplicadas} factura(s) marcada(s) como duplicada(s)`);
+        }
+      } catch (e) {
+        console.error('[Sync] Error al detectar duplicados:', e.message);
+      }
+
       // Tras extracción: pasar a CC_ASIGNADA las facturas cuyo proveedor
       // ya tiene cuenta de gasto definida (match por carpeta o por CIF extraído)
       try {
@@ -130,13 +172,13 @@ async function ejecutarSync(origen = 'MANUAL') {
 
     await db.query(
       `INSERT INTO historial_sincronizaciones
-         (origen, estado, facturas_nuevas, facturas_error, duracion_ms, detalle)
-       VALUES ($1, 'OK', $2, $3, $4, $5)`,
-      [origen, facturas_nuevas, facturas_error, duracion_ms,
+         (origen, estado, facturas_nuevas, facturas_error, facturas_duplicadas, duracion_ms, detalle)
+       VALUES ($1, 'OK', $2, $3, $4, $5, $6)`,
+      [origen, facturas_nuevas, facturas_error, facturas_duplicadas, duracion_ms,
        JSON.stringify({ total_escaneadas: archivos.length, extraccion })]
     );
 
-    return { facturas_nuevas, facturas_error, duracion_ms, extraccion };
+    return { facturas_nuevas, facturas_error, facturas_duplicadas, duracion_ms, extraccion };
 
   } catch (err) {
     const duracion_ms = Date.now() - inicio;

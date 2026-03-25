@@ -436,7 +436,7 @@ function EmptyState({ hayFiltros, colspan }) {
 
 export default function TablaFacturas({
   facturas, seleccionados, onToggle, onToggleTodo,
-  loading, hayFiltros, esAdmin = false, onRevertir,
+  loading, hayFiltros, esAdmin = false, onRevertir, onEliminar,
   planContable = [], onAsignarCG,
 }) {
   const [expandidos, setExpandidos] = useState(new Set());
@@ -502,6 +502,7 @@ export default function TablaFacturas({
                 const total    = datos?.total_factura;
                 const negativo = total != null && total < 0;
                 const puedeRevertir = esAdmin && f.estado_gestion && f.estado_gestion !== 'PENDIENTE';
+                const puedeEliminar = esAdmin && (!f.estado_gestion || f.estado_gestion === 'PENDIENTE');
 
                 const mainRow = (
                   <tr
@@ -555,17 +556,30 @@ export default function TablaFacturas({
                     </td>
                     {esAdmin && (
                       <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
-                        {puedeRevertir && (
-                          <button
-                            onClick={() => onRevertir(f.id)}
-                            title="Revertir a PENDIENTE"
-                            className="p-1 text-gray-400 hover:text-red-500 transition-colors rounded"
-                          >
-                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
-                            </svg>
-                          </button>
-                        )}
+                        <div className="flex items-center gap-1">
+                          {puedeRevertir && (
+                            <button
+                              onClick={() => onRevertir(f.id)}
+                              title="Revertir a PENDIENTE"
+                              className="p-1 text-gray-400 hover:text-amber-500 transition-colors rounded"
+                            >
+                              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
+                              </svg>
+                            </button>
+                          )}
+                          {puedeEliminar && onEliminar && (
+                            <button
+                              onClick={() => { if (confirm('Eliminar esta factura? Esta accion no se puede deshacer.')) onEliminar(f.id); }}
+                              title="Eliminar factura"
+                              className="p-1 text-gray-400 hover:text-red-500 transition-colors rounded"
+                            >
+                              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                              </svg>
+                            </button>
+                          )}
+                        </div>
                       </td>
                     )}
                   </tr>

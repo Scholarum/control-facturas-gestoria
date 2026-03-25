@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, useRef } from 'react';
 import TablaFacturas from './TablaFacturas.jsx';
-import { descargarZip, contabilizar, revertirEstado, asignarCGMasivo, exportarLoteA3 } from '../api.js';
+import { descargarZip, contabilizar, revertirEstado, eliminarFactura, asignarCGMasivo, exportarLoteA3 } from '../api.js';
 
 // ─── Filtros compactos por sección ────────────────────────────────────────────
 
@@ -149,6 +149,7 @@ export default function SeccionFacturas({
   planContable = [],
   onAsignarCG,
   onAsignarCGMasivo,
+  onEliminarFactura,
 }) {
   const [filtros,       setFiltros]       = useState({ proveedor: '', fechaDesde: '', fechaHasta: '' });
   const [seleccionados, setSeleccionados] = useState(new Set());
@@ -254,6 +255,15 @@ export default function SeccionFacturas({
     try {
       await revertirEstado(id);
       onEstadoActualizado([id], 'PENDIENTE');
+    } catch (e) {
+      setError(e.message);
+    }
+  }
+
+  async function handleEliminar(id) {
+    try {
+      await eliminarFactura(id);
+      if (onEliminarFactura) onEliminarFactura(id);
     } catch (e) {
       setError(e.message);
     }
@@ -417,6 +427,7 @@ export default function SeccionFacturas({
         hayFiltros={hayFiltros}
         esAdmin={esAdmin}
         onRevertir={handleRevertir}
+        onEliminar={handleEliminar}
         planContable={planContable}
         onAsignarCG={onAsignarCG}
       />

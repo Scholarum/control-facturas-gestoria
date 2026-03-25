@@ -115,6 +115,10 @@ function AppInner() {
     if (nuevoEstado === 'CC_ASIGNADA')   setSubTab('cc_asignada');
   }
 
+  function handleEliminarFactura(id) {
+    setTodasFacturas(prev => prev.filter(f => f.id !== id));
+  }
+
   async function handleAsignarCG(id, cgId) {
     try {
       const result = await asignarCuentaGasto(id, cgId);
@@ -531,6 +535,7 @@ function AppInner() {
                 onEstadoActualizado={handleEstadoActualizado}
                 onAsignarCG={handleAsignarCG}
                 onAsignarCGMasivo={handleAsignarCGMasivo}
+                onEliminarFactura={handleEliminarFactura}
               />
             )}
             {subTab === 'descargadas' && (

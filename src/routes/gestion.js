@@ -474,4 +474,39 @@ router.put('/aplicar-cuentas-proveedor', requireAuth, async (req, res) => {
   }
 });
 
+// ─── DELETE /api/drive/:id — eliminar factura pendiente (solo admin) ─────────
+
+router.delete('/:id', requireAdmin, async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const db = getDb();
+
+  const archivo = await db.one('SELECT * FROM drive_archivos WHERE id = $1', [id]);
+  if (!archivo) return res.status(404).json({ ok: false, error: 'Archivo no encontrado' });
+
+  // Solo se puede eliminar si está en PENDIENTE y nunca fue descargada
+  const estadosPermitidos = ['PENDIENTE'];
+  if (!estadosPermitidos.includes(archivo.estado_gestion)) {
+    return res.status(400).json({ ok: false, error: 'Solo se pueden eliminar facturas en estado Pendiente' });
+  }
+
+  await db.query('DELETE FROM drive_archivos WHERE id = $1', [id]);
+
+  await registrarEvento({
+    evento:    'ELIMINAR_FACTURA',
+    usuarioId: req.usuario.id,
+    ip:        req.clientIp,
+    userAgent: req.userAgent,
+    detalle:   {
+      drive_id:        archivo.id,
+      google_id:       archivo.google_id,
+      nombre:          archivo.nombre_archivo,
+      proveedor:       archivo.proveedor,
+      estado:          archivo.estado,
+      estado_gestion:  archivo.estado_gestion,
+    },
+  });
+
+  res.json({ ok: true });
+});
+
 module.exports = router;
