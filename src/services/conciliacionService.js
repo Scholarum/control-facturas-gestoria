@@ -214,10 +214,10 @@ async function obtenerFacturasPorProveedor(nombreCarpeta, proveedorId, cifProvee
         AND (
           da.proveedor = $1
           OR (
-            $2 IS NOT NULL
+            $2::text IS NOT NULL
             AND da.datos_extraidos IS NOT NULL
             AND da.datos_extraidos ~ '^\\s*\\{'
-            AND normalizar_cif((da.datos_extraidos::jsonb)->>'cif_emisor') = normalizar_cif($2)
+            AND normalizar_cif((da.datos_extraidos::jsonb)->>'cif_emisor') = normalizar_cif($2::text)
           )
         )
     `, [nombreCarpeta || '', cifProveedor || null]);
