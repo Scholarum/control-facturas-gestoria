@@ -60,8 +60,8 @@ async function ejecutarSync(origen = 'MANUAL') {
         [a.google_id]
       );
       await db.query(
-        `INSERT INTO drive_archivos (google_id, nombre_archivo, ruta_completa, proveedor, fecha_subida)
-         VALUES ($1, $2, $3, $4, $5)
+        `INSERT INTO drive_archivos (google_id, nombre_archivo, ruta_completa, proveedor, fecha_subida, estado)
+         VALUES ($1, $2, $3, $4, $5, 'SINCRONIZADA')
          ON CONFLICT (google_id) DO UPDATE SET
            nombre_archivo = EXCLUDED.nombre_archivo,
            ruta_completa  = EXCLUDED.ruta_completa,
@@ -77,16 +77,23 @@ async function ejecutarSync(origen = 'MANUAL') {
       }
     }
 
-    // Extraer con Gemini las facturas recién añadidas
+    // Extraer con Gemini todos los archivos recién sincronizados (estado SINCRONIZADA).
+    // Este estado lo asigna el sync al insertar; tras la extracción pasa a
+    // PROCESADA o REVISION_MANUAL, por lo que no se reprocesarán en la siguiente sync.
+    const sincRows = await db.all(
+      "SELECT id FROM drive_archivos WHERE estado = 'SINCRONIZADA'"
+    );
+    const idsParaExtraer = sincRows.map(r => r.id);
+
     let extraccion = { procesada: 0, revision: 0 };
-    if (nuevosIds.length > 0) {
+    if (idsParaExtraer.length > 0) {
       try {
-        extraccion = await ejecutarExtraccion(nuevosIds);
+        extraccion = await ejecutarExtraccion(idsParaExtraer);
       } catch (e) {
         console.error('[Sync] Error en extracción:', e.message);
       }
 
-      // Tras extracción: pasar a CC_ASIGNADA las nuevas facturas cuyo proveedor
+      // Tras extracción: pasar a CC_ASIGNADA las facturas cuyo proveedor
       // ya tiene cuenta de gasto definida (match por carpeta o por CIF extraído)
       try {
         await db.query(
@@ -108,7 +115,7 @@ async function ejecutarSync(origen = 'MANUAL') {
                    )
                  )
              )`,
-          [nuevosIds]
+          [idsParaExtraer]
         );
       } catch (e) {
         console.error('[Sync] Error al asignar estado CC_ASIGNADA:', e.message);

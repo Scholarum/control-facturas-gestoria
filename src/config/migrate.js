@@ -117,6 +117,9 @@ const tablas = [
   `ALTER TABLE historial_conciliaciones ADD COLUMN IF NOT EXISTS usuario_id     INTEGER REFERENCES usuarios(id)`,
   `ALTER TABLE historial_conciliaciones ADD COLUMN IF NOT EXISTS usuario_nombre TEXT`,
 
+  // Estado SINCRONIZADA: nueva columna default (idempotente)
+  `ALTER TABLE drive_archivos ALTER COLUMN estado SET DEFAULT 'SINCRONIZADA'`,
+
   `CREATE TABLE IF NOT EXISTS conciliacion_lineas_estado (
     id              SERIAL PRIMARY KEY,
     conciliacion_id INTEGER NOT NULL REFERENCES historial_conciliaciones(id) ON DELETE CASCADE,
@@ -270,6 +273,23 @@ async function runMigrations() {
       { codigo: '472',  descripcion: 'Hacienda Pública, IVA soportado',                    grupo: '4' },
       { codigo: '473',  descripcion: 'Hacienda Pública, retenciones y pagos a cuenta',    grupo: '4' },
       { codigo: '477',  descripcion: 'Hacienda Pública, IVA repercutido',                  grupo: '4' },
+      // Grupo 2 — Inmovilizado (activos que pueden aparecer en facturas)
+      { codigo: '200',  descripcion: 'Investigación',                                      grupo: '2' },
+      { codigo: '201',  descripcion: 'Desarrollo',                                         grupo: '2' },
+      { codigo: '203',  descripcion: 'Propiedad industrial',                               grupo: '2' },
+      { codigo: '205',  descripcion: 'Derechos de traspaso',                               grupo: '2' },
+      { codigo: '206',  descripcion: 'Aplicaciones informáticas',                          grupo: '2' },
+      { codigo: '210',  descripcion: 'Terrenos y bienes naturales',                        grupo: '2' },
+      { codigo: '211',  descripcion: 'Construcciones',                                     grupo: '2' },
+      { codigo: '212',  descripcion: 'Instalaciones técnicas',                             grupo: '2' },
+      { codigo: '213',  descripcion: 'Maquinaria',                                         grupo: '2' },
+      { codigo: '214',  descripcion: 'Utillaje',                                           grupo: '2' },
+      { codigo: '215',  descripcion: 'Otras instalaciones',                                grupo: '2' },
+      { codigo: '216',  descripcion: 'Mobiliario',                                         grupo: '2' },
+      { codigo: '217',  descripcion: 'Equipos para procesos de información',               grupo: '2' },
+      { codigo: '218',  descripcion: 'Elementos de transporte',                            grupo: '2' },
+      { codigo: '219',  descripcion: 'Otro inmovilizado material',                         grupo: '2' },
+      // Grupo 6 — Gastos de explotación
       { codigo: '600',  descripcion: 'Compras de mercaderías',                             grupo: '6' },
       { codigo: '601',  descripcion: 'Compras de materias primas',                         grupo: '6' },
       { codigo: '602',  descripcion: 'Compras de otros aprovisionamientos',                grupo: '6' },
@@ -336,6 +356,13 @@ async function runMigrations() {
       [recurso, nivel]
     );
   }
+
+  // Migración de datos: renombrar PENDIENTE → SINCRONIZADA
+  // Las facturas en PENDIENTE son archivos que llegaron por sync pero aún
+  // no pasaron por Gemini; el nuevo estado equivalente es SINCRONIZADA.
+  await db.query(
+    "UPDATE drive_archivos SET estado = 'SINCRONIZADA' WHERE estado = 'PENDIENTE'"
+  );
 
   console.log('Migración PostgreSQL completada.');
 }

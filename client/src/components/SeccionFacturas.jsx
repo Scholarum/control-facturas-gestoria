@@ -332,14 +332,14 @@ export default function SeccionFacturas({
             )}
           </div>
 
-          {/* Asignación masiva de Cta. Gasto — solo en Pendientes y Descargadas con permisos */}
-          {(tipo === 'pendientes' || tipo === 'descargadas') && !soloLectura && planContable.length > 0 && (
+          {/* Asignación masiva de Cta. Gasto — disponible en todos los estados salvo Contabilizadas */}
+          {tipo !== 'contabilizadas' && !soloLectura && planContable.length > 0 && (
             <div className="flex items-center gap-3 bg-purple-600 text-white rounded-xl px-5 py-3 shadow-lg shadow-purple-200 flex-wrap">
               <span className="text-xs font-medium text-purple-100 flex-shrink-0">
                 Asignar Cta. Gasto a {n} {n === 1 ? 'factura' : 'facturas'}:
               </span>
               <ComboboxCuentaMasiva
-                cuentas={planContable.filter(c => c.grupo === '6')}
+                cuentas={planContable.filter(c => c.grupo !== '4')}
                 value={ccMasiva}
                 onChange={setCcMasiva}
               />

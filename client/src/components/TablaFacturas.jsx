@@ -110,7 +110,7 @@ function ComboboxCuenta({ cuentas, value, onChange, disabled }) {
 // ─── Sub-fila: CC + Vista previa (siempre visible) ───────────────────────────
 
 function FilaCcPreview({ f, planContable, onAsignarCG, selected }) {
-  const cuentasGasto = planContable.filter(c => c.grupo === '6');
+  const cuentasGasto = planContable.filter(c => c.grupo !== '4');
   const [cgId,          setCgId]          = useState(String(f.cg_efectiva_id || ''));
   const [guardando,     setGuardando]     = useState(false);
   const [cgError,       setCgError]       = useState('');
