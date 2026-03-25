@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { BadgeGestion, BadgeExtraccion } from './Badge.jsx';
-import { fetchPreviewFactura, editarDatosFactura, asignarCuentaContableProveedor, crearProveedorRapido, crearCuentaContable } from '../api.js';
+import { fetchPreviewFactura, editarDatosFactura, asignarCuentaContableProveedor, crearProveedorRapido, crearCuentaContable, eliminarCuentaContable } from '../api.js';
 
 // Campos obligatorios para considerar una factura sin incidencia
 const CAMPOS_OBLIGATORIOS = [
@@ -178,12 +178,16 @@ function ComboboxCuenta({ cuentas, value, onChange, disabled }) {
 
 // ─── Selector de subcuenta (código base + sufijo 5 dígitos) ─────────────────
 
-function SelectorSubcuenta({ cuentaBase, planContable, onCreada, onSeleccionada }) {
-  const [sufijo, setSufijo]     = useState('');
-  const [creando, setCreando]   = useState(false);
-  const [errorSub, setErrorSub] = useState('');
+function SelectorSubcuenta({ cuentaBase, planContable, onCreada, onSeleccionada, onEliminada, razonSocial }) {
+  const [sufijo, setSufijo]         = useState('');
+  const [creando, setCreando]       = useState(false);
+  const [eliminando, setEliminando] = useState(false);
+  const [errorSub, setErrorSub]     = useState('');
 
   if (!cuentaBase) return null;
+
+  // Si la cuenta base ya es una subcuenta (>4 dígitos), ofrecer eliminar
+  const esSubcuenta = cuentaBase.codigo.length > 4;
 
   const codigoCompleto = cuentaBase.codigo + sufijo;
   const yaExiste = sufijo && planContable.find(c => c.codigo === codigoCompleto);
@@ -195,7 +199,7 @@ function SelectorSubcuenta({ cuentaBase, planContable, onCreada, onSeleccionada 
     try {
       const nueva = await crearCuentaContable({
         codigo: codigoCompleto,
-        descripcion: codigoCompleto,
+        descripcion: razonSocial || codigoCompleto,
         grupo: cuentaBase.codigo.charAt(0),
       });
       if (onCreada) onCreada(nueva);
@@ -205,23 +209,46 @@ function SelectorSubcuenta({ cuentaBase, planContable, onCreada, onSeleccionada 
     finally { setCreando(false); }
   }
 
+  async function handleEliminar() {
+    if (!confirm(`Eliminar subcuenta ${cuentaBase.codigo}?`)) return;
+    setEliminando(true); setErrorSub('');
+    try {
+      await eliminarCuentaContable(cuentaBase.id);
+      if (onEliminada) onEliminada();
+    } catch (e) { setErrorSub(e.message); }
+    finally { setEliminando(false); }
+  }
+
   return (
     <div className="mt-1.5 flex items-center gap-2 flex-wrap">
-      <span className="text-xs text-gray-400">Subcuenta:</span>
-      <span className="font-mono text-xs font-semibold text-gray-700 bg-gray-100 px-1.5 py-0.5 rounded">{cuentaBase.codigo}</span>
-      <span className="text-gray-300 text-xs">+</span>
-      <input type="text" inputMode="numeric" maxLength={5} value={sufijo}
-        onChange={e => { setSufijo(e.target.value.replace(/\D/g, '')); setErrorSub(''); }}
-        onKeyDown={e => e.key === 'Enter' && sufijo.length === 5 && handleCrear()}
-        placeholder="00001"
-        className="w-16 rounded border border-gray-200 px-1.5 py-0.5 text-xs font-mono text-center focus:outline-none focus:ring-2 focus:ring-blue-500" />
-      {sufijo.length === 5 && (
-        <span className="font-mono text-xs font-bold text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded">{codigoCompleto}</span>
+      {esSubcuenta ? (
+        <>
+          <span className="font-mono text-xs font-semibold text-gray-700 bg-gray-100 px-1.5 py-0.5 rounded">{cuentaBase.codigo}</span>
+          <span className="text-xs text-gray-400">({cuentaBase.descripcion})</span>
+          <button type="button" onClick={handleEliminar} disabled={eliminando}
+            className="px-2 py-0.5 text-[11px] font-medium text-red-600 bg-red-50 border border-red-200 rounded hover:bg-red-100 disabled:opacity-50">
+            {eliminando ? '...' : 'Eliminar subcuenta'}
+          </button>
+        </>
+      ) : (
+        <>
+          <span className="text-xs text-gray-400">Subcuenta:</span>
+          <span className="font-mono text-xs font-semibold text-gray-700 bg-gray-100 px-1.5 py-0.5 rounded">{cuentaBase.codigo}</span>
+          <span className="text-gray-300 text-xs">+</span>
+          <input type="text" inputMode="numeric" maxLength={5} value={sufijo}
+            onChange={e => { setSufijo(e.target.value.replace(/\D/g, '')); setErrorSub(''); }}
+            onKeyDown={e => e.key === 'Enter' && sufijo.length === 5 && handleCrear()}
+            placeholder="00001"
+            className="w-16 rounded border border-gray-200 px-1.5 py-0.5 text-xs font-mono text-center focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          {sufijo.length === 5 && (
+            <span className="font-mono text-xs font-bold text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded">{codigoCompleto}</span>
+          )}
+          <button type="button" onClick={handleCrear} disabled={sufijo.length !== 5 || creando}
+            className="px-2 py-0.5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded disabled:opacity-40 transition-colors">
+            {creando ? '...' : yaExiste ? 'Seleccionar' : 'Crear'}
+          </button>
+        </>
       )}
-      <button type="button" onClick={handleCrear} disabled={sufijo.length !== 5 || creando}
-        className="px-2 py-0.5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded disabled:opacity-40 transition-colors">
-        {creando ? '...' : yaExiste ? 'Seleccionar' : 'Crear'}
-      </button>
       {errorSub && <span className="text-xs text-red-500">{errorSub}</span>}
     </div>
   );
@@ -373,8 +400,10 @@ function FilaCcPreview({ f, planContable, onAsignarCG, selected, esPar = true, o
                   <SelectorSubcuenta
                     cuentaBase={planContable.find(c => String(c.id) === ccProvId)}
                     planContable={planContable}
+                    razonSocial={f.razon_social || f.datos_extraidos?.nombre_emisor || ''}
                     onCreada={() => { if (onProveedorActualizado) onProveedorActualizado(); }}
                     onSeleccionada={c => { setCcProvId(String(c.id)); }}
+                    onEliminada={() => { setCcProvId(''); if (onProveedorActualizado) onProveedorActualizado(); }}
                   />
                 </div>
               </>
@@ -486,8 +515,10 @@ function FilaCcPreview({ f, planContable, onAsignarCG, selected, esPar = true, o
                 <SelectorSubcuenta
                   cuentaBase={planContable.find(c => String(c.id) === provForm.cuenta_contable_id)}
                   planContable={planContable}
+                  razonSocial={provForm.razon_social}
                   onCreada={() => { if (onProveedorActualizado) onProveedorActualizado(); }}
                   onSeleccionada={c => setProvForm(p => ({ ...p, cuenta_contable_id: String(c.id) }))}
+                  onEliminada={() => { setProvForm(p => ({ ...p, cuenta_contable_id: '' })); if (onProveedorActualizado) onProveedorActualizado(); }}
                 />
               </div>
             </div>

@@ -24,6 +24,31 @@ function labelProveedor(p) {
   return p.razon_social || p.nombre_carpeta || '';
 }
 
+// Auto-transicionar facturas PENDIENTE → CC_ASIGNADA si el proveedor tiene cuenta de gasto
+async function autoAsignarFacturasProveedor(db, proveedor) {
+  if (!proveedor.cuenta_gasto_id) return;
+  try {
+    await db.query(`
+      UPDATE drive_archivos da
+      SET estado_gestion = 'CC_ASIGNADA'
+      WHERE da.estado_gestion = 'PENDIENTE'
+        AND da.estado = 'PROCESADA'
+        AND (
+          da.proveedor = $1
+          OR (
+            $2::text IS NOT NULL
+            AND da.datos_extraidos IS NOT NULL
+            AND da.datos_extraidos ~ '^\\s*\\{'
+            AND normalizar_cif((da.datos_extraidos::jsonb)->>'cif_emisor') = normalizar_cif($2::text)
+          )
+        )`,
+      [proveedor.nombre_carpeta || '', proveedor.cif || null]
+    );
+  } catch (e) {
+    console.error('[Proveedores] Error auto-asignando facturas:', e.message);
+  }
+}
+
 const SELECT_FULL = `
   SELECT p.*,
          pc.codigo      AS cuenta_contable_codigo,
@@ -146,6 +171,7 @@ router.post('/', requireAdmin, async (req, res) => {
       cuenta_gasto_id    || null,
     ]
   );
+  await autoAsignarFacturasProveedor(db, row);
   res.json({ ok: true, data: { ...row, label: labelProveedor(row) } });
 });
 
@@ -171,6 +197,7 @@ router.put('/:id', requireAdmin, async (req, res) => {
     ]
   );
   if (!row) return res.status(404).json({ ok: false, error: 'Proveedor no encontrado' });
+  await autoAsignarFacturasProveedor(db, row);
   res.json({ ok: true, data: { ...row, label: labelProveedor(row) } });
 });
 
@@ -285,6 +312,7 @@ router.put('/:id/cuenta-contable', requireAuth, async (req, res) => {
     [parseInt(cuenta_contable_id, 10), id]
   );
   if (!row) return res.status(404).json({ ok: false, error: 'Proveedor no encontrado' });
+  await autoAsignarFacturasProveedor(db, row);
   res.json({ ok: true, data: row });
 });
 
@@ -316,6 +344,7 @@ router.post('/rapido', requireAuth, async (req, res) => {
       cuenta_gasto_id    || null,
     ]
   );
+  await autoAsignarFacturasProveedor(db, row);
   res.json({ ok: true, data: row });
 });
 

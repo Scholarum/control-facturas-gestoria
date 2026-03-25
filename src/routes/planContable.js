@@ -45,4 +45,37 @@ router.post('/', requireAdmin, async (req, res) => {
   }
 });
 
+// DELETE /:id - eliminar subcuenta (solo si es subcuenta y no está en uso)
+router.delete('/:id', requireAdmin, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const db = getDb();
+    const cuenta = await db.one('SELECT * FROM plan_contable WHERE id = $1', [id]);
+    if (!cuenta) return res.status(404).json({ ok: false, error: 'Cuenta no encontrada' });
+
+    // Solo permitir eliminar subcuentas (codigo > 4 dígitos)
+    if (cuenta.codigo.length <= 4) {
+      return res.status(400).json({ ok: false, error: 'No se pueden eliminar cuentas principales del plan contable' });
+    }
+
+    // Verificar que no esté en uso
+    const enUso = await db.one(
+      `SELECT EXISTS(
+        SELECT 1 FROM proveedores WHERE cuenta_contable_id = $1 OR cuenta_gasto_id = $1
+      ) OR EXISTS(
+        SELECT 1 FROM drive_archivos WHERE cuenta_gasto_id = $1
+      ) AS en_uso`,
+      [id]
+    );
+    if (enUso?.en_uso) {
+      return res.status(400).json({ ok: false, error: 'La cuenta esta en uso por proveedores o facturas' });
+    }
+
+    await db.query('DELETE FROM plan_contable WHERE id = $1', [id]);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 module.exports = router;
