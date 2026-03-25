@@ -135,14 +135,19 @@ router.put('/:id/password', async (req, res) => {
 
 // ─── DELETE /api/usuarios/:id ─────────────────────────────────────────────────
 
+const USUARIOS_PROTEGIDOS = ['roberto@scholarum.es'];
+
 router.delete('/:id', requireAdmin, async (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (id === req.usuario.id) {
     return res.status(400).json({ ok: false, error: 'No puedes desactivarte a ti mismo' });
   }
   const db   = getDb();
-  const user = await db.one('SELECT id FROM usuarios WHERE id = $1', [id]);
+  const user = await db.one('SELECT id, email FROM usuarios WHERE id = $1', [id]);
   if (!user) return res.status(404).json({ ok: false, error: 'Usuario no encontrado' });
+  if (USUARIOS_PROTEGIDOS.includes(user.email?.toLowerCase())) {
+    return res.status(400).json({ ok: false, error: 'Este usuario esta protegido y no se puede desactivar' });
+  }
   await db.query("UPDATE usuarios SET activo = 0 WHERE id = $1", [id]);
   res.json({ ok: true });
 });

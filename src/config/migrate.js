@@ -235,8 +235,7 @@ const tablas = [
 // ─── Seeds ────────────────────────────────────────────────────────────────────
 
 const usuariosSeed = [
-  { nombre: 'Administrador', email: 'admin@gestoria.local',    rol: 'ADMIN'    },
-  { nombre: 'Gestoría',      email: 'gestoria@gestoria.local', rol: 'GESTORIA' },
+  // Usuarios de demo eliminados — los usuarios se crean desde la UI
 ];
 
 const confDefaults = {
