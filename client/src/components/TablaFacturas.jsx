@@ -1,4 +1,5 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { BadgeGestion, BadgeExtraccion } from './Badge.jsx';
 import { fetchPreviewFactura } from '../api.js';
 
@@ -32,7 +33,9 @@ function Th({ children, className = '' }) {
 function ComboboxCuenta({ cuentas, value, onChange, disabled }) {
   const [q,       setQ]       = useState('');
   const [abierto, setAbierto] = useState(false);
-  const ref = useRef(null);
+  const [pos,     setPos]     = useState({ top: 0, left: 0, width: 0 });
+  const ref      = useRef(null);
+  const inputRef = useRef(null);
 
   const seleccionada = cuentas.find(c => String(c.id) === String(value));
   const filtradas = q.trim()
@@ -42,13 +45,40 @@ function ComboboxCuenta({ cuentas, value, onChange, disabled }) {
       )
     : cuentas;
 
+  const calcPos = useCallback(() => {
+    if (!inputRef.current) return;
+    const rect = inputRef.current.getBoundingClientRect();
+    const dropdownH = 180; // max-h-44 ≈ 176px
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const openUp = spaceBelow < dropdownH && rect.top > dropdownH;
+    setPos({
+      left:  rect.left,
+      width: Math.max(rect.width, 288), // w-72 = 18rem = 288px
+      ...(openUp
+        ? { bottom: window.innerHeight - rect.top + 4, top: undefined }
+        : { top: rect.bottom + 4, bottom: undefined }),
+    });
+  }, []);
+
   useEffect(() => {
     function onClick(e) {
-      if (ref.current && !ref.current.contains(e.target)) setAbierto(false);
+      if (ref.current && !ref.current.contains(e.target) &&
+          !e.target.closest('[data-combobox-portal]')) setAbierto(false);
     }
     document.addEventListener('mousedown', onClick);
     return () => document.removeEventListener('mousedown', onClick);
   }, []);
+
+  useEffect(() => {
+    if (!abierto) return;
+    calcPos();
+    window.addEventListener('scroll', calcPos, true);
+    window.addEventListener('resize', calcPos);
+    return () => {
+      window.removeEventListener('scroll', calcPos, true);
+      window.removeEventListener('resize', calcPos);
+    };
+  }, [abierto, calcPos]);
 
   const displayValue = seleccionada
     ? `${seleccionada.codigo} — ${seleccionada.descripcion}`
@@ -65,6 +95,7 @@ function ComboboxCuenta({ cuentas, value, onChange, disabled }) {
   return (
     <div ref={ref} className="relative" onClick={e => e.stopPropagation()}>
       <input
+        ref={inputRef}
         value={abierto ? q : displayValue}
         onChange={e => setQ(e.target.value)}
         onFocus={() => { setQ(''); setAbierto(true); }}
@@ -79,8 +110,19 @@ function ComboboxCuenta({ cuentas, value, onChange, disabled }) {
           className="absolute right-1.5 top-1/2 -translate-y-1/2 text-gray-300 hover:text-gray-500 leading-none text-sm"
         >✕</button>
       )}
-      {abierto && (
-        <div className="absolute z-50 top-full left-0 w-72 mt-1 bg-white border border-gray-200 rounded-lg shadow-xl max-h-44 overflow-y-auto">
+      {abierto && createPortal(
+        <div
+          data-combobox-portal
+          style={{
+            position: 'fixed',
+            left: pos.left,
+            width: pos.width,
+            ...(pos.top != null ? { top: pos.top } : {}),
+            ...(pos.bottom != null ? { bottom: pos.bottom } : {}),
+            zIndex: 9999,
+          }}
+          className="bg-white border border-gray-200 rounded-lg shadow-xl max-h-44 overflow-y-auto"
+        >
           {filtradas.length === 0 ? (
             <p className="px-3 py-2 text-xs text-gray-400">Sin resultados</p>
           ) : (
@@ -101,7 +143,8 @@ function ComboboxCuenta({ cuentas, value, onChange, disabled }) {
               </button>
             ))
           )}
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );
