@@ -145,58 +145,58 @@ function simplificarReferencia(numFactura, anio) {
   return s;
 }
 
-function cruzarLineaMayor(linea, facturasDrive, anio) {
-  // Importe de la factura: normalmente en HABER (col L), pero puede estar en DEBE (col K)
-  const importeMayor = round2(linea.haber > 0 ? linea.haber : linea.debe);
-  const fechaMayor   = linea.fecha;
-  const usadas       = linea._usadas; // Set compartido por proveedor
+// Busca una factura de DB en las líneas del Mayor
+function cruzarFacturaEnMayor(factura, lineasMayor, anio, usadas) {
+  const importeDB = round2(factura.datos?.total_factura);
+  const fechaDB   = factura.datos?.fecha_emision;
+  const numFact   = factura.datos?.numero_factura;
+  const refSimp   = simplificarReferencia(numFact, anio);
 
-  // Candidatos: fecha + importe exactos
-  const candidatos = facturasDrive.filter(f => {
-    if (usadas.has(f.id)) return false;
-    const importeDB = round2(f.datos?.total_factura);
-    const fechaDB   = f.datos?.fecha_emision;
-    return fechaDB === fechaMayor && importeDB === importeMayor;
-  });
-
-  const mayorInfo = {
-    fecha: fechaMayor, concepto: linea.concepto, documento: linea.documento,
-    importe: importeMayor, lineaOriginal: linea.lineaOriginal,
+  const facturaInfo = {
+    id: factura.id, numero_factura: numFact, fecha_emision: fechaDB,
+    total_factura: importeDB, nombre_archivo: factura.nombre_archivo,
   };
+
+  // Candidatos: líneas del Mayor con fecha + importe exactos
+  const candidatos = lineasMayor.filter((l, idx) => {
+    if (usadas.has(idx)) return false;
+    const importeMayor = round2(l.haber > 0 ? l.haber : l.debe);
+    return l.fecha === fechaDB && importeMayor === importeDB;
+  });
 
   if (!candidatos.length) {
     return {
-      mayor:   mayorInfo,
-      factura: null,
+      factura: facturaInfo,
+      mayor:   null,
       estado:  'SIN_MATCH',
-      detalleMatch: { fechaCoincide: false, importeCoincide: false, referenciaEncontrada: false, refSimplificada: null },
+      detalleMatch: { fechaCoincide: false, importeCoincide: false, referenciaEncontrada: false, refSimplificada: refSimp },
     };
   }
 
-  // Buscar referencia simplificada en el concepto del Mayor (col I)
-  const conceptoUpper = (linea.concepto || '').toUpperCase();
-
-  for (const f of candidatos) {
-    const numFact = f.datos?.numero_factura;
-    const refSimp = simplificarReferencia(numFact, anio);
+  // Buscar referencia simplificada en el concepto del Mayor
+  for (const l of candidatos) {
+    const idx = lineasMayor.indexOf(l);
+    const conceptoUpper = (l.concepto || '').toUpperCase();
     if (refSimp && refSimp !== '0' && conceptoUpper.includes(refSimp)) {
-      usadas.add(f.id);
+      usadas.add(idx);
+      const importeMayor = round2(l.haber > 0 ? l.haber : l.debe);
       return {
-        mayor:   mayorInfo,
-        factura: { id: f.id, numero_factura: numFact, fecha_emision: f.datos.fecha_emision, total_factura: round2(f.datos.total_factura), nombre_archivo: f.nombre_archivo },
+        factura: facturaInfo,
+        mayor:   { fecha: l.fecha, concepto: l.concepto, documento: l.documento, importe: importeMayor, lineaOriginal: l.lineaOriginal },
         estado:  'CONCILIADA',
         detalleMatch: { fechaCoincide: true, importeCoincide: true, referenciaEncontrada: true, refSimplificada: refSimp },
       };
     }
   }
 
-  // Fecha+Importe OK pero referencia no encontrada → PARCIAL, usar el primer candidato
+  // Fecha+Importe OK pero referencia no encontrada → PARCIAL
   const mejor = candidatos[0];
-  usadas.add(mejor.id);
-  const refSimp = simplificarReferencia(mejor.datos?.numero_factura, anio);
+  const idxMejor = lineasMayor.indexOf(mejor);
+  usadas.add(idxMejor);
+  const importeMayor = round2(mejor.haber > 0 ? mejor.haber : mejor.debe);
   return {
-    mayor:   mayorInfo,
-    factura: { id: mejor.id, numero_factura: mejor.datos?.numero_factura, fecha_emision: mejor.datos.fecha_emision, total_factura: round2(mejor.datos.total_factura), nombre_archivo: mejor.nombre_archivo },
+    factura: facturaInfo,
+    mayor:   { fecha: mejor.fecha, concepto: mejor.concepto, documento: mejor.documento, importe: importeMayor, lineaOriginal: mejor.lineaOriginal },
     estado:  'PARCIAL',
     detalleMatch: { fechaCoincide: true, importeCoincide: true, referenciaEncontrada: false, refSimplificada: refSimp },
   };
@@ -241,30 +241,45 @@ async function obtenerFacturasPorProveedor(nombreCarpeta, proveedorId, cifProvee
 async function ejecutarConciliacionV2(proveedoresConLineas) {
   const anio = new Date().getFullYear();
   const resultadosPorProveedor = [];
-  let totalConciliadas = 0, totalParciales = 0, totalSinMatch = 0, totalLineas = 0;
+  let totalConciliadas = 0, totalParciales = 0, totalSinMatch = 0, totalSinFactura = 0, totalLineas = 0;
 
   for (const prov of proveedoresConLineas) {
     const facturasDrive = await obtenerFacturasPorProveedor(
       prov.nombreCarpeta, prov.proveedorId, prov.cifProveedor
     );
 
-    // Filtrar solo líneas cuyo documento empieza por F/ y tienen importe
+    // Líneas del Mayor filtradas: documento F/ con importe
     const lineasFactura = (prov.lineas || [])
       .filter(l => l.esFactura && (l.haber > 0 || l.debe > 0));
 
-    const usadas = new Set();
-    const resultados = lineasFactura.map(linea => {
-      linea._usadas = usadas;
-      return cruzarLineaMayor(linea, facturasDrive, anio);
+    // Dirección principal: iterar facturas de DB → buscar en Mayor
+    const usadas = new Set(); // índices de líneas del Mayor ya usadas
+    const resultados = facturasDrive.map(factura =>
+      cruzarFacturaEnMayor(factura, lineasFactura, anio, usadas)
+    );
+
+    // Líneas del Mayor que no se emparejaron con ninguna factura → SIN_FACTURA
+    lineasFactura.forEach((l, idx) => {
+      if (!usadas.has(idx)) {
+        const importeMayor = round2(l.haber > 0 ? l.haber : l.debe);
+        resultados.push({
+          factura: null,
+          mayor:   { fecha: l.fecha, concepto: l.concepto, documento: l.documento, importe: importeMayor, lineaOriginal: l.lineaOriginal },
+          estado:  'SIN_FACTURA',
+          detalleMatch: { fechaCoincide: false, importeCoincide: false, referenciaEncontrada: false, refSimplificada: null },
+        });
+      }
     });
 
-    const conciliadas = resultados.filter(r => r.estado === 'CONCILIADA').length;
-    const parciales   = resultados.filter(r => r.estado === 'PARCIAL').length;
-    const sinMatch    = resultados.filter(r => r.estado === 'SIN_MATCH').length;
+    const conciliadas  = resultados.filter(r => r.estado === 'CONCILIADA').length;
+    const parciales    = resultados.filter(r => r.estado === 'PARCIAL').length;
+    const sinMatch     = resultados.filter(r => r.estado === 'SIN_MATCH').length;
+    const sinFactura   = resultados.filter(r => r.estado === 'SIN_FACTURA').length;
 
     totalConciliadas += conciliadas;
     totalParciales   += parciales;
     totalSinMatch    += sinMatch;
+    totalSinFactura  += sinFactura;
     totalLineas      += resultados.length;
 
     resultadosPorProveedor.push({
@@ -274,7 +289,7 @@ async function ejecutarConciliacionV2(proveedoresConLineas) {
       razonSocial:   prov.razonSocial,
       nombreMayor:   prov.nombreMayor,
       resultados,
-      resumen: { total: resultados.length, conciliadas, parciales, sinMatch },
+      resumen: { total: resultados.length, conciliadas, parciales, sinMatch, sinFactura },
     });
   }
 
@@ -286,6 +301,7 @@ async function ejecutarConciliacionV2(proveedoresConLineas) {
       conciliadas: totalConciliadas,
       parciales:   totalParciales,
       sinMatch:    totalSinMatch,
+      sinFactura:  totalSinFactura,
     },
   };
 }

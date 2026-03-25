@@ -5,9 +5,10 @@ import {
 } from '../api.js';
 
 const ESTADO_CFG = {
-  CONCILIADA: { label: 'Conciliada',  cls: 'bg-emerald-50 text-emerald-700 ring-emerald-200' },
-  PARCIAL:    { label: 'Parcial',     cls: 'bg-amber-50  text-amber-700  ring-amber-200'   },
-  SIN_MATCH:  { label: 'Sin match',   cls: 'bg-red-50    text-red-700    ring-red-200'      },
+  CONCILIADA:  { label: 'Conciliada',  cls: 'bg-emerald-50 text-emerald-700 ring-emerald-200' },
+  PARCIAL:     { label: 'Parcial',     cls: 'bg-amber-50  text-amber-700  ring-amber-200'   },
+  SIN_MATCH:   { label: 'Sin match',   cls: 'bg-red-50    text-red-700    ring-red-200'      },
+  SIN_FACTURA: { label: 'Sin factura', cls: 'bg-violet-50 text-violet-700 ring-violet-200'  },
 };
 
 function fmtFecha(iso) {
@@ -36,7 +37,7 @@ function StatCard({ label, value, color, bg }) {
 }
 
 function FilaResultado({ r, globalIdx, conciliacionId, revisiones, guardando, onCambiarRevision }) {
-  const bgMap = { CONCILIADA: 'bg-emerald-50/50', PARCIAL: 'bg-amber-50/50', SIN_MATCH: 'bg-red-50/50' };
+  const bgMap = { CONCILIADA: 'bg-emerald-50/50', PARCIAL: 'bg-amber-50/50', SIN_MATCH: 'bg-red-50/50', SIN_FACTURA: 'bg-violet-50/50' };
   const bgCls = bgMap[r.estado] || '';
 
   const rev    = revisiones[globalIdx];
@@ -44,14 +45,14 @@ function FilaResultado({ r, globalIdx, conciliacionId, revisiones, guardando, on
 
   return (
     <tr className={`${bgCls} transition-colors hover:brightness-95`}>
-      <td className="px-3 py-2 text-gray-600 whitespace-nowrap text-xs">{fmtFecha(r.mayor.fecha)}</td>
-      <td className="px-3 py-2 font-mono text-xs text-gray-500">{r.mayor.documento || '\u2014'}</td>
-      <td className="px-3 py-2 text-xs text-gray-700 max-w-[220px] truncate" title={r.mayor.concepto}>{r.mayor.concepto || '\u2014'}</td>
-      <td className="px-3 py-2 text-right font-semibold text-gray-900 whitespace-nowrap text-xs">{fmtEuro(r.mayor.importe)}</td>
-      <td className="px-3 py-2 text-center text-gray-300 text-xs">&harr;</td>
       <td className="px-3 py-2 font-mono text-xs font-medium text-gray-900">{r.factura?.numero_factura || '\u2014'}</td>
       <td className="px-3 py-2 text-gray-600 whitespace-nowrap text-xs">{r.factura ? fmtFecha(r.factura.fecha_emision) : '\u2014'}</td>
-      <td className="px-3 py-2 text-right text-gray-600 whitespace-nowrap text-xs">{r.factura ? fmtEuro(r.factura.total_factura) : '\u2014'}</td>
+      <td className="px-3 py-2 text-right font-semibold text-gray-900 whitespace-nowrap text-xs">{r.factura ? fmtEuro(r.factura.total_factura) : '\u2014'}</td>
+      <td className="px-3 py-2 text-center text-gray-300 text-xs">&harr;</td>
+      <td className="px-3 py-2 text-gray-600 whitespace-nowrap text-xs">{r.mayor ? fmtFecha(r.mayor.fecha) : '\u2014'}</td>
+      <td className="px-3 py-2 font-mono text-xs text-gray-500">{r.mayor?.documento || '\u2014'}</td>
+      <td className="px-3 py-2 text-xs text-gray-700 max-w-[220px] truncate" title={r.mayor?.concepto}>{r.mayor?.concepto || '\u2014'}</td>
+      <td className="px-3 py-2 text-right text-gray-600 whitespace-nowrap text-xs">{r.mayor ? fmtEuro(r.mayor.importe) : '\u2014'}</td>
       <td className="px-3 py-2 font-mono text-xs text-gray-500 text-center">
         {r.detalleMatch.refSimplificada || '\u2014'}
         {r.detalleMatch.referenciaEncontrada && <span className="ml-1 text-emerald-600" title="Referencia encontrada en concepto">&#10003;</span>}
@@ -126,9 +127,10 @@ export default function ResultadoConciliacionV2({ resultadosPorProveedor, resume
   // Totales para filtros
   const todosResultados = provConIndices.flatMap(p => p.resultadosConIdx);
   const totalPorEstado = {
-    CONCILIADA: todosResultados.filter(r => r.estado === 'CONCILIADA').length,
-    PARCIAL:    todosResultados.filter(r => r.estado === 'PARCIAL').length,
-    SIN_MATCH:  todosResultados.filter(r => r.estado === 'SIN_MATCH').length,
+    CONCILIADA:  todosResultados.filter(r => r.estado === 'CONCILIADA').length,
+    PARCIAL:     todosResultados.filter(r => r.estado === 'PARCIAL').length,
+    SIN_MATCH:   todosResultados.filter(r => r.estado === 'SIN_MATCH').length,
+    SIN_FACTURA: todosResultados.filter(r => r.estado === 'SIN_FACTURA').length,
   };
 
   return (
@@ -137,12 +139,13 @@ export default function ResultadoConciliacionV2({ resultadosPorProveedor, resume
       {/* Resumen global */}
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
         <h3 className="font-semibold text-gray-900 text-base mb-4">Resultado de la conciliacion</h3>
-        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-6 gap-3">
           <StatCard label="Proveedores"   value={resumenGlobal.totalProveedores} color="text-gray-900"    bg="bg-gray-50"    />
           <StatCard label="Total lineas"  value={resumenGlobal.totalLineas}      color="text-gray-900"    bg="bg-gray-50"    />
           <StatCard label="Conciliadas"   value={resumenGlobal.conciliadas}      color="text-emerald-700" bg="bg-emerald-50" />
           <StatCard label="Parciales"     value={resumenGlobal.parciales}        color="text-amber-700"   bg="bg-amber-50"   />
           <StatCard label="Sin match"     value={resumenGlobal.sinMatch}         color="text-red-700"     bg="bg-red-50"     />
+          <StatCard label="Sin factura"   value={resumenGlobal.sinFactura}       color="text-violet-700"  bg="bg-violet-50"  />
         </div>
       </div>
 
@@ -150,10 +153,11 @@ export default function ResultadoConciliacionV2({ resultadosPorProveedor, resume
       <div className="flex items-center gap-2 flex-wrap">
         <span className="text-xs font-medium text-gray-500">Filtrar:</span>
         {[
-          { id: '',           label: `Todos (${todosResultados.length})` },
-          { id: 'CONCILIADA', label: `Conciliadas (${totalPorEstado.CONCILIADA})` },
-          { id: 'PARCIAL',    label: `Parciales (${totalPorEstado.PARCIAL})` },
-          { id: 'SIN_MATCH',  label: `Sin match (${totalPorEstado.SIN_MATCH})` },
+          { id: '',            label: `Todos (${todosResultados.length})` },
+          { id: 'CONCILIADA',  label: `Conciliadas (${totalPorEstado.CONCILIADA})` },
+          { id: 'PARCIAL',     label: `Parciales (${totalPorEstado.PARCIAL})` },
+          { id: 'SIN_MATCH',   label: `Sin match (${totalPorEstado.SIN_MATCH})` },
+          { id: 'SIN_FACTURA', label: `Sin factura (${totalPorEstado.SIN_FACTURA})` },
         ].map(f => (
           <button key={f.id} onClick={() => setFiltro(f.id)}
             className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
@@ -190,6 +194,7 @@ export default function ResultadoConciliacionV2({ resultadosPorProveedor, resume
                 <span className="text-emerald-700 font-medium">{prov.resumen.conciliadas} OK</span>
                 {prov.resumen.parciales > 0 && <span className="text-amber-700 font-medium">{prov.resumen.parciales} parcial</span>}
                 {prov.resumen.sinMatch > 0 && <span className="text-red-700 font-medium">{prov.resumen.sinMatch} sin match</span>}
+                {prov.resumen.sinFactura > 0 && <span className="text-violet-700 font-medium">{prov.resumen.sinFactura} sin factura</span>}
               </div>
             </button>
 
@@ -199,7 +204,7 @@ export default function ResultadoConciliacionV2({ resultadosPorProveedor, resume
                 <table className="w-full text-sm">
                   <thead className="bg-gray-50 border-b border-gray-200">
                     <tr>
-                      {['Fecha Mayor','Doc.','Concepto Mayor','Importe Mayor','','N\u00ba Factura DB','Fecha DB','Importe DB','Ref.','Estado','Rev.'].map(h => (
+                      {['N\u00ba Factura','Fecha','Importe','','Fecha Mayor','Doc.','Concepto Mayor','Importe Mayor','Ref.','Estado','Rev.'].map(h => (
                         <th key={h} className="px-3 py-2 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">{h}</th>
                       ))}
                     </tr>
