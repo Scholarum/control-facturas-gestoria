@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useRef } from 'react';
-import TablaFacturas from './TablaFacturas.jsx';
+import TablaFacturas, { tieneIncidencia } from './TablaFacturas.jsx';
 import { descargarZip, contabilizar, revertirEstado, eliminarFactura, asignarCGMasivo, exportarLoteA3 } from '../api.js';
 
 // ─── Filtros compactos por sección ────────────────────────────────────────────
@@ -28,8 +28,14 @@ function FiltrosSeccion({ filtros, onChange, proveedores }) {
         <label className="text-xs font-medium text-gray-500">Fecha hasta</label>
         <input type="date" value={filtros.fechaHasta} onChange={e => set('fechaHasta', e.target.value)} className={inputCls} />
       </div>
+      <label className="self-end flex items-center gap-1.5 px-3 py-1.5 text-sm cursor-pointer select-none">
+        <input type="checkbox" checked={!!filtros.soloIncidencias}
+          onChange={e => set('soloIncidencias', e.target.checked)}
+          className="h-3.5 w-3.5 rounded border-gray-300 text-red-500 focus:ring-red-400" />
+        <span className="text-xs font-medium text-red-600">Con incidencia</span>
+      </label>
       {hayFiltros && (
-        <button onClick={() => onChange({ proveedor: '', fechaDesde: '', fechaHasta: '' })}
+        <button onClick={() => onChange({ proveedor: '', fechaDesde: '', fechaHasta: '', soloIncidencias: false })}
           className="self-end px-3 py-1.5 text-sm text-gray-500 hover:text-gray-800 hover:bg-gray-100 rounded-lg transition-colors">
           Limpiar
         </button>
@@ -150,8 +156,9 @@ export default function SeccionFacturas({
   onAsignarCG,
   onAsignarCGMasivo,
   onEliminarFactura,
+  onDatosActualizados,
 }) {
-  const [filtros,       setFiltros]       = useState({ proveedor: '', fechaDesde: '', fechaHasta: '' });
+  const [filtros,       setFiltros]       = useState({ proveedor: '', fechaDesde: '', fechaHasta: '', soloIncidencias: false });
   const [seleccionados, setSeleccionados] = useState(new Set());
   const [descargando,        setDescargando]        = useState(false);
   const [contabilizando,     setContabilizando]     = useState(false);
@@ -166,6 +173,7 @@ export default function SeccionFacturas({
     if (filtros.proveedor  && f.proveedor !== filtros.proveedor) return false;
     if (filtros.fechaDesde && d?.fecha_emision && d.fecha_emision < filtros.fechaDesde) return false;
     if (filtros.fechaHasta && d?.fecha_emision && d.fecha_emision > filtros.fechaHasta) return false;
+    if (filtros.soloIncidencias && !tieneIncidencia(f)) return false;
     return true;
   }), [facturas, filtros]);
 
@@ -430,6 +438,7 @@ export default function SeccionFacturas({
         onEliminar={handleEliminar}
         planContable={planContable}
         onAsignarCG={onAsignarCG}
+        onDatosActualizados={onDatosActualizados}
       />
     </div>
   );

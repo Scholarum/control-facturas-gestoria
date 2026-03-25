@@ -191,6 +191,17 @@ export async function eliminarFactura(id) {
   return json;
 }
 
+export async function editarDatosFactura(id, campos) {
+  const res = await fetch(`${API_BASE}/api/drive/${id}/datos`, {
+    method: 'PUT',
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify(campos),
+  });
+  const json = await res.json();
+  if (!json.ok) throw new Error(json.error || 'Error al editar datos');
+  return json.data;
+}
+
 export async function exportarExcel(ids) {
   const res = await fetch(`${API_BASE}/api/drive/exportar-excel`, {
     method:  'POST',

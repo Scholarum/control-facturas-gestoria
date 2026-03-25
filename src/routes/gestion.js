@@ -13,6 +13,22 @@ function parsearArchivo(a) {
   return { ...a, datos_extraidos: datos };
 }
 
+const CAMPOS_OBLIGATORIOS = [
+  'numero_factura', 'fecha_emision', 'nombre_emisor', 'cif_emisor',
+  'nombre_receptor', 'cif_receptor', 'total_factura',
+];
+
+function tieneIncidencia(datos) {
+  if (!datos) return true;
+  const d = typeof datos === 'string' ? JSON.parse(datos) : datos;
+  for (const c of CAMPOS_OBLIGATORIOS) {
+    if (d[c] == null || d[c] === '') return true;
+  }
+  const iva = Array.isArray(d.iva) ? d.iva : [];
+  if (!iva.some(e => e.base > 0 || e.cuota > 0)) return true;
+  return false;
+}
+
 router.use(resolveUser);
 
 // ─── GET /api/drive ───────────────────────────────────────────────────────────
@@ -112,8 +128,9 @@ router.post('/descargar-zip', async (req, res) => {
   // Los admins no modifican el estado al descargar
   const esAdmin = req.usuario?.rol === 'ADMIN';
   if (!esAdmin) {
+    // Solo transicionar a DESCARGADA las que no tienen incidencia
     const idsActualizar = archivos
-      .filter(a => a.estado_gestion !== 'CONTABILIZADA')
+      .filter(a => a.estado_gestion !== 'CONTABILIZADA' && !tieneIncidencia(a.datos_extraidos))
       .map(a => a.id);
     if (idsActualizar.length) {
       await db.query(
@@ -284,14 +301,15 @@ router.put('/:id/cg', express.json(), async (req, res) => {
   const cgId = cuenta_gasto_id ? parseInt(cuenta_gasto_id, 10) : null;
 
   const db = getDb();
-  const archivo = await db.one('SELECT estado_gestion FROM drive_archivos WHERE id = $1', [id]);
+  const archivo = await db.one('SELECT estado_gestion, datos_extraidos FROM drive_archivos WHERE id = $1', [id]);
   if (!archivo) return res.status(404).json({ ok: false, error: 'Archivo no encontrado' });
   if (archivo.estado_gestion === 'CONTABILIZADA')
     return res.status(400).json({ ok: false, error: 'No se puede modificar una factura contabilizada' });
 
   let nuevoEstado = archivo.estado_gestion || 'PENDIENTE';
   if (cgId) {
-    if (nuevoEstado !== 'CC_ASIGNADA') nuevoEstado = 'CC_ASIGNADA';
+    // No transicionar a CC_ASIGNADA si tiene incidencia
+    if (!tieneIncidencia(archivo.datos_extraidos) && nuevoEstado !== 'CC_ASIGNADA') nuevoEstado = 'CC_ASIGNADA';
   } else {
     if (nuevoEstado === 'CC_ASIGNADA') nuevoEstado = 'PENDIENTE';
   }
@@ -507,6 +525,77 @@ router.delete('/:id', requireAdmin, async (req, res) => {
   });
 
   res.json({ ok: true });
+});
+
+// ─── PUT /api/drive/:id/datos — editar campos vacíos de datos_extraidos ──────
+
+const CAMPOS_EDITABLES = [
+  'numero_factura', 'fecha_emision', 'nombre_emisor', 'cif_emisor',
+  'nombre_receptor', 'cif_receptor', 'total_factura', 'total_sin_iva', 'total_iva',
+];
+
+router.put('/:id/datos', requireAuth, express.json(), async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const db = getDb();
+
+  const archivo = await db.one('SELECT * FROM drive_archivos WHERE id = $1', [id]);
+  if (!archivo) return res.status(404).json({ ok: false, error: 'Archivo no encontrado' });
+
+  const datosActuales = archivo.datos_extraidos ? JSON.parse(archivo.datos_extraidos) : {};
+  const cambios = {};
+  const rechazados = [];
+
+  for (const campo of CAMPOS_EDITABLES) {
+    if (req.body[campo] === undefined) continue;
+
+    // Solo se pueden editar campos que llegaron vacíos de la extracción
+    const valorActual = datosActuales[campo];
+    if (valorActual != null && valorActual !== '' && valorActual !== 0) {
+      rechazados.push(campo);
+      continue;
+    }
+
+    cambios[campo] = req.body[campo];
+  }
+
+  // IVA: solo editable si no hay desglose
+  if (req.body.iva !== undefined) {
+    const ivaActual = Array.isArray(datosActuales.iva) ? datosActuales.iva : [];
+    const tieneIva = ivaActual.some(e => e.base > 0 || e.cuota > 0);
+    if (!tieneIva) {
+      cambios.iva = req.body.iva;
+    } else {
+      rechazados.push('iva');
+    }
+  }
+
+  if (!Object.keys(cambios).length) {
+    return res.status(400).json({ ok: false, error: 'No hay campos editables que modificar', rechazados });
+  }
+
+  const nuevosDatos = { ...datosActuales, ...cambios };
+
+  await db.query(
+    'UPDATE drive_archivos SET datos_extraidos = $1 WHERE id = $2',
+    [JSON.stringify(nuevosDatos), id]
+  );
+
+  // Registrar en auditoría
+  await registrarEvento({
+    evento:    'EDICION_DATOS_FACTURA',
+    usuarioId: req.usuario?.id ?? null,
+    ip:        req.clientIp,
+    userAgent: req.userAgent,
+    detalle:   {
+      drive_id:    id,
+      nombre:      archivo.nombre_archivo,
+      proveedor:   archivo.proveedor,
+      campos_editados: Object.keys(cambios),
+      valores_nuevos:  cambios,
+    },
+  }).catch(() => {});
+
+  res.json({ ok: true, data: { datos_extraidos: nuevosDatos, rechazados } });
 });
 
 module.exports = router;

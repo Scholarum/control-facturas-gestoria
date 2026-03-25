@@ -1,7 +1,26 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { BadgeGestion, BadgeExtraccion } from './Badge.jsx';
-import { fetchPreviewFactura } from '../api.js';
+import { fetchPreviewFactura, editarDatosFactura } from '../api.js';
+
+// Campos obligatorios para considerar una factura sin incidencia
+const CAMPOS_OBLIGATORIOS = [
+  'numero_factura', 'fecha_emision', 'nombre_emisor', 'cif_emisor',
+  'nombre_receptor', 'cif_receptor', 'total_factura',
+];
+
+export function detectarIncidencia(datos) {
+  if (!datos) return CAMPOS_OBLIGATORIOS.slice(); // todos faltan
+  const faltantes = CAMPOS_OBLIGATORIOS.filter(c => datos[c] == null || datos[c] === '');
+  // IVA: al menos un desglose con base
+  const iva = Array.isArray(datos.iva) ? datos.iva : [];
+  if (!iva.some(e => e.base > 0 || e.cuota > 0)) faltantes.push('iva');
+  return faltantes;
+}
+
+export function tieneIncidencia(f) {
+  return detectarIncidencia(f.datos_extraidos).length > 0;
+}
 
 function fmtEuro(n, { showZero = false } = {}) {
   if (n == null || n === '') return '—';
@@ -304,17 +323,103 @@ function FilaCcPreview({ f, planContable, onAsignarCG, selected }) {
 
 const TIPOS_IVA = [0, 4, 10, 21];
 
-function PanelDetalleFiscal({ f }) {
+function CampoEditable({ label, valor, campo, datosOriginales, onGuardar, tipo = 'text' }) {
+  const esVacio = datosOriginales[campo] == null || datosOriginales[campo] === '';
+  const [editando, setEditando] = useState(false);
+  const [val, setVal]           = useState(valor || '');
+  const [guardando, setGuardando] = useState(false);
+
+  if (!esVacio) {
+    // Campo informado por Gemini → solo lectura
+    return tipo === 'number'
+      ? <span className="text-sm font-bold text-gray-900">{fmtEuro(valor)}</span>
+      : <span className="text-sm font-medium text-gray-900">{valor}</span>;
+  }
+
+  if (!editando) {
+    return (
+      <button onClick={() => setEditando(true)}
+        className="text-sm text-red-400 italic hover:text-red-600 hover:underline transition-colors cursor-pointer">
+        {valor || 'Sin datos'} ✎
+      </button>
+    );
+  }
+
+  async function guardar() {
+    if (!val.trim()) return;
+    setGuardando(true);
+    try {
+      const enviar = tipo === 'number' ? parseFloat(val) : val.trim();
+      await onGuardar({ [campo]: enviar });
+      setEditando(false);
+    } catch { /* error manejado arriba */ }
+    finally { setGuardando(false); }
+  }
+
+  return (
+    <span className="inline-flex items-center gap-1" onClick={e => e.stopPropagation()}>
+      <input value={val} onChange={e => setVal(e.target.value)}
+        type={tipo === 'number' ? 'number' : tipo === 'date' ? 'date' : 'text'}
+        step={tipo === 'number' ? '0.01' : undefined}
+        className="rounded border border-red-300 px-1.5 py-0.5 text-xs w-32 focus:outline-none focus:ring-2 focus:ring-red-400"
+        autoFocus onKeyDown={e => { if (e.key === 'Enter') guardar(); if (e.key === 'Escape') setEditando(false); }} />
+      <button onClick={guardar} disabled={guardando} className="text-emerald-600 hover:text-emerald-800 text-xs font-bold">
+        {guardando ? '...' : '✓'}
+      </button>
+      <button onClick={() => setEditando(false)} className="text-gray-400 hover:text-gray-600 text-xs">✕</button>
+    </span>
+  );
+}
+
+function PanelDetalleFiscal({ f, onDatosActualizados }) {
   const d   = f.datos_extraidos || {};
   const iva = Array.isArray(d.iva) ? d.iva : [];
+  const faltantes = detectarIncidencia(d);
+  const hayIncidencia = faltantes.length > 0;
 
   const ivaMap = {};
   for (const e of iva) ivaMap[e.tipo] = e;
   const tiposPresentes = TIPOS_IVA.filter(t => ivaMap[t]);
+  const ivaVacio = !iva.some(e => e.base > 0 || e.cuota > 0);
+
+  // Estado para edición IVA inline
+  const [editandoIva, setEditandoIva] = useState(false);
+  const [ivaForm, setIvaForm]         = useState({ tipo: '21', base: '', cuota: '' });
+  const [guardandoIva, setGuardandoIva] = useState(false);
+
+  async function handleGuardar(campos) {
+    const result = await editarDatosFactura(f.id, campos);
+    if (onDatosActualizados) onDatosActualizados(f.id, result.datos_extraidos);
+  }
+
+  async function guardarIva() {
+    const base  = parseFloat(ivaForm.base) || 0;
+    const tipo  = parseInt(ivaForm.tipo) || 0;
+    const cuota = parseFloat(ivaForm.cuota) || Math.round(base * tipo) / 100;
+    if (!base) return;
+    setGuardandoIva(true);
+    try {
+      const nuevoIva = [...iva, { tipo, base, cuota }];
+      await handleGuardar({ iva: nuevoIva });
+      setEditandoIva(false);
+      setIvaForm({ tipo: '21', base: '', cuota: '' });
+    } catch { /* */ }
+    finally { setGuardandoIva(false); }
+  }
 
   return (
     <tr>
-      <td colSpan={100} className="px-0 pb-0 bg-blue-50/60 border-b border-blue-100">
+      <td colSpan={100} className={`px-0 pb-0 border-b ${hayIncidencia ? 'bg-red-50/60 border-red-100' : 'bg-blue-50/60 border-blue-100'}`}>
+        {hayIncidencia && (
+          <div className="px-6 pt-3 pb-1">
+            <p className="text-xs font-semibold text-red-600 flex items-center gap-1.5">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z"/>
+              </svg>
+              Campos pendientes: {faltantes.map(c => c === 'iva' ? 'desglose IVA' : c.replace(/_/g, ' ')).join(', ')}
+            </p>
+          </div>
+        )}
         <div className="px-6 py-4 grid grid-cols-1 md:grid-cols-3 gap-6">
 
           {/* Datos fiscales */}
@@ -323,13 +428,17 @@ function PanelDetalleFiscal({ f }) {
             <div className="space-y-3">
               <div>
                 <p className="text-xs text-gray-400 mb-0.5">Emisor</p>
-                <p className="text-sm font-medium text-gray-900">{d.nombre_emisor || '—'}</p>
-                <p className="text-xs font-mono text-gray-500">{d.cif_emisor || '—'}</p>
+                <CampoEditable label="Nombre emisor" valor={d.nombre_emisor} campo="nombre_emisor" datosOriginales={d} onGuardar={handleGuardar} />
+                <div className="mt-0.5">
+                  <CampoEditable label="CIF emisor" valor={d.cif_emisor} campo="cif_emisor" datosOriginales={d} onGuardar={handleGuardar} />
+                </div>
               </div>
-              <div className="border-t border-blue-100 pt-3">
+              <div className={`border-t pt-3 ${hayIncidencia ? 'border-red-100' : 'border-blue-100'}`}>
                 <p className="text-xs text-gray-400 mb-0.5">Receptor</p>
-                <p className="text-sm font-medium text-gray-900">{d.nombre_receptor || '—'}</p>
-                <p className="text-xs font-mono text-gray-500">{d.cif_receptor || '—'}</p>
+                <CampoEditable label="Nombre receptor" valor={d.nombre_receptor} campo="nombre_receptor" datosOriginales={d} onGuardar={handleGuardar} />
+                <div className="mt-0.5">
+                  <CampoEditable label="CIF receptor" valor={d.cif_receptor} campo="cif_receptor" datosOriginales={d} onGuardar={handleGuardar} />
+                </div>
               </div>
             </div>
           </div>
@@ -337,10 +446,8 @@ function PanelDetalleFiscal({ f }) {
           {/* Desglose IVA */}
           <div>
             <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Desglose IVA</p>
-            {tiposPresentes.length === 0 ? (
-              <p className="text-sm text-gray-400 italic">Sin desglose disponible</p>
-            ) : (
-              <table className="w-full text-xs">
+            {tiposPresentes.length > 0 && (
+              <table className="w-full text-xs mb-2">
                 <thead>
                   <tr className="text-gray-400">
                     <th className="text-left pb-1.5 font-medium">Tipo</th>
@@ -348,7 +455,7 @@ function PanelDetalleFiscal({ f }) {
                     <th className="text-right pb-1.5 font-medium">Cuota</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-blue-100">
+                <tbody className={`divide-y ${hayIncidencia ? 'divide-red-100' : 'divide-blue-100'}`}>
                   {tiposPresentes.map(tipo => (
                     <tr key={tipo}>
                       <td className="py-1.5 font-medium text-gray-700">IVA {tipo}%</td>
@@ -359,27 +466,50 @@ function PanelDetalleFiscal({ f }) {
                 </tbody>
               </table>
             )}
+            {ivaVacio && !editandoIva && (
+              <button onClick={() => setEditandoIva(true)} className="text-xs text-red-400 italic hover:text-red-600 hover:underline">
+                Sin desglose disponible ✎
+              </button>
+            )}
+            {ivaVacio && editandoIva && (
+              <div className="space-y-2 bg-white/60 rounded-lg p-2 border border-red-200" onClick={e => e.stopPropagation()}>
+                <div className="flex items-center gap-2">
+                  <select value={ivaForm.tipo} onChange={e => setIvaForm(p => ({ ...p, tipo: e.target.value }))}
+                    className="rounded border border-gray-200 px-1.5 py-0.5 text-xs w-20">
+                    {TIPOS_IVA.map(t => <option key={t} value={t}>IVA {t}%</option>)}
+                  </select>
+                  <input value={ivaForm.base} onChange={e => setIvaForm(p => ({ ...p, base: e.target.value }))}
+                    type="number" step="0.01" placeholder="Base" className="rounded border border-red-300 px-1.5 py-0.5 text-xs w-20" />
+                  <input value={ivaForm.cuota} onChange={e => setIvaForm(p => ({ ...p, cuota: e.target.value }))}
+                    type="number" step="0.01" placeholder="Cuota" className="rounded border border-red-300 px-1.5 py-0.5 text-xs w-20" />
+                </div>
+                <div className="flex gap-1">
+                  <button onClick={guardarIva} disabled={guardandoIva} className="px-2 py-0.5 text-xs font-medium bg-emerald-100 text-emerald-700 rounded hover:bg-emerald-200">
+                    {guardandoIva ? '...' : 'Guardar'}
+                  </button>
+                  <button onClick={() => setEditandoIva(false)} className="px-2 py-0.5 text-xs text-gray-500 hover:text-gray-700">Cancelar</button>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Totales y pago */}
           <div>
             <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Totales y pago</p>
             <div className="space-y-2">
-              <div className="flex justify-between">
+              <div className="flex justify-between items-center">
                 <span className="text-xs text-gray-500">Total base (sin IVA)</span>
-                <span className="text-sm font-bold text-gray-900">{fmtEuro(d.total_sin_iva)}</span>
+                <CampoEditable label="Total sin IVA" valor={d.total_sin_iva} campo="total_sin_iva" datosOriginales={d} onGuardar={handleGuardar} tipo="number" />
               </div>
-              <div className="flex justify-between">
+              <div className="flex justify-between items-center">
                 <span className="text-xs text-gray-500">Total IVA</span>
-                <span className="text-sm font-bold text-gray-900">{fmtEuro(d.total_iva)}</span>
+                <CampoEditable label="Total IVA" valor={d.total_iva} campo="total_iva" datosOriginales={d} onGuardar={handleGuardar} tipo="number" />
               </div>
-              <div className="flex justify-between border-t border-blue-100 pt-2 mt-1">
+              <div className={`flex justify-between items-center border-t pt-2 mt-1 ${hayIncidencia ? 'border-red-100' : 'border-blue-100'}`}>
                 <span className="text-xs font-semibold text-gray-700">Total factura</span>
-                <span className={`text-sm font-bold ${d.total_factura < 0 ? 'text-red-600' : 'text-gray-900'}`}>
-                  {fmtEuro(d.total_factura)}
-                </span>
+                <CampoEditable label="Total factura" valor={d.total_factura} campo="total_factura" datosOriginales={d} onGuardar={handleGuardar} tipo="number" />
               </div>
-              <div className="border-t border-blue-100 pt-2 space-y-1.5">
+              <div className={`border-t pt-2 space-y-1.5 ${hayIncidencia ? 'border-red-100' : 'border-blue-100'}`}>
                 <div className="flex justify-between">
                   <span className="text-xs text-gray-500">Forma de pago</span>
                   <span className="text-xs font-medium text-gray-700">{d.forma_pago || '—'}</span>
@@ -390,14 +520,10 @@ function PanelDetalleFiscal({ f }) {
                 </div>
               </div>
               {f.lote_a3_nombre && (
-                <div className="border-t border-blue-100 pt-2 mt-2">
+                <div className={`border-t pt-2 mt-2 ${hayIncidencia ? 'border-red-100' : 'border-blue-100'}`}>
                   <p className="text-xs text-gray-400 mb-1">Lote A3 exportado</p>
                   <p className="text-xs font-mono font-medium text-orange-700 break-all">{f.lote_a3_nombre}</p>
-                  {f.lote_a3_fecha && (
-                    <p className="text-xs text-gray-500 mt-0.5">
-                      {new Date(f.lote_a3_fecha).toLocaleString('es-ES')}
-                    </p>
-                  )}
+                  {f.lote_a3_fecha && <p className="text-xs text-gray-500 mt-0.5">{new Date(f.lote_a3_fecha).toLocaleString('es-ES')}</p>}
                 </div>
               )}
             </div>
@@ -437,7 +563,7 @@ function EmptyState({ hayFiltros, colspan }) {
 export default function TablaFacturas({
   facturas, seleccionados, onToggle, onToggleTodo,
   loading, hayFiltros, esAdmin = false, onRevertir, onEliminar,
-  planContable = [], onAsignarCG,
+  planContable = [], onAsignarCG, onDatosActualizados,
 }) {
   const [expandidos, setExpandidos] = useState(new Set());
   const todosSeleccionados = facturas.length > 0 && seleccionados.size === facturas.length;
@@ -503,12 +629,13 @@ export default function TablaFacturas({
                 const negativo = total != null && total < 0;
                 const puedeRevertir = esAdmin && f.estado_gestion && f.estado_gestion !== 'PENDIENTE';
                 const puedeEliminar = esAdmin && (!f.estado_gestion || f.estado_gestion === 'PENDIENTE');
+                const incidencia    = tieneIncidencia(f);
 
                 const mainRow = (
                   <tr
                     key={`row-${f.id}`}
                     onClick={() => onToggle(f.id)}
-                    className={`cursor-pointer transition-colors ${selected ? 'bg-blue-50 hover:bg-blue-100' : expanded ? 'bg-gray-50' : 'hover:bg-gray-50'}`}
+                    className={`cursor-pointer transition-colors ${selected ? 'bg-blue-50 hover:bg-blue-100' : incidencia ? 'bg-red-50/40 hover:bg-red-50' : expanded ? 'bg-gray-50' : 'hover:bg-gray-50'}`}
                   >
                     {/* Botón expandir (solo datos fiscales) */}
                     <td className="px-3 py-3" onClick={e => toggleExpand(f.id, e)}>
@@ -534,7 +661,14 @@ export default function TablaFacturas({
                       {f.proveedor || '—'}
                     </td>
                     <td className="px-4 py-3 text-gray-700 font-mono text-xs">
-                      {datos?.numero_factura || <span className="text-gray-400 italic">{f.nombre_archivo.slice(0, 20)}</span>}
+                      <span className="flex items-center gap-1">
+                        {incidencia && (
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5 text-red-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" title="Datos incompletos">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z"/>
+                          </svg>
+                        )}
+                        {datos?.numero_factura || <span className="text-gray-400 italic">{f.nombre_archivo.slice(0, 20)}</span>}
+                      </span>
                     </td>
                     <td className="px-4 py-3 text-gray-600 whitespace-nowrap">
                       {fmtFecha(datos?.fecha_emision)}
@@ -598,7 +732,7 @@ export default function TablaFacturas({
 
                 // Panel de detalle fiscal (solo cuando se expande)
                 const detailRow = expanded && (
-                  <PanelDetalleFiscal key={`detail-${f.id}`} f={f} />
+                  <PanelDetalleFiscal key={`detail-${f.id}`} f={f} onDatosActualizados={onDatosActualizados} />
                 );
 
                 return [mainRow, ccPreviewRow, detailRow].filter(Boolean);

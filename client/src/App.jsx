@@ -119,6 +119,12 @@ function AppInner() {
     setTodasFacturas(prev => prev.filter(f => f.id !== id));
   }
 
+  function handleDatosActualizados(id, nuevosDatos) {
+    setTodasFacturas(prev => prev.map(f =>
+      f.id === id ? { ...f, datos_extraidos: nuevosDatos } : f
+    ));
+  }
+
   async function handleAsignarCG(id, cgId) {
     try {
       const result = await asignarCuentaGasto(id, cgId);
@@ -536,6 +542,7 @@ function AppInner() {
                 onAsignarCG={handleAsignarCG}
                 onAsignarCGMasivo={handleAsignarCGMasivo}
                 onEliminarFactura={handleEliminarFactura}
+                onDatosActualizados={handleDatosActualizados}
               />
             )}
             {subTab === 'descargadas' && (
@@ -550,6 +557,7 @@ function AppInner() {
                 onEstadoActualizado={handleEstadoActualizado}
                 onAsignarCG={handleAsignarCG}
                 onAsignarCGMasivo={handleAsignarCGMasivo}
+                onDatosActualizados={handleDatosActualizados}
               />
             )}
             {subTab === 'cc_asignada' && (
@@ -565,6 +573,7 @@ function AppInner() {
                 onRefreshFacturas={handleRefreshFacturas}
                 onAsignarCG={handleAsignarCG}
                 onAsignarCGMasivo={handleAsignarCGMasivo}
+                onDatosActualizados={handleDatosActualizados}
               />
             )}
             {subTab === 'contabilizadas' && (
