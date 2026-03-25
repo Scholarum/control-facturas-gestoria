@@ -291,10 +291,11 @@ function ModalRol({ rol, onClose, onSaved }) {
 // ─── Tab Usuarios ─────────────────────────────────────────────────────────────
 
 function TabUsuarios({ roles }) {
-  const [usuarios, setUsuarios] = useState([]);
-  const [loading,  setLoading]  = useState(true);
-  const [modal,    setModal]    = useState(null);
-  const [error,    setError]    = useState('');
+  const [usuarios,     setUsuarios]     = useState([]);
+  const [loading,      setLoading]      = useState(true);
+  const [modal,        setModal]        = useState(null);
+  const [error,        setError]        = useState('');
+  const [filtroEstado, setFiltroEstado] = useState('activos');
 
   useEffect(() => {
     fetchUsuarios().then(setUsuarios).catch(e => setError(e.message)).finally(() => setLoading(false));
@@ -320,10 +321,28 @@ function TabUsuarios({ roles }) {
     } catch (err) { setError(err.message); }
   }
 
+  const usuariosFiltrados = filtroEstado === 'todos' ? usuarios
+    : filtroEstado === 'activos' ? usuarios.filter(u => u.activo)
+    : usuarios.filter(u => !u.activo);
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-gray-700">Usuarios del sistema</h3>
+        <div className="flex items-center gap-4">
+          <h3 className="text-sm font-semibold text-gray-700">Usuarios del sistema</h3>
+          <div className="flex items-center gap-1">
+            {[
+              { id: 'activos',   label: 'Activos' },
+              { id: 'inactivos', label: 'Inactivos' },
+              { id: 'todos',     label: 'Todos' },
+            ].map(f => (
+              <button key={f.id} onClick={() => setFiltroEstado(f.id)}
+                className={`px-2.5 py-1 rounded-full text-xs font-medium transition-colors ${
+                  filtroEstado === f.id ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                }`}>{f.label}</button>
+            ))}
+          </div>
+        </div>
         <button onClick={() => setModal({ tipo: 'crear' })}
           className="flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors">
           <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -358,7 +377,9 @@ function TabUsuarios({ roles }) {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {usuarios.map(u => (
+              {usuariosFiltrados.length === 0 ? (
+                <tr><td colSpan={5} className="py-10 text-center text-sm text-gray-400">Sin usuarios con este filtro</td></tr>
+              ) : usuariosFiltrados.map(u => (
                 <tr key={u.id} className={`hover:bg-gray-50 transition-colors ${!u.activo ? 'opacity-50' : ''}`}>
                   <td className="px-4 py-3 font-medium text-gray-900">{u.nombre}</td>
                   <td className="px-4 py-3 text-gray-500 text-xs font-mono">{u.email}</td>
@@ -384,6 +405,7 @@ function TabUsuarios({ roles }) {
               ))}
             </tbody>
           </table>
+
         )}
       </div>
 

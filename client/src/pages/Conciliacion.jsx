@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import ResultadoConciliacion from '../components/ResultadoConciliacion.jsx';
 import ResultadoConciliacionV2 from '../components/ResultadoConciliacionV2.jsx';
 import {
@@ -30,7 +30,23 @@ function fmtFechaHora(iso) {
 
 // ─── Historial ────────────────────────────────────────────────────────────────
 
+const inputClsH = 'rounded-lg border border-gray-200 bg-white px-2.5 py-1 text-xs text-gray-800 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500';
+
 function HistorialConciliaciones({ historial, cargandoHistorial, onVerResumen }) {
+  const [filtros, setFiltros] = useState({ fechaDesde: '', fechaHasta: '', proveedor: '', soloIncidencias: false });
+  function set(k, v) { setFiltros(prev => ({ ...prev, [k]: v })); }
+  const hayFiltros = Object.values(filtros).some(Boolean);
+
+  const proveedoresUnicos = useMemo(() => [...new Set(historial.map(h => h.proveedor).filter(Boolean))].sort(), [historial]);
+
+  const filtrados = useMemo(() => historial.filter(h => {
+    if (filtros.fechaDesde && h.creado_en && h.creado_en.slice(0, 10) < filtros.fechaDesde) return false;
+    if (filtros.fechaHasta && h.creado_en && h.creado_en.slice(0, 10) > filtros.fechaHasta) return false;
+    if (filtros.proveedor && h.proveedor !== filtros.proveedor) return false;
+    if (filtros.soloIncidencias && ((h.pendientes_sage || 0) + (h.error_importe || 0)) === 0) return false;
+    return true;
+  }), [historial, filtros]);
+
   if (cargandoHistorial) return <div className="mt-6 text-center text-sm text-gray-400 py-6">Cargando historial...</div>;
   if (!historial.length) {
     return <div className="mt-6 rounded-xl border border-gray-200 bg-white shadow-sm p-5 text-sm text-gray-400 text-center">No hay conciliaciones anteriores</div>;
@@ -39,6 +55,31 @@ function HistorialConciliaciones({ historial, cargandoHistorial, onVerResumen })
   return (
     <div className="mt-6">
       <h3 className="text-sm font-semibold text-gray-700 mb-2">Historial de conciliaciones</h3>
+      {/* Filtros */}
+      <div className="flex flex-wrap gap-3 items-end mb-2">
+        <div className="flex flex-col gap-0.5">
+          <label className="text-[10px] font-medium text-gray-500">Desde</label>
+          <input type="date" value={filtros.fechaDesde} onChange={e => set('fechaDesde', e.target.value)} className={inputClsH} />
+        </div>
+        <div className="flex flex-col gap-0.5">
+          <label className="text-[10px] font-medium text-gray-500">Hasta</label>
+          <input type="date" value={filtros.fechaHasta} onChange={e => set('fechaHasta', e.target.value)} className={inputClsH} />
+        </div>
+        <div className="flex flex-col gap-0.5">
+          <label className="text-[10px] font-medium text-gray-500">Proveedor</label>
+          <select value={filtros.proveedor} onChange={e => set('proveedor', e.target.value)} className={`${inputClsH} min-w-[150px] max-w-[250px]`}>
+            <option value="">Todos</option>
+            {proveedoresUnicos.map(p => <option key={p} value={p}>{p.length > 40 ? p.slice(0, 40) + '...' : p}</option>)}
+          </select>
+        </div>
+        <label className="self-end flex items-center gap-1.5 px-2 py-1 cursor-pointer select-none">
+          <input type="checkbox" checked={filtros.soloIncidencias} onChange={e => set('soloIncidencias', e.target.checked)}
+            className="h-3.5 w-3.5 rounded border-gray-300 text-red-500 focus:ring-red-400" />
+          <span className="text-xs font-medium text-red-600">Con incidencias</span>
+        </label>
+        {hayFiltros && <button onClick={() => setFiltros({ fechaDesde: '', fechaHasta: '', proveedor: '', soloIncidencias: false })} className="self-end text-xs text-gray-500 hover:text-gray-800 px-2 py-1">Limpiar</button>}
+        <span className="self-end text-[10px] text-gray-400 ml-auto">{filtrados.length} de {historial.length}</span>
+      </div>
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
@@ -50,7 +91,9 @@ function HistorialConciliaciones({ historial, cargandoHistorial, onVerResumen })
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {historial.map(h => {
+              {filtrados.length === 0 ? (
+                <tr><td colSpan={7} className="py-10 text-center text-sm text-gray-400">{hayFiltros ? 'Sin resultados con estos filtros' : 'No hay conciliaciones'}</td></tr>
+              ) : filtrados.map(h => {
                 const errores = (h.pendientes_sage || 0) + (h.error_importe || 0);
                 const manuales = h.conciliadas_manual || 0;
                 return (
