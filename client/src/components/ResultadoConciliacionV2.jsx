@@ -176,7 +176,7 @@ function FilaResultado({ r, globalIdx, conciliacionId, revisiones, guardando, on
 
 // ─── Componente principal ───────────────────────────────────────────────────
 
-export default function ResultadoConciliacionV2({ resultadosPorProveedor: resultadosIniciales, resumenGlobal: resumenInicial, conciliacionId, lineaEstados: lineaEstadosIniciales, lineasHistorial: lineasHistorialIniciales }) {
+export default function ResultadoConciliacionV2({ resultadosPorProveedor: resultadosIniciales, resumenGlobal: resumenInicial, conciliacionId, lineaEstados: lineaEstadosIniciales, lineasHistorial: lineasHistorialIniciales, vinculosManuales: vinculosDB }) {
   const [filtro, setFiltro]                       = useState('');
   const [provAbiertos, setProvAbiertos]           = useState(() => new Set(resultadosIniciales.map(p => p.codigoCuenta)));
   const [revisiones, setRevisiones]               = useState(() => {
@@ -187,7 +187,33 @@ export default function ResultadoConciliacionV2({ resultadosPorProveedor: result
   const [guardando, setGuardando]                 = useState({});
   const [lineasHistorial, setLineasHistorial]      = useState(lineasHistorialIniciales ?? []);
   const [mostrarHistorial, setMostrarHistorial]   = useState(false);
-  const [vinculos, setVinculos]                   = useState({});
+
+  // Reconstruir vínculos manuales desde la DB
+  const [vinculos, setVinculos] = useState(() => {
+    if (!vinculosDB?.length) return {};
+    // Calcular índices globales
+    let idx = 0;
+    const todosConIdx = resultadosIniciales.flatMap(prov =>
+      prov.resultados.map(r => ({ ...r, _globalIdx: idx++ }))
+    );
+    const map = {};
+    for (const v of vinculosDB) {
+      // Buscar la fila SIN_FACTURA que coincide con la línea del Mayor del vínculo
+      const sinFactura = todosConIdx.find(r =>
+        r.estado === 'SIN_FACTURA' && r.mayor &&
+        r.mayor.fecha === v.mayor_fecha &&
+        Math.round((r.mayor.importe || 0) * 100) === Math.round((parseFloat(v.mayor_importe) || 0) * 100)
+      );
+      // Buscar la fila SIN_MATCH que coincide con la factura del vínculo
+      const sinMatch = todosConIdx.find(r =>
+        r.estado === 'SIN_MATCH' && r.factura && r.factura.id === v.factura_id
+      );
+      if (sinFactura && sinMatch) {
+        map[sinFactura._globalIdx] = sinMatch._globalIdx;
+      }
+    }
+    return map;
+  });
 
   function toggleProveedor(codigo) {
     setProvAbiertos(prev => { const n = new Set(prev); n.has(codigo) ? n.delete(codigo) : n.add(codigo); return n; });

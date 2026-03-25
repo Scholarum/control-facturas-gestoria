@@ -346,6 +346,7 @@ export default function Conciliacion({ proveedores }) {
             conciliacionId={resultado.conciliacionId ?? null}
             lineaEstados={resultado.lineaEstados ?? {}}
             lineasHistorial={resultado.lineasHistorial ?? []}
+            vinculosManuales={resultado.vinculosManuales ?? []}
           />
         ) : (
           <ResultadoConciliacion

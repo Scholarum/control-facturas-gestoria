@@ -163,7 +163,7 @@ router.get('/historial/:id', resolveUser, async (req, res) => {
   const db  = getDb();
 
   const row = await db.one(
-    'SELECT resultado_json FROM historial_conciliaciones WHERE id = $1',
+    'SELECT resultado_json, version FROM historial_conciliaciones WHERE id = $1',
     [id]
   );
   if (!row) return res.status(404).json({ ok: false, error: 'No encontrado' });
@@ -188,7 +188,13 @@ router.get('/historial/:id', resolveUser, async (req, res) => {
     ),
   ]);
 
-  res.json({ ok: true, data: { ...resultado, conciliacionId: id, lineaEstados: buildLineaEstados(lineas), lineasHistorial: historial } });
+  // Para v2: cargar vínculos manuales para reconstruir en el frontend
+  let vinculosManuales = [];
+  if (row.version === 'v2') {
+    vinculosManuales = await db.all('SELECT * FROM conciliacion_vinculos_manuales ORDER BY creado_en');
+  }
+
+  res.json({ ok: true, data: { ...resultado, conciliacionId: id, lineaEstados: buildLineaEstados(lineas), lineasHistorial: historial, vinculosManuales } });
 });
 
 // ─── GET /api/conciliacion/historial/:id/revisiones ──────────────────────────
