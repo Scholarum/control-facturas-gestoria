@@ -30,6 +30,17 @@ export async function apiLogin(email, password) {
   return json.data; // { token, user, permisos }
 }
 
+export async function apiLoginGoogle(access_token) {
+  const res = await fetch(`${API_BASE}/api/auth/google`, {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ access_token }),
+  });
+  const json = await res.json();
+  if (!json.ok) throw new Error(json.error || 'Error al iniciar sesión con Google');
+  return json.data; // { token, user, permisos }
+}
+
 export async function apiMe() {
   const res = await fetch(`${API_BASE}/api/auth/me`, { headers: authHeaders() });
   if (!res.ok) return null;

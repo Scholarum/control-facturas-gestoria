@@ -1,7 +1,7 @@
 const express = require('express');
 const router  = express.Router();
 
-const { login }      = require('../services/authService');
+const { login, signToken } = require('../services/authService');
 const { resolveUser, requireAuth } = require('../middleware/auth');
 const { getDb }      = require('../config/database');
 
@@ -32,6 +32,47 @@ router.post('/login', async (req, res) => {
     res.json({ ok: true, data: { token, user, permisos } });
   } catch (err) {
     res.status(err.status || 500).json({ ok: false, error: err.message });
+  }
+});
+
+// ─── POST /api/auth/google ────────────────────────────────────────────────────
+
+router.post('/google', async (req, res) => {
+  const { access_token } = req.body;
+  if (!access_token) {
+    return res.status(400).json({ ok: false, error: 'Token de Google requerido' });
+  }
+  try {
+    const infoRes = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+      headers: { Authorization: `Bearer ${access_token}` },
+    });
+    if (!infoRes.ok) {
+      return res.status(401).json({ ok: false, error: 'Token de Google inválido' });
+    }
+    const info  = await infoRes.json();
+    const email = (info.email || '').trim().toLowerCase();
+    if (!email) {
+      return res.status(401).json({ ok: false, error: 'No se pudo obtener el email de Google' });
+    }
+
+    const db   = getDb();
+    const user = await db.one(
+      "SELECT id, nombre, email, rol, activo, created_at FROM usuarios WHERE email = $1",
+      [email]
+    );
+
+    if (!user || !user.activo) {
+      return res.status(401).json({
+        ok: false,
+        error: 'Tu email no se encuentra en la plataforma. Contacta con el administrador para que te cree un usuario.',
+      });
+    }
+
+    const token    = signToken({ id: user.id, rol: user.rol });
+    const permisos = await getPermisos(user.rol);
+    res.json({ ok: true, data: { token, user, permisos } });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: 'Error al verificar el token de Google' });
   }
 });
 
