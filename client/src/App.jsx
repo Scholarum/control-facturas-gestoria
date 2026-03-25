@@ -9,7 +9,7 @@ import Configuracion  from './pages/Configuracion.jsx';
 import Proveedores    from './pages/Proveedores.jsx';
 import SeccionFacturas from './components/SeccionFacturas.jsx';
 import HistorialA3    from './pages/HistorialA3.jsx';
-import { fetchFacturas, fetchProveedores, exportarExcel, triggerSyncManual, fetchPlanContable, asignarCuentaGasto, asignarCGMasivo, autodetectarProveedores, aplicarCuentasProveedor } from './api.js';
+import { fetchFacturas, fetchProveedores, exportarExcel, triggerSyncManual, fetchPlanContable, asignarCuentaGasto, asignarCGMasivo, autodetectarProveedores, aplicarCuentasProveedor, fetchRoles } from './api.js';
 
 // ─── Stats ────────────────────────────────────────────────────────────────────
 
@@ -25,7 +25,7 @@ function StatCard({ label, value, color }) {
 // ─── Inner app (requires auth context) ───────────────────────────────────────
 
 function AppInner() {
-  const { user, loading: authLoading, logout, puedeVer, puedeEditar } = useAuth();
+  const { user, loading: authLoading, logout, puedeVer, puedeEditar, esAdmin: esAdminReal, estaEmulando, emularGestoria, detenerEmulacion } = useAuth();
 
   const [tab,             setTab]             = useState('facturas');
   const [subTab,          setSubTab]          = useState('pendientes');
@@ -128,6 +128,19 @@ function AppInner() {
     } catch {}
   }
 
+  async function handleEmularGestoria() {
+    try {
+      const roles = await fetchRoles();
+      const gestoria = roles.find(r => r.nombre === 'GESTORIA');
+      if (gestoria?.permisos) {
+        emularGestoria(gestoria.permisos);
+        setTab('facturas');
+      }
+    } catch (e) {
+      setError('Error al cargar permisos de gestoria: ' + e.message);
+    }
+  }
+
   function handleDatosActualizados(id, nuevosDatos) {
     setTodasFacturas(prev => prev.map(f =>
       f.id === id ? { ...f, datos_extraidos: nuevosDatos } : f
@@ -216,7 +229,7 @@ function AppInner() {
     }
   }
 
-  const esAdmin = user?.rol === 'ADMIN';
+  const esAdmin = user?.rol === 'ADMIN' && !estaEmulando;
 
   // ── Pantalla de carga del auth ──────────────────────────────────────────────
   if (authLoading) {
@@ -255,8 +268,23 @@ function AppInner() {
   return (
     <div className="min-h-screen bg-gray-50">
 
+      {/* Barra de emulacion */}
+      {estaEmulando && (
+        <div className="bg-purple-600 text-white text-center py-1.5 text-xs font-medium sticky top-0 z-50 flex items-center justify-center gap-3">
+          <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
+          </svg>
+          Emulando vista Gestoria
+          <button onClick={() => { detenerEmulacion(); setTab('facturas'); }}
+            className="px-2.5 py-0.5 bg-white/20 hover:bg-white/30 rounded text-xs font-semibold transition-colors">
+            Volver a Admin
+          </button>
+        </div>
+      )}
+
       {/* Header */}
-      <header className="bg-white border-b border-gray-200 sticky top-0 z-40 shadow-sm">
+      <header className={`bg-white border-b border-gray-200 sticky ${estaEmulando ? 'top-[34px]' : 'top-0'} z-40 shadow-sm`}>
         <div className="max-w-screen-xl mx-auto px-6 h-14 flex items-center gap-4">
 
           {/* Logo */}
@@ -338,7 +366,7 @@ function AppInner() {
               <div className="absolute right-0 top-full mt-1.5 w-44 bg-white border border-gray-200 rounded-xl shadow-lg py-1 z-50">
                 <div className="px-4 py-2 border-b border-gray-100">
                   <p className="text-xs font-medium text-gray-900 truncate">{user.nombre}</p>
-                  <p className="text-xs text-gray-400">{esAdmin ? 'Administrador' : 'Gestoría'}</p>
+                  <p className="text-xs text-gray-400">{estaEmulando ? 'Emulando Gestoria' : esAdmin ? 'Administrador' : 'Gestoria'}</p>
                 </div>
                 <button
                   onClick={() => { setTab('perfil'); setUserMenuOpen(false); }}
@@ -351,6 +379,29 @@ function AppInner() {
                   </svg>
                   Mi Perfil
                 </button>
+                {esAdminReal && !estaEmulando && (
+                  <button
+                    onClick={() => { handleEmularGestoria(); setUserMenuOpen(false); }}
+                    className="w-full text-left px-4 py-2 text-sm flex items-center gap-2.5 text-purple-700 hover:bg-purple-50 transition-colors"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
+                    </svg>
+                    Ver como Gestoria
+                  </button>
+                )}
+                {estaEmulando && (
+                  <button
+                    onClick={() => { detenerEmulacion(); setUserMenuOpen(false); setTab('facturas'); }}
+                    className="w-full text-left px-4 py-2 text-sm flex items-center gap-2.5 text-blue-700 hover:bg-blue-50 transition-colors"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/>
+                    </svg>
+                    Volver a Admin
+                  </button>
+                )}
                 <button
                   onClick={logout}
                   className="w-full text-left px-4 py-2 text-sm flex items-center gap-2.5 text-red-600 hover:bg-red-50 transition-colors"
@@ -358,7 +409,7 @@ function AppInner() {
                   <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/>
                   </svg>
-                  Cerrar sesión
+                  Cerrar sesion
                 </button>
               </div>
             )}

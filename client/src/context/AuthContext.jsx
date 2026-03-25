@@ -8,6 +8,9 @@ export function AuthProvider({ children }) {
   const [permisos, setPermisos] = useState({});
   const [loading,  setLoading]  = useState(true);
 
+  // Emulación: guarda estado real del admin mientras emula gestoría
+  const [emulacion, setEmulacion] = useState(null); // { userReal, permisosReales }
+
   useEffect(() => {
     const token = getStoredToken();
     if (!token) { setLoading(false); return; }
@@ -25,6 +28,7 @@ export function AuthProvider({ children }) {
     storeToken(token);
     setUser(u);
     setPermisos(p || {});
+    setEmulacion(null);
     return u;
   }
 
@@ -33,6 +37,7 @@ export function AuthProvider({ children }) {
     storeToken(token);
     setUser(u);
     setPermisos(p || {});
+    setEmulacion(null);
     return u;
   }
 
@@ -40,25 +45,50 @@ export function AuthProvider({ children }) {
     clearToken();
     setUser(null);
     setPermisos({});
+    setEmulacion(null);
   }
 
   function updateUser(partial) {
     setUser(prev => ({ ...prev, ...partial }));
   }
 
-  // ADMIN siempre tiene acceso total; el resto usa la tabla de permisos
-  const puedeVer     = useCallback((recurso) => {
-    if (user?.rol === 'ADMIN') return true;
-    return (permisos[recurso] || 'none') !== 'none';
-  }, [user, permisos]);
+  // Emular gestoría: reemplaza user y permisos temporalmente
+  function emularGestoria(permisosGestoria) {
+    if (!user || user.rol !== 'ADMIN') return;
+    setEmulacion({ userReal: user, permisosReales: permisos });
+    setUser(prev => ({ ...prev, rol: 'GESTORIA', _emulando: true }));
+    setPermisos(permisosGestoria);
+  }
 
-  const puedeEditar  = useCallback((recurso) => {
-    if (user?.rol === 'ADMIN') return true;
+  function detenerEmulacion() {
+    if (!emulacion) return;
+    setUser(emulacion.userReal);
+    setPermisos(emulacion.permisosReales);
+    setEmulacion(null);
+  }
+
+  const esAdmin = user?.rol === 'ADMIN';
+  const estaEmulando = !!emulacion;
+
+  // ADMIN siempre tiene acceso total; el resto usa la tabla de permisos
+  const puedeVer = useCallback((recurso) => {
+    if (user?.rol === 'ADMIN' && !emulacion) return true;
+    return (permisos[recurso] || 'none') !== 'none';
+  }, [user, permisos, emulacion]);
+
+  const puedeEditar = useCallback((recurso) => {
+    if (user?.rol === 'ADMIN' && !emulacion) return true;
     return permisos[recurso] === 'edit';
-  }, [user, permisos]);
+  }, [user, permisos, emulacion]);
 
   return (
-    <AuthContext.Provider value={{ user, permisos, loading, login, loginWithGoogle, logout, updateUser, puedeVer, puedeEditar }}>
+    <AuthContext.Provider value={{
+      user, permisos, loading, login, loginWithGoogle, logout, updateUser,
+      puedeVer, puedeEditar,
+      esAdmin: esAdmin && !estaEmulando,
+      estaEmulando,
+      emularGestoria, detenerEmulacion,
+    }}>
       {children}
     </AuthContext.Provider>
   );
