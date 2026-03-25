@@ -559,6 +559,7 @@ function AppInner() {
                 onEstadoActualizado={handleEstadoActualizado}
                 onRefreshFacturas={handleRefreshFacturas}
                 onAsignarCG={handleAsignarCG}
+                onAsignarCGMasivo={handleAsignarCGMasivo}
               />
             )}
             {subTab === 'contabilizadas' && (
