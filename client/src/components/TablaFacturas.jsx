@@ -171,7 +171,7 @@ function ComboboxCuenta({ cuentas, value, onChange, disabled }) {
 
 // ─── Sub-fila: CC + Vista previa (siempre visible) ───────────────────────────
 
-function FilaCcPreview({ f, planContable, onAsignarCG, selected }) {
+function FilaCcPreview({ f, planContable, onAsignarCG, selected, esPar = true }) {
   const cuentasGasto = planContable.filter(c => c.grupo !== '4');
   const [cgId,          setCgId]          = useState(String(f.cg_efectiva_id || ''));
   const [guardando,     setGuardando]     = useState(false);
@@ -220,12 +220,12 @@ function FilaCcPreview({ f, planContable, onAsignarCG, selected }) {
     }
   }
 
-  const bgCls = selected ? 'bg-blue-50/70' : 'bg-gray-50/60';
+  const bgCls = selected ? 'bg-blue-50/70' : esPar ? 'bg-white' : 'bg-slate-50/70';
 
   return (
     <>
       {/* Fila de controles: CC + preview */}
-      <tr className={`${bgCls} border-b border-gray-100/80`}>
+      <tr className={`${bgCls} border-b-2 border-gray-200`}>
         {/* Columna vacía (alineada con el botón expand) */}
         <td className="px-3 py-1.5 w-8" />
         {/* Columna vacía (alineada con el checkbox) */}
@@ -621,7 +621,7 @@ export default function TablaFacturas({
             ) : facturas.length === 0 ? (
               <EmptyState hayFiltros={hayFiltros} colspan={colspan} />
             ) : (
-              facturas.flatMap(f => {
+              facturas.flatMap((f, fIdx) => {
                 const datos    = f.datos_extraidos;
                 const selected = seleccionados.has(f.id);
                 const expanded = expandidos.has(f.id);
@@ -630,12 +630,13 @@ export default function TablaFacturas({
                 const puedeRevertir = esAdmin && f.estado_gestion && f.estado_gestion !== 'PENDIENTE';
                 const puedeEliminar = esAdmin && (!f.estado_gestion || f.estado_gestion === 'PENDIENTE');
                 const incidencia    = tieneIncidencia(f);
+                const esPar = fIdx % 2 === 0;
 
                 const mainRow = (
                   <tr
                     key={`row-${f.id}`}
                     onClick={() => onToggle(f.id)}
-                    className={`cursor-pointer transition-colors ${selected ? 'bg-blue-50 hover:bg-blue-100' : incidencia ? 'bg-red-50/40 hover:bg-red-50' : expanded ? 'bg-gray-50' : 'hover:bg-gray-50'}`}
+                    className={`cursor-pointer transition-colors ${selected ? 'bg-blue-50 hover:bg-blue-100' : incidencia ? 'bg-red-50/40 hover:bg-red-50' : esPar ? 'bg-white hover:bg-gray-50' : 'bg-slate-50/70 hover:bg-slate-100/70'}`}
                   >
                     {/* Botón expandir (solo datos fiscales) */}
                     <td className="px-3 py-3" onClick={e => toggleExpand(f.id, e)}>
@@ -727,6 +728,7 @@ export default function TablaFacturas({
                     planContable={planContable}
                     onAsignarCG={onAsignarCG}
                     selected={selected}
+                    esPar={esPar}
                   />
                 );
 
