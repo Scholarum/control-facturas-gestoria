@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { BadgeGestion, BadgeExtraccion } from './Badge.jsx';
-import { fetchPreviewFactura, editarDatosFactura, asignarCuentaContableProveedor, crearProveedorRapido } from '../api.js';
+import { fetchPreviewFactura, editarDatosFactura, asignarCuentaContableProveedor, crearProveedorRapido, crearCuentaContable } from '../api.js';
 
 // Campos obligatorios para considerar una factura sin incidencia
 const CAMPOS_OBLIGATORIOS = [
@@ -176,6 +176,57 @@ function ComboboxCuenta({ cuentas, value, onChange, disabled }) {
   );
 }
 
+// ─── Selector de subcuenta (código base + sufijo 5 dígitos) ─────────────────
+
+function SelectorSubcuenta({ cuentaBase, planContable, onCreada, onSeleccionada }) {
+  const [sufijo, setSufijo]     = useState('');
+  const [creando, setCreando]   = useState(false);
+  const [errorSub, setErrorSub] = useState('');
+
+  if (!cuentaBase) return null;
+
+  const codigoCompleto = cuentaBase.codigo + sufijo;
+  const yaExiste = sufijo && planContable.find(c => c.codigo === codigoCompleto);
+
+  async function handleCrear() {
+    if (!sufijo || sufijo.length !== 5) return;
+    if (yaExiste) { onSeleccionada(yaExiste); setSufijo(''); return; }
+    setCreando(true); setErrorSub('');
+    try {
+      const nueva = await crearCuentaContable({
+        codigo: codigoCompleto,
+        descripcion: codigoCompleto,
+        grupo: cuentaBase.codigo.charAt(0),
+      });
+      if (onCreada) onCreada(nueva);
+      onSeleccionada(nueva);
+      setSufijo('');
+    } catch (e) { setErrorSub(e.message); }
+    finally { setCreando(false); }
+  }
+
+  return (
+    <div className="mt-1.5 flex items-center gap-2 flex-wrap">
+      <span className="text-xs text-gray-400">Subcuenta:</span>
+      <span className="font-mono text-xs font-semibold text-gray-700 bg-gray-100 px-1.5 py-0.5 rounded">{cuentaBase.codigo}</span>
+      <span className="text-gray-300 text-xs">+</span>
+      <input type="text" inputMode="numeric" maxLength={5} value={sufijo}
+        onChange={e => { setSufijo(e.target.value.replace(/\D/g, '')); setErrorSub(''); }}
+        onKeyDown={e => e.key === 'Enter' && sufijo.length === 5 && handleCrear()}
+        placeholder="00001"
+        className="w-16 rounded border border-gray-200 px-1.5 py-0.5 text-xs font-mono text-center focus:outline-none focus:ring-2 focus:ring-blue-500" />
+      {sufijo.length === 5 && (
+        <span className="font-mono text-xs font-bold text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded">{codigoCompleto}</span>
+      )}
+      <button type="button" onClick={handleCrear} disabled={sufijo.length !== 5 || creando}
+        className="px-2 py-0.5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded disabled:opacity-40 transition-colors">
+        {creando ? '...' : yaExiste ? 'Seleccionar' : 'Crear'}
+      </button>
+      {errorSub && <span className="text-xs text-red-500">{errorSub}</span>}
+    </div>
+  );
+}
+
 // ─── Sub-fila: CC + Vista previa (siempre visible) ───────────────────────────
 
 function FilaCcPreview({ f, planContable, onAsignarCG, selected, esPar = true, onProveedorActualizado }) {
@@ -305,18 +356,26 @@ function FilaCcPreview({ f, planContable, onAsignarCG, selected, esPar = true, o
             {incProv === 'SIN_CUENTA_CONTABLE' && (
               <>
                 <span className="text-gray-200 select-none">|</span>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-orange-500 font-medium flex-shrink-0">Cta. contable:</span>
-                  <div className="w-52">
-                    <ComboboxCuenta cuentas={cuentas4} value={ccProvId} onChange={setCcProvId} />
+                <div className="flex flex-col gap-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-orange-500 font-medium flex-shrink-0">Cta. contable:</span>
+                    <div className="w-52">
+                      <ComboboxCuenta cuentas={cuentas4} value={ccProvId} onChange={setCcProvId} />
+                    </div>
+                    {ccProvId && (
+                      <button onClick={handleAsignarCCProv} disabled={guardandoCC}
+                        className="px-2 py-0.5 text-[11px] font-medium bg-orange-100 text-orange-700 border border-orange-200 rounded hover:bg-orange-200 disabled:opacity-50">
+                        {guardandoCC ? '...' : 'Asignar'}
+                      </button>
+                    )}
+                    {ccProvError && <span className="text-xs text-red-500">{ccProvError}</span>}
                   </div>
-                  {ccProvId && (
-                    <button onClick={handleAsignarCCProv} disabled={guardandoCC}
-                      className="px-2 py-0.5 text-[11px] font-medium bg-orange-100 text-orange-700 border border-orange-200 rounded hover:bg-orange-200 disabled:opacity-50">
-                      {guardandoCC ? '...' : 'Asignar'}
-                    </button>
-                  )}
-                  {ccProvError && <span className="text-xs text-red-500">{ccProvError}</span>}
+                  <SelectorSubcuenta
+                    cuentaBase={planContable.find(c => String(c.id) === ccProvId)}
+                    planContable={planContable}
+                    onCreada={() => { if (onProveedorActualizado) onProveedorActualizado(); }}
+                    onSeleccionada={c => { setCcProvId(String(c.id)); }}
+                  />
                 </div>
               </>
             )}
@@ -419,9 +478,17 @@ function FilaCcPreview({ f, planContable, onAsignarCG, selected, esPar = true, o
                   className="w-full rounded-lg border border-gray-200 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
               </div>
               <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">Cuenta contable</label>
+                <label className="block text-xs font-medium text-gray-600 mb-1">
+                  Cuenta contable <span className="text-[10px] font-normal text-gray-400">(Grupo 4)</span>
+                </label>
                 <ComboboxCuenta cuentas={cuentas4} value={provForm.cuenta_contable_id}
                   onChange={v => setProvForm(p => ({ ...p, cuenta_contable_id: v }))} />
+                <SelectorSubcuenta
+                  cuentaBase={planContable.find(c => String(c.id) === provForm.cuenta_contable_id)}
+                  planContable={planContable}
+                  onCreada={() => { if (onProveedorActualizado) onProveedorActualizado(); }}
+                  onSeleccionada={c => setProvForm(p => ({ ...p, cuenta_contable_id: String(c.id) }))}
+                />
               </div>
             </div>
             <div className="flex justify-end gap-2 pt-2">
