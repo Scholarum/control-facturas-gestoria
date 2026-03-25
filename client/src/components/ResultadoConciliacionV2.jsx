@@ -176,7 +176,7 @@ function FilaResultado({ r, globalIdx, conciliacionId, revisiones, guardando, on
 
 // ─── Componente principal ───────────────────────────────────────────────────
 
-export default function ResultadoConciliacionV2({ resultadosPorProveedor: resultadosIniciales, resumenGlobal: resumenInicial, conciliacionId, lineaEstados: lineaEstadosIniciales, lineasHistorial: lineasHistorialIniciales, vinculosManuales: vinculosDB }) {
+export default function ResultadoConciliacionV2({ resultadosPorProveedor: resultadosIniciales, resumenGlobal: resumenInicial, conciliacionId, lineaEstados: lineaEstadosIniciales, lineasHistorial: lineasHistorialIniciales, vinculosManuales: vinculosDB, onVinculoCambiado }) {
   const [filtro, setFiltro]                       = useState('');
   const [provAbiertos, setProvAbiertos]           = useState(() => new Set(resultadosIniciales.map(p => p.codigoCuenta)));
   const [revisiones, setRevisiones]               = useState(() => {
@@ -245,18 +245,20 @@ export default function ResultadoConciliacionV2({ resultadosPorProveedor: result
     // Guardar en backend (memoria persistente)
     try {
       await guardarVinculoManual({
-        factura_id:     sinMatch.factura.id,
-        mayor_fecha:    sinFactura.mayor.fecha,
+        factura_id:      sinMatch.factura.id,
+        mayor_fecha:     sinFactura.mayor.fecha,
         mayor_documento: sinFactura.mayor.documento,
-        mayor_concepto: sinFactura.mayor.concepto,
-        mayor_importe:  sinFactura.mayor.importe,
-        cuenta_mayor:   provConIndices.find(p => p.resultadosConIdx.some(r => r._globalIdx === sinFacturaIdx))?.codigoCuenta,
+        mayor_concepto:  sinFactura.mayor.concepto,
+        mayor_importe:   sinFactura.mayor.importe,
+        cuenta_mayor:    provConIndices.find(p => p.resultadosConIdx.some(r => r._globalIdx === sinFacturaIdx))?.codigoCuenta,
+        conciliacion_id: conciliacionId,
       });
     } catch (e) {
       console.error('Error guardando vinculo:', e.message);
     }
 
     setVinculos(prev => ({ ...prev, [sinFacturaIdx]: sinMatchIdx }));
+    if (onVinculoCambiado) onVinculoCambiado();
   }
 
   async function desvincularManual(sinFacturaIdx) {
@@ -268,10 +270,11 @@ export default function ResultadoConciliacionV2({ resultadosPorProveedor: result
     if (sinMatch?.factura && sinFactura?.mayor) {
       try {
         await eliminarVinculoManual({
-          factura_id:  sinMatch.factura.id,
-          cuenta_mayor: provConIndices.find(p => p.resultadosConIdx.some(r => r._globalIdx === sinFacturaIdx))?.codigoCuenta,
-          mayor_fecha: sinFactura.mayor.fecha,
-          mayor_importe: sinFactura.mayor.importe,
+          factura_id:      sinMatch.factura.id,
+          cuenta_mayor:    provConIndices.find(p => p.resultadosConIdx.some(r => r._globalIdx === sinFacturaIdx))?.codigoCuenta,
+          mayor_fecha:     sinFactura.mayor.fecha,
+          mayor_importe:   sinFactura.mayor.importe,
+          conciliacion_id: conciliacionId,
         });
       } catch (e) {
         console.error('Error eliminando vinculo:', e.message);
@@ -279,6 +282,7 @@ export default function ResultadoConciliacionV2({ resultadosPorProveedor: result
     }
 
     setVinculos(prev => { const n = { ...prev }; delete n[sinFacturaIdx]; return n; });
+    if (onVinculoCambiado) onVinculoCambiado();
   }
 
   // Calcular índice global

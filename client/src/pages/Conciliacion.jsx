@@ -44,7 +44,7 @@ function HistorialConciliaciones({ historial, cargandoHistorial, onVerResumen })
           <table className="w-full text-sm">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
-                {['Fecha / Hora','Proveedor(es)','OK','Incidencias','Ver.',''].map(h => (
+                {['Fecha / Hora','Proveedor(es)','OK','Manuales','Incidencias','Ver.',''].map(h => (
                   <th key={h} className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">{h}</th>
                 ))}
               </tr>
@@ -52,11 +52,17 @@ function HistorialConciliaciones({ historial, cargandoHistorial, onVerResumen })
             <tbody className="divide-y divide-gray-100">
               {historial.map(h => {
                 const errores = (h.pendientes_sage || 0) + (h.error_importe || 0);
+                const manuales = h.conciliadas_manual || 0;
                 return (
                   <tr key={h.id} className="hover:bg-gray-50 transition-colors">
                     <td className="px-4 py-2.5 text-gray-600 whitespace-nowrap">{fmtFechaHora(h.creado_en)}</td>
                     <td className="px-4 py-2.5 font-medium text-gray-800 max-w-[300px] truncate">{h.proveedor}</td>
                     <td className="px-4 py-2.5"><span className="text-emerald-700 font-semibold">{h.ok}</span></td>
+                    <td className="px-4 py-2.5">
+                      {manuales > 0
+                        ? <span className="text-teal-600 font-semibold">{manuales}</span>
+                        : <span className="text-gray-400">\u2014</span>}
+                    </td>
                     <td className="px-4 py-2.5">
                       {errores > 0
                         ? <span className="text-red-600 font-semibold">{errores}</span>
@@ -347,6 +353,7 @@ export default function Conciliacion({ proveedores }) {
             lineaEstados={resultado.lineaEstados ?? {}}
             lineasHistorial={resultado.lineasHistorial ?? []}
             vinculosManuales={resultado.vinculosManuales ?? []}
+            onVinculoCambiado={refrescarHistorial}
           />
         ) : (
           <ResultadoConciliacion

@@ -147,7 +147,7 @@ router.get('/historial', resolveUser, async (req, res) => {
   const db   = getDb();
   const rows = await db.all(
     `SELECT id, creado_en, proveedor, fecha_desde, fecha_hasta,
-            total, ok, pendientes_sage, error_importe,
+            total, ok, pendientes_sage, error_importe, conciliadas_manual,
             usuario_nombre, version, alcance, num_proveedores
      FROM historial_conciliaciones
      ORDER BY creado_en DESC
@@ -450,10 +450,50 @@ router.post('/v2/ejecutar', resolveUser, express.json({ limit: '5mb' }), async (
   res.json({ ok: true, data: { ...resultado, conciliacionId, lineaEstados, lineasHistorial: [] } });
 });
 
+// Helper: actualizar contadores del historial tras vincular/desvincular
+async function actualizarContadoresHistorial(db, conciliacionId) {
+  if (!conciliacionId) return;
+  try {
+    const row = await db.one('SELECT resultado_json FROM historial_conciliaciones WHERE id = $1', [conciliacionId]);
+    if (!row) return;
+    const resultado = typeof row.resultado_json === 'string' ? JSON.parse(row.resultado_json) : row.resultado_json;
+    if (!resultado?.resultadosPorProveedor) return;
+
+    // Contar facturas en los resultados originales
+    const todos = resultado.resultadosPorProveedor.flatMap(p => p.resultados);
+    const sinMatchIds = todos.filter(r => r.estado === 'SIN_MATCH').map(r => r.factura?.id).filter(Boolean);
+    const sinFacturaLineas = todos.filter(r => r.estado === 'SIN_FACTURA');
+
+    // Contar cuántos vínculos manuales aplican a este resultado
+    const vinculos = await db.all('SELECT factura_id, mayor_fecha, mayor_importe FROM conciliacion_vinculos_manuales');
+    let manuales = 0;
+    for (const v of vinculos) {
+      const tieneSinMatch = sinMatchIds.includes(v.factura_id);
+      const tieneSinFactura = sinFacturaLineas.some(r =>
+        r.mayor?.fecha === v.mayor_fecha &&
+        Math.round((r.mayor?.importe || 0) * 100) === Math.round((parseFloat(v.mayor_importe) || 0) * 100)
+      );
+      if (tieneSinMatch && tieneSinFactura) manuales++;
+    }
+
+    const conciliadas = todos.filter(r => r.estado === 'CONCILIADA').length;
+    const parciales   = todos.filter(r => r.estado === 'PARCIAL').length;
+    const sinMatch    = todos.filter(r => r.estado === 'SIN_MATCH').length - manuales;
+    const totalOk     = conciliadas + manuales;
+
+    await db.query(
+      'UPDATE historial_conciliaciones SET ok = $1, pendientes_sage = $2, error_importe = $3, conciliadas_manual = $4 WHERE id = $5',
+      [totalOk, Math.max(sinMatch, 0), parciales, manuales, conciliacionId]
+    );
+  } catch (e) {
+    console.error('[Conciliacion] Error actualizando contadores:', e.message);
+  }
+}
+
 // ─── POST /api/conciliacion/v2/vincular — guardar vínculo manual ────────────
 
 router.post('/v2/vincular', resolveUser, express.json(), async (req, res) => {
-  const { factura_id, mayor_fecha, mayor_documento, mayor_concepto, mayor_importe, cuenta_mayor } = req.body;
+  const { factura_id, mayor_fecha, mayor_documento, mayor_concepto, mayor_importe, cuenta_mayor, conciliacion_id } = req.body;
   if (!factura_id || !mayor_fecha) return res.status(400).json({ ok: false, error: 'factura_id y mayor_fecha requeridos' });
 
   const db = getDb();
@@ -466,6 +506,7 @@ router.post('/v2/vincular', resolveUser, express.json(), async (req, res) => {
       [factura_id, mayor_fecha, mayor_documento || null, mayor_concepto || null, mayor_importe || null, cuenta_mayor || null,
        req.usuario?.id ?? null, req.usuario?.nombre ?? null]
     );
+    await actualizarContadoresHistorial(db, conciliacion_id);
     res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ ok: false, error: e.message });
@@ -475,7 +516,7 @@ router.post('/v2/vincular', resolveUser, express.json(), async (req, res) => {
 // ─── DELETE /api/conciliacion/v2/vincular — eliminar vínculo manual ─────────
 
 router.delete('/v2/vincular', resolveUser, express.json(), async (req, res) => {
-  const { factura_id, cuenta_mayor, mayor_fecha, mayor_importe } = req.body;
+  const { factura_id, cuenta_mayor, mayor_fecha, mayor_importe, conciliacion_id } = req.body;
   if (!factura_id) return res.status(400).json({ ok: false, error: 'factura_id requerido' });
 
   const db = getDb();
@@ -484,6 +525,7 @@ router.delete('/v2/vincular', resolveUser, express.json(), async (req, res) => {
      WHERE factura_id = $1 AND cuenta_mayor = $2 AND mayor_fecha = $3 AND mayor_importe = $4`,
     [factura_id, cuenta_mayor || null, mayor_fecha || null, mayor_importe || null]
   );
+  await actualizarContadoresHistorial(db, conciliacion_id);
   res.json({ ok: true });
 });
 
