@@ -889,24 +889,26 @@ export default function TablaFacturas({
                         className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
                       />
                     </td>
-                    <td className="px-4 py-3 font-medium text-gray-900 max-w-[180px] truncate" title={f.proveedor}>
+                    <td className="px-4 py-3 font-medium text-gray-900 max-w-[180px] truncate" title={incProv ? tooltipProv : f.proveedor}>
                       <span className="flex items-center gap-1">
                         {incProv && (
-                          <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5 text-orange-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"
-                            title={tooltipProv}>
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z"/>
-                          </svg>
+                          <span title={tooltipProv} className="flex-shrink-0 cursor-help">
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5 text-orange-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z"/>
+                            </svg>
+                          </span>
                         )}
-                        {f.proveedor || '—'}
+                        <span title={f.proveedor}>{f.proveedor || '—'}</span>
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-gray-700 font-mono text-xs">
+                    <td className="px-4 py-3 text-gray-700 font-mono text-xs" title={incidencia ? tooltipDatos : ''}>
                       <span className="flex items-center gap-1">
                         {incidencia && (
-                          <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5 text-red-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"
-                            title={tooltipDatos}>
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z"/>
-                          </svg>
+                          <span title={tooltipDatos} className="flex-shrink-0 cursor-help">
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z"/>
+                            </svg>
+                          </span>
                         )}
                         {datos?.numero_factura || <span className="text-gray-400 italic">{f.nombre_archivo.slice(0, 20)}</span>}
                       </span>
