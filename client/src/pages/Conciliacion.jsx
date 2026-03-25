@@ -59,14 +59,10 @@ function HistorialConciliaciones({ historial, cargandoHistorial, onVerResumen })
                     <td className="px-4 py-2.5 font-medium text-gray-800 max-w-[300px] truncate">{h.proveedor}</td>
                     <td className="px-4 py-2.5"><span className="text-emerald-700 font-semibold">{h.ok}</span></td>
                     <td className="px-4 py-2.5">
-                      {manuales > 0
-                        ? <span className="text-teal-600 font-semibold">{manuales}</span>
-                        : <span className="text-gray-400">\u2014</span>}
+                      <span className={manuales > 0 ? 'text-teal-600 font-semibold' : 'text-gray-400'}>{manuales}</span>
                     </td>
                     <td className="px-4 py-2.5">
-                      {errores > 0
-                        ? <span className="text-red-600 font-semibold">{errores}</span>
-                        : <span className="text-gray-400">\u2014</span>}
+                      <span className={errores > 0 ? 'text-red-600 font-semibold' : 'text-gray-400'}>{errores}</span>
                     </td>
                     <td className="px-4 py-2.5">
                       <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-medium ring-1 ring-inset ${
