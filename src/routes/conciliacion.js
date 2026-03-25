@@ -394,8 +394,8 @@ router.post('/v2/ejecutar', resolveUser, express.json({ limit: '5mb' }), async (
 
     const row = await db.one(
       `INSERT INTO historial_conciliaciones
-         (proveedor, total, ok, pendientes_sage, error_importe, resultado_json, usuario_id, usuario_nombre, version, alcance, num_proveedores)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'v2', $9, $10)
+         (proveedor, total, ok, pendientes_sage, error_importe, conciliadas_manual, resultado_json, usuario_id, usuario_nombre, version, alcance, num_proveedores)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'v2', $10, $11)
        RETURNING id`,
       [
         provNombres.substring(0, 200),
@@ -403,6 +403,7 @@ router.post('/v2/ejecutar', resolveUser, express.json({ limit: '5mb' }), async (
         r.conciliadas,
         r.sinMatch,
         r.parciales,
+        r.conciliadasManual || 0,
         JSON.stringify(resultado),
         usuarioId,
         usuarioNombre,
@@ -461,29 +462,34 @@ async function actualizarContadoresHistorial(db, conciliacionId) {
 
     // Contar facturas en los resultados originales
     const todos = resultado.resultadosPorProveedor.flatMap(p => p.resultados);
-    const sinMatchIds = todos.filter(r => r.estado === 'SIN_MATCH').map(r => r.factura?.id).filter(Boolean);
+    const sinMatchIds = todos
+      .filter(r => r.estado === 'SIN_MATCH' && r.factura?.id)
+      .map(r => Number(r.factura.id));
     const sinFacturaLineas = todos.filter(r => r.estado === 'SIN_FACTURA');
 
     // Contar cuántos vínculos manuales aplican a este resultado
     const vinculos = await db.all('SELECT factura_id, mayor_fecha, mayor_importe FROM conciliacion_vinculos_manuales');
     let manuales = 0;
     for (const v of vinculos) {
-      const tieneSinMatch = sinMatchIds.includes(v.factura_id);
-      const tieneSinFactura = sinFacturaLineas.some(r =>
-        r.mayor?.fecha === v.mayor_fecha &&
-        Math.round((r.mayor?.importe || 0) * 100) === Math.round((parseFloat(v.mayor_importe) || 0) * 100)
-      );
+      const fid = Number(v.factura_id);
+      const tieneSinMatch = sinMatchIds.includes(fid);
+      const imp = Math.round((parseFloat(v.mayor_importe) || 0) * 100);
+      const tieneSinFactura = sinFacturaLineas.some(r => {
+        if (r.mayor?.fecha !== v.mayor_fecha) return false;
+        return Math.round((r.mayor?.importe || 0) * 100) === imp;
+      });
       if (tieneSinMatch && tieneSinFactura) manuales++;
     }
 
-    const conciliadas = todos.filter(r => r.estado === 'CONCILIADA').length;
-    const parciales   = todos.filter(r => r.estado === 'PARCIAL').length;
-    const sinMatch    = todos.filter(r => r.estado === 'SIN_MATCH').length - manuales;
-    const totalOk     = conciliadas + manuales;
+    const conciliadas     = todos.filter(r => r.estado === 'CONCILIADA').length;
+    const conciManualOrig = todos.filter(r => r.estado === 'CONCILIADA_MANUAL').length;
+    const parciales       = todos.filter(r => r.estado === 'PARCIAL').length;
+    const sinMatch        = todos.filter(r => r.estado === 'SIN_MATCH').length - manuales;
+    const totalManuales   = conciManualOrig + manuales;
 
     await db.query(
       'UPDATE historial_conciliaciones SET ok = $1, pendientes_sage = $2, error_importe = $3, conciliadas_manual = $4 WHERE id = $5',
-      [totalOk, Math.max(sinMatch, 0), parciales, manuales, conciliacionId]
+      [conciliadas, Math.max(sinMatch, 0), parciales, totalManuales, conciliacionId]
     );
   } catch (e) {
     console.error('[Conciliacion] Error actualizando contadores:', e.message);

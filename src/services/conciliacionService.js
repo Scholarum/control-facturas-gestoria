@@ -250,7 +250,7 @@ async function obtenerVinculosManuales(facturaIds) {
 async function ejecutarConciliacionV2(proveedoresConLineas) {
   const anio = new Date().getFullYear();
   const resultadosPorProveedor = [];
-  let totalConciliadas = 0, totalParciales = 0, totalSinMatch = 0, totalSinFactura = 0, totalLineas = 0;
+  let totalConciliadas = 0, totalConciliadasManual = 0, totalParciales = 0, totalSinMatch = 0, totalSinFactura = 0, totalLineas = 0;
 
   for (const prov of proveedoresConLineas) {
     const facturasDrive = await obtenerFacturasPorProveedor(
@@ -313,16 +313,18 @@ async function ejecutarConciliacionV2(proveedoresConLineas) {
       }
     });
 
-    const conciliadas  = resultados.filter(r => r.estado === 'CONCILIADA').length;
-    const parciales    = resultados.filter(r => r.estado === 'PARCIAL').length;
-    const sinMatch     = resultados.filter(r => r.estado === 'SIN_MATCH').length;
-    const sinFactura   = resultados.filter(r => r.estado === 'SIN_FACTURA').length;
+    const conciliadas       = resultados.filter(r => r.estado === 'CONCILIADA').length;
+    const conciliadasManual = resultados.filter(r => r.estado === 'CONCILIADA_MANUAL').length;
+    const parciales         = resultados.filter(r => r.estado === 'PARCIAL').length;
+    const sinMatch          = resultados.filter(r => r.estado === 'SIN_MATCH').length;
+    const sinFactura        = resultados.filter(r => r.estado === 'SIN_FACTURA').length;
 
-    totalConciliadas += conciliadas;
-    totalParciales   += parciales;
-    totalSinMatch    += sinMatch;
-    totalSinFactura  += sinFactura;
-    totalLineas      += resultados.length;
+    totalConciliadas       += conciliadas;
+    totalConciliadasManual += conciliadasManual;
+    totalParciales         += parciales;
+    totalSinMatch          += sinMatch;
+    totalSinFactura        += sinFactura;
+    totalLineas            += resultados.length;
 
     resultadosPorProveedor.push({
       codigoCuenta:  prov.codigoCuenta,
@@ -331,7 +333,7 @@ async function ejecutarConciliacionV2(proveedoresConLineas) {
       razonSocial:   prov.razonSocial,
       nombreMayor:   prov.nombreMayor,
       resultados,
-      resumen: { total: resultados.length, conciliadas, parciales, sinMatch, sinFactura },
+      resumen: { total: resultados.length, conciliadas, conciliadasManual, parciales, sinMatch, sinFactura },
     });
   }
 
@@ -340,10 +342,11 @@ async function ejecutarConciliacionV2(proveedoresConLineas) {
     resumenGlobal: {
       totalProveedores: proveedoresConLineas.length,
       totalLineas,
-      conciliadas: totalConciliadas,
-      parciales:   totalParciales,
-      sinMatch:    totalSinMatch,
-      sinFactura:  totalSinFactura,
+      conciliadas:       totalConciliadas,
+      conciliadasManual: totalConciliadasManual,
+      parciales:         totalParciales,
+      sinMatch:          totalSinMatch,
+      sinFactura:        totalSinFactura,
     },
   };
 }
