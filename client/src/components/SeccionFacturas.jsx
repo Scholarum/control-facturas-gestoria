@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useRef } from 'react';
-import TablaFacturas, { tieneIncidencia } from './TablaFacturas.jsx';
+import TablaFacturas, { tieneIncidencia, tieneIncidenciaProveedor } from './TablaFacturas.jsx';
 import { descargarZip, contabilizar, revertirEstado, eliminarFactura, asignarCGMasivo, exportarLoteA3 } from '../api.js';
 
 // ─── Filtros compactos por sección ────────────────────────────────────────────
@@ -32,10 +32,16 @@ function FiltrosSeccion({ filtros, onChange, proveedores }) {
         <input type="checkbox" checked={!!filtros.soloIncidencias}
           onChange={e => set('soloIncidencias', e.target.checked)}
           className="h-3.5 w-3.5 rounded border-gray-300 text-red-500 focus:ring-red-400" />
-        <span className="text-xs font-medium text-red-600">Con incidencia</span>
+        <span className="text-xs font-medium text-red-600">Datos incompletos</span>
+      </label>
+      <label className="self-end flex items-center gap-1.5 px-3 py-1.5 text-sm cursor-pointer select-none">
+        <input type="checkbox" checked={!!filtros.soloSinProveedor}
+          onChange={e => set('soloSinProveedor', e.target.checked)}
+          className="h-3.5 w-3.5 rounded border-gray-300 text-orange-500 focus:ring-orange-400" />
+        <span className="text-xs font-medium text-orange-600">Sin proveedor/cuenta</span>
       </label>
       {hayFiltros && (
-        <button onClick={() => onChange({ proveedor: '', fechaDesde: '', fechaHasta: '', soloIncidencias: false })}
+        <button onClick={() => onChange({ proveedor: '', fechaDesde: '', fechaHasta: '', soloIncidencias: false, soloSinProveedor: false })}
           className="self-end px-3 py-1.5 text-sm text-gray-500 hover:text-gray-800 hover:bg-gray-100 rounded-lg transition-colors">
           Limpiar
         </button>
@@ -157,8 +163,9 @@ export default function SeccionFacturas({
   onAsignarCGMasivo,
   onEliminarFactura,
   onDatosActualizados,
+  onProveedorActualizado,
 }) {
-  const [filtros,       setFiltros]       = useState({ proveedor: '', fechaDesde: '', fechaHasta: '', soloIncidencias: false });
+  const [filtros,       setFiltros]       = useState({ proveedor: '', fechaDesde: '', fechaHasta: '', soloIncidencias: false, soloSinProveedor: false });
   const [seleccionados, setSeleccionados] = useState(new Set());
   const [descargando,        setDescargando]        = useState(false);
   const [contabilizando,     setContabilizando]     = useState(false);
@@ -174,6 +181,7 @@ export default function SeccionFacturas({
     if (filtros.fechaDesde && d?.fecha_emision && d.fecha_emision < filtros.fechaDesde) return false;
     if (filtros.fechaHasta && d?.fecha_emision && d.fecha_emision > filtros.fechaHasta) return false;
     if (filtros.soloIncidencias && !tieneIncidencia(f)) return false;
+    if (filtros.soloSinProveedor && !tieneIncidenciaProveedor(f)) return false;
     return true;
   }), [facturas, filtros]);
 
@@ -439,6 +447,7 @@ export default function SeccionFacturas({
         planContable={planContable}
         onAsignarCG={onAsignarCG}
         onDatosActualizados={onDatosActualizados}
+        onProveedorActualizado={onProveedorActualizado}
       />
     </div>
   );

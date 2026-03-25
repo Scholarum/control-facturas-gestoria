@@ -41,6 +41,7 @@ router.get('/', async (req, res) => {
       da.proveedor, da.fecha_subida, da.estado, da.estado_gestion,
       da.datos_extraidos, da.error_extraccion, da.procesado_at, da.ultima_sync,
       da.lote_a3_id,
+      p.id                                                        AS proveedor_id,
       p.razon_social,
       p.cif                                                       AS proveedor_cif,
       da.cuenta_gasto_id                                          AS cg_manual_id,

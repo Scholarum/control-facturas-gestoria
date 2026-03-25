@@ -3,7 +3,7 @@ const multer    = require('multer');
 const XLSX      = require('xlsx');
 const router    = express.Router();
 const { getDb } = require('../config/database');
-const { resolveUser, requireAdmin } = require('../middleware/auth');
+const { resolveUser, requireAdmin, requireAuth } = require('../middleware/auth');
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
 
@@ -269,6 +269,54 @@ router.post('/importar', requireAdmin, upload.single('archivo'), async (req, res
   }
 
   res.json({ ok: true, data: { insertados, actualizados, errores } });
+});
+
+// ─── PUT /:id/cuenta-contable — asignar cuenta contable (admin + gestoría) ──
+
+router.put('/:id/cuenta-contable', requireAuth, async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const { cuenta_contable_id } = req.body;
+  if (!cuenta_contable_id) return res.status(400).json({ ok: false, error: 'cuenta_contable_id requerida' });
+
+  const db  = getDb();
+  const row = await db.one(
+    `UPDATE proveedores SET cuenta_contable_id = $1, updated_at = NOW()
+     WHERE id = $2 AND activo = true RETURNING *`,
+    [parseInt(cuenta_contable_id, 10), id]
+  );
+  if (!row) return res.status(404).json({ ok: false, error: 'Proveedor no encontrado' });
+  res.json({ ok: true, data: row });
+});
+
+// ─── POST /rapido — crear proveedor al vuelo (admin + gestoría) ─────────────
+
+router.post('/rapido', requireAuth, async (req, res) => {
+  const { razon_social, cif, nombre_carpeta, cuenta_contable_id, cuenta_gasto_id } = req.body;
+  if (!razon_social?.trim()) return res.status(400).json({ ok: false, error: 'razon_social requerida' });
+  if (cif && !validarCIF(cif)) return res.status(400).json({ ok: false, error: 'Formato CIF/NIF invalido' });
+
+  const db = getDb();
+  // Comprobar si ya existe por CIF
+  if (cif) {
+    const existe = await db.one(
+      "SELECT id FROM proveedores WHERE UPPER(TRIM(cif)) = $1 AND activo = true",
+      [cif.trim().toUpperCase()]
+    );
+    if (existe) return res.status(409).json({ ok: false, error: 'Ya existe un proveedor con ese CIF', data: existe });
+  }
+
+  const row = await db.one(
+    `INSERT INTO proveedores (razon_social, nombre_carpeta, cif, cuenta_contable_id, cuenta_gasto_id)
+     VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+    [
+      razon_social.trim(),
+      nombre_carpeta?.trim() || null,
+      cif ? cif.trim().toUpperCase() : null,
+      cuenta_contable_id || null,
+      cuenta_gasto_id    || null,
+    ]
+  );
+  res.json({ ok: true, data: row });
 });
 
 module.exports = router;

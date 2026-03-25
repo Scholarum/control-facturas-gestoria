@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { BadgeGestion, BadgeExtraccion } from './Badge.jsx';
-import { fetchPreviewFactura, editarDatosFactura } from '../api.js';
+import { fetchPreviewFactura, editarDatosFactura, asignarCuentaContableProveedor, crearProveedorRapido } from '../api.js';
 
 // Campos obligatorios para considerar una factura sin incidencia
 const CAMPOS_OBLIGATORIOS = [
@@ -20,6 +20,13 @@ export function detectarIncidencia(datos) {
 
 export function tieneIncidencia(f) {
   return detectarIncidencia(f.datos_extraidos).length > 0;
+}
+
+// Sin proveedor vinculado o proveedor sin cuenta contable
+export function tieneIncidenciaProveedor(f) {
+  if (!f.proveedor_id) return 'SIN_PROVEEDOR';
+  if (!f.cta_proveedor_codigo) return 'SIN_CUENTA_CONTABLE';
+  return null;
 }
 
 function fmtEuro(n, { showZero = false } = {}) {
@@ -171,8 +178,9 @@ function ComboboxCuenta({ cuentas, value, onChange, disabled }) {
 
 // ─── Sub-fila: CC + Vista previa (siempre visible) ───────────────────────────
 
-function FilaCcPreview({ f, planContable, onAsignarCG, selected, esPar = true }) {
+function FilaCcPreview({ f, planContable, onAsignarCG, selected, esPar = true, onProveedorActualizado }) {
   const cuentasGasto = planContable.filter(c => c.grupo !== '4');
+  const cuentas4     = planContable.filter(c => c.grupo === '4');
   const [cgId,          setCgId]          = useState(String(f.cg_efectiva_id || ''));
   const [guardando,     setGuardando]     = useState(false);
   const [cgError,       setCgError]       = useState('');
@@ -181,6 +189,44 @@ function FilaCcPreview({ f, planContable, onAsignarCG, selected, esPar = true })
   const [previewError,  setPreviewError]  = useState('');
 
   const esContabilizada = f.estado_gestion === 'CONTABILIZADA';
+  const incProv = tieneIncidenciaProveedor(f);
+
+  // Estado para asignar cuenta contable al proveedor
+  const [ccProvId,       setCcProvId]       = useState('');
+  const [guardandoCC,    setGuardandoCC]    = useState(false);
+  const [ccProvError,    setCcProvError]    = useState('');
+
+  // Estado para crear proveedor al vuelo
+  const [modalProv,      setModalProv]      = useState(false);
+  const [provForm,       setProvForm]       = useState({ razon_social: '', cif: '', nombre_carpeta: '', cuenta_contable_id: '' });
+  const [creandoProv,    setCreandoProv]    = useState(false);
+  const [provError,      setProvError]      = useState('');
+
+  async function handleAsignarCCProv() {
+    if (!ccProvId || !f.proveedor_id) return;
+    setGuardandoCC(true); setCcProvError('');
+    try {
+      await asignarCuentaContableProveedor(f.proveedor_id, parseInt(ccProvId, 10));
+      if (onProveedorActualizado) onProveedorActualizado();
+    } catch (e) { setCcProvError(e.message); }
+    finally { setGuardandoCC(false); }
+  }
+
+  async function handleCrearProveedor() {
+    if (!provForm.razon_social.trim()) return;
+    setCreandoProv(true); setProvError('');
+    try {
+      await crearProveedorRapido({
+        razon_social: provForm.razon_social.trim(),
+        cif:          provForm.cif.trim() || null,
+        nombre_carpeta: provForm.nombre_carpeta.trim() || f.proveedor || null,
+        cuenta_contable_id: provForm.cuenta_contable_id ? parseInt(provForm.cuenta_contable_id, 10) : null,
+      });
+      setModalProv(false);
+      if (onProveedorActualizado) onProveedorActualizado();
+    } catch (e) { setProvError(e.message); }
+    finally { setCreandoProv(false); }
+  }
 
   useEffect(() => {
     setCgId(String(f.cg_efectiva_id || ''));
@@ -255,6 +301,40 @@ function FilaCcPreview({ f, planContable, onAsignarCG, selected, esPar = true })
               )}
             </div>
 
+            {/* Incidencia proveedor: asignar cuenta contable */}
+            {incProv === 'SIN_CUENTA_CONTABLE' && (
+              <>
+                <span className="text-gray-200 select-none">|</span>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-orange-500 font-medium flex-shrink-0">Cta. contable:</span>
+                  <div className="w-52">
+                    <ComboboxCuenta cuentas={cuentas4} value={ccProvId} onChange={setCcProvId} />
+                  </div>
+                  {ccProvId && (
+                    <button onClick={handleAsignarCCProv} disabled={guardandoCC}
+                      className="px-2 py-0.5 text-[11px] font-medium bg-orange-100 text-orange-700 border border-orange-200 rounded hover:bg-orange-200 disabled:opacity-50">
+                      {guardandoCC ? '...' : 'Asignar'}
+                    </button>
+                  )}
+                  {ccProvError && <span className="text-xs text-red-500">{ccProvError}</span>}
+                </div>
+              </>
+            )}
+
+            {/* Incidencia proveedor: crear proveedor */}
+            {incProv === 'SIN_PROVEEDOR' && (
+              <>
+                <span className="text-gray-200 select-none">|</span>
+                <button onClick={() => { setProvForm({ razon_social: f.datos_extraidos?.nombre_emisor || '', cif: f.datos_extraidos?.cif_emisor || '', nombre_carpeta: f.proveedor || '', cuenta_contable_id: '' }); setModalProv(true); }}
+                  className="flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-orange-700 bg-orange-50 border border-orange-200 rounded-md hover:bg-orange-100 transition-colors flex-shrink-0">
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4"/>
+                  </svg>
+                  Crear proveedor
+                </button>
+              </>
+            )}
+
             {/* Separador */}
             <span className="text-gray-200 select-none">|</span>
 
@@ -314,6 +394,46 @@ function FilaCcPreview({ f, planContable, onAsignarCG, selected, esPar = true })
             />
           </td>
         </tr>
+      )}
+
+      {/* Modal crear proveedor al vuelo */}
+      {modalProv && createPortal(
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => setModalProv(false)}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-4" onClick={e => e.stopPropagation()}>
+            <h3 className="text-sm font-semibold text-gray-900">Crear proveedor</h3>
+            {provError && <p className="text-xs text-red-600 bg-red-50 rounded px-2 py-1">{provError}</p>}
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Razon Social *</label>
+                <input value={provForm.razon_social} onChange={e => setProvForm(p => ({ ...p, razon_social: e.target.value }))}
+                  className="w-full rounded-lg border border-gray-200 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">CIF</label>
+                <input value={provForm.cif} onChange={e => setProvForm(p => ({ ...p, cif: e.target.value }))}
+                  className="w-full rounded-lg border border-gray-200 px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Nombre de carpeta</label>
+                <input value={provForm.nombre_carpeta} onChange={e => setProvForm(p => ({ ...p, nombre_carpeta: e.target.value }))}
+                  className="w-full rounded-lg border border-gray-200 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Cuenta contable</label>
+                <ComboboxCuenta cuentas={cuentas4} value={provForm.cuenta_contable_id}
+                  onChange={v => setProvForm(p => ({ ...p, cuenta_contable_id: v }))} />
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <button onClick={() => setModalProv(false)} className="px-4 py-1.5 text-sm text-gray-600 hover:text-gray-800">Cancelar</button>
+              <button onClick={handleCrearProveedor} disabled={creandoProv || !provForm.razon_social.trim()}
+                className="px-4 py-1.5 text-sm font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-40">
+                {creandoProv ? 'Creando...' : 'Crear proveedor'}
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
       )}
     </>
   );
@@ -563,7 +683,7 @@ function EmptyState({ hayFiltros, colspan }) {
 export default function TablaFacturas({
   facturas, seleccionados, onToggle, onToggleTodo,
   loading, hayFiltros, esAdmin = false, onRevertir, onEliminar,
-  planContable = [], onAsignarCG, onDatosActualizados,
+  planContable = [], onAsignarCG, onDatosActualizados, onProveedorActualizado,
 }) {
   const [expandidos, setExpandidos] = useState(new Set());
   const todosSeleccionados = facturas.length > 0 && seleccionados.size === facturas.length;
@@ -630,13 +750,15 @@ export default function TablaFacturas({
                 const puedeRevertir = esAdmin && f.estado_gestion && f.estado_gestion !== 'PENDIENTE';
                 const puedeEliminar = esAdmin && (!f.estado_gestion || f.estado_gestion === 'PENDIENTE');
                 const incidencia    = tieneIncidencia(f);
+                const incProv       = tieneIncidenciaProveedor(f);
+                const hayAlerta     = incidencia || incProv;
                 const esPar = fIdx % 2 === 0;
 
                 const mainRow = (
                   <tr
                     key={`row-${f.id}`}
                     onClick={() => onToggle(f.id)}
-                    className={`cursor-pointer transition-colors ${selected ? 'bg-blue-50 hover:bg-blue-100' : incidencia ? 'bg-red-50/40 hover:bg-red-50' : esPar ? 'bg-white hover:bg-gray-50' : 'bg-slate-50/70 hover:bg-slate-100/70'}`}
+                    className={`cursor-pointer transition-colors ${selected ? 'bg-blue-50 hover:bg-blue-100' : incidencia ? 'bg-red-50/40 hover:bg-red-50' : incProv ? 'bg-orange-50/40 hover:bg-orange-50' : esPar ? 'bg-white hover:bg-gray-50' : 'bg-slate-50/70 hover:bg-slate-100/70'}`}
                   >
                     {/* Botón expandir (solo datos fiscales) */}
                     <td className="px-3 py-3" onClick={e => toggleExpand(f.id, e)}>
@@ -659,7 +781,15 @@ export default function TablaFacturas({
                       />
                     </td>
                     <td className="px-4 py-3 font-medium text-gray-900 max-w-[180px] truncate" title={f.proveedor}>
-                      {f.proveedor || '—'}
+                      <span className="flex items-center gap-1">
+                        {incProv && (
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5 text-orange-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"
+                            title={incProv === 'SIN_PROVEEDOR' ? 'Proveedor no registrado' : 'Sin cuenta contable'}>
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z"/>
+                          </svg>
+                        )}
+                        {f.proveedor || '—'}
+                      </span>
                     </td>
                     <td className="px-4 py-3 text-gray-700 font-mono text-xs">
                       <span className="flex items-center gap-1">
@@ -729,6 +859,7 @@ export default function TablaFacturas({
                     onAsignarCG={onAsignarCG}
                     selected={selected}
                     esPar={esPar}
+                    onProveedorActualizado={onProveedorActualizado}
                   />
                 );
 

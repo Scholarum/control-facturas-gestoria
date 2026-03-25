@@ -119,6 +119,15 @@ function AppInner() {
     setTodasFacturas(prev => prev.filter(f => f.id !== id));
   }
 
+  async function handleProveedorActualizado() {
+    // Refrescar facturas y proveedores para que se actualicen los vínculos
+    try {
+      const [nuevas, provs] = await Promise.all([fetchFacturas(), fetchProveedores()]);
+      setTodasFacturas(nuevas);
+      setProveedores(provs);
+    } catch {}
+  }
+
   function handleDatosActualizados(id, nuevosDatos) {
     setTodasFacturas(prev => prev.map(f =>
       f.id === id ? { ...f, datos_extraidos: nuevosDatos } : f
@@ -543,6 +552,7 @@ function AppInner() {
                 onAsignarCGMasivo={handleAsignarCGMasivo}
                 onEliminarFactura={handleEliminarFactura}
                 onDatosActualizados={handleDatosActualizados}
+                onProveedorActualizado={handleProveedorActualizado}
               />
             )}
             {subTab === 'descargadas' && (
@@ -558,6 +568,7 @@ function AppInner() {
                 onAsignarCG={handleAsignarCG}
                 onAsignarCGMasivo={handleAsignarCGMasivo}
                 onDatosActualizados={handleDatosActualizados}
+                onProveedorActualizado={handleProveedorActualizado}
               />
             )}
             {subTab === 'cc_asignada' && (
@@ -574,6 +585,7 @@ function AppInner() {
                 onAsignarCG={handleAsignarCG}
                 onAsignarCGMasivo={handleAsignarCGMasivo}
                 onDatosActualizados={handleDatosActualizados}
+                onProveedorActualizado={handleProveedorActualizado}
               />
             )}
             {subTab === 'contabilizadas' && (

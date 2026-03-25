@@ -202,6 +202,28 @@ export async function editarDatosFactura(id, campos) {
   return json.data;
 }
 
+export async function asignarCuentaContableProveedor(proveedorId, cuentaContableId) {
+  const res = await fetch(`${API_BASE}/api/proveedores/${proveedorId}/cuenta-contable`, {
+    method: 'PUT',
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify({ cuenta_contable_id: cuentaContableId }),
+  });
+  const json = await res.json();
+  if (!json.ok) throw new Error(json.error || 'Error al asignar cuenta contable');
+  return json.data;
+}
+
+export async function crearProveedorRapido(datos) {
+  const res = await fetch(`${API_BASE}/api/proveedores/rapido`, {
+    method: 'POST',
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify(datos),
+  });
+  const json = await res.json();
+  if (!json.ok) throw new Error(json.error || 'Error al crear proveedor');
+  return json.data;
+}
+
 export async function exportarExcel(ids) {
   const res = await fetch(`${API_BASE}/api/drive/exportar-excel`, {
     method:  'POST',
