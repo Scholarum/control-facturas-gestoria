@@ -444,4 +444,41 @@ router.post('/v2/ejecutar', resolveUser, express.json({ limit: '5mb' }), async (
   res.json({ ok: true, data: { ...resultado, conciliacionId, lineaEstados, lineasHistorial: [] } });
 });
 
+// ─── POST /api/conciliacion/v2/vincular — guardar vínculo manual ────────────
+
+router.post('/v2/vincular', resolveUser, express.json(), async (req, res) => {
+  const { factura_id, mayor_fecha, mayor_documento, mayor_concepto, mayor_importe, cuenta_mayor } = req.body;
+  if (!factura_id || !mayor_fecha) return res.status(400).json({ ok: false, error: 'factura_id y mayor_fecha requeridos' });
+
+  const db = getDb();
+  try {
+    await db.query(
+      `INSERT INTO conciliacion_vinculos_manuales
+         (factura_id, mayor_fecha, mayor_documento, mayor_concepto, mayor_importe, cuenta_mayor, usuario_id, usuario_nombre)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       ON CONFLICT (factura_id, cuenta_mayor, mayor_fecha, mayor_importe) DO NOTHING`,
+      [factura_id, mayor_fecha, mayor_documento || null, mayor_concepto || null, mayor_importe || null, cuenta_mayor || null,
+       req.usuario?.id ?? null, req.usuario?.nombre ?? null]
+    );
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+// ─── DELETE /api/conciliacion/v2/vincular — eliminar vínculo manual ─────────
+
+router.delete('/v2/vincular', resolveUser, express.json(), async (req, res) => {
+  const { factura_id, cuenta_mayor, mayor_fecha, mayor_importe } = req.body;
+  if (!factura_id) return res.status(400).json({ ok: false, error: 'factura_id requerido' });
+
+  const db = getDb();
+  await db.query(
+    `DELETE FROM conciliacion_vinculos_manuales
+     WHERE factura_id = $1 AND cuenta_mayor = $2 AND mayor_fecha = $3 AND mayor_importe = $4`,
+    [factura_id, cuenta_mayor || null, mayor_fecha || null, mayor_importe || null]
+  );
+  res.json({ ok: true });
+});
+
 module.exports = router;

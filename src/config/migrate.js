@@ -120,6 +120,21 @@ const tablas = [
   // Duplicados: columna en historial de sincronizaciones
   `ALTER TABLE historial_sincronizaciones ADD COLUMN IF NOT EXISTS facturas_duplicadas INTEGER NOT NULL DEFAULT 0`,
 
+  // Conciliación: vínculos manuales (memoria entre ejecuciones)
+  `CREATE TABLE IF NOT EXISTS conciliacion_vinculos_manuales (
+    id               SERIAL PRIMARY KEY,
+    factura_id       INTEGER NOT NULL REFERENCES drive_archivos(id) ON DELETE CASCADE,
+    mayor_fecha      TEXT NOT NULL,
+    mayor_documento  TEXT,
+    mayor_concepto   TEXT,
+    mayor_importe    NUMERIC(12,2),
+    cuenta_mayor     TEXT,
+    usuario_id       INTEGER REFERENCES usuarios(id),
+    usuario_nombre   TEXT,
+    creado_en        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(factura_id, cuenta_mayor, mayor_fecha, mayor_importe)
+  )`,
+
   // Conciliación v2: columnas adicionales
   `ALTER TABLE historial_conciliaciones ADD COLUMN IF NOT EXISTS version TEXT NOT NULL DEFAULT 'v1'`,
   `ALTER TABLE historial_conciliaciones ADD COLUMN IF NOT EXISTS alcance TEXT`,

@@ -238,6 +238,15 @@ async function obtenerFacturasPorProveedor(nombreCarpeta, proveedorId, cifProvee
     .filter(a => a.datos?.fecha_emision);
 }
 
+async function obtenerVinculosManuales(facturaIds) {
+  if (!facturaIds.length) return [];
+  const db = getDb();
+  return db.all(
+    'SELECT * FROM conciliacion_vinculos_manuales WHERE factura_id = ANY($1::int[])',
+    [facturaIds]
+  );
+}
+
 async function ejecutarConciliacionV2(proveedoresConLineas) {
   const anio = new Date().getFullYear();
   const resultadosPorProveedor = [];
@@ -252,11 +261,44 @@ async function ejecutarConciliacionV2(proveedoresConLineas) {
     const lineasFactura = (prov.lineas || [])
       .filter(l => l.esFactura && (l.haber > 0 || l.debe > 0));
 
-    // Dirección principal: iterar facturas de DB → buscar en Mayor
-    const usadas = new Set(); // índices de líneas del Mayor ya usadas
-    const resultados = facturasDrive.map(factura =>
-      cruzarFacturaEnMayor(factura, lineasFactura, anio, usadas)
-    );
+    // Cargar vínculos manuales de ejecuciones anteriores
+    const vinculosDB = await obtenerVinculosManuales(facturasDrive.map(f => f.id));
+
+    // Fase 1: aplicar vínculos manuales previos
+    const usadas = new Set();        // índices de líneas del Mayor ya usadas
+    const facturasUsadas = new Set(); // IDs de facturas ya vinculadas
+    const resultados = [];
+
+    for (const v of vinculosDB) {
+      const factura = facturasDrive.find(f => f.id === v.factura_id);
+      if (!factura || facturasUsadas.has(factura.id)) continue;
+
+      // Buscar la línea del Mayor que coincide con el vínculo guardado
+      const idxMayor = lineasFactura.findIndex((l, idx) => {
+        if (usadas.has(idx)) return false;
+        const imp = round2(l.haber > 0 ? l.haber : l.debe);
+        return l.fecha === v.mayor_fecha && imp === round2(v.mayor_importe);
+      });
+
+      if (idxMayor >= 0) {
+        usadas.add(idxMayor);
+        facturasUsadas.add(factura.id);
+        const l = lineasFactura[idxMayor];
+        const importeMayor = round2(l.haber > 0 ? l.haber : l.debe);
+        resultados.push({
+          factura: { id: factura.id, numero_factura: factura.datos?.numero_factura, fecha_emision: factura.datos?.fecha_emision, total_factura: round2(factura.datos?.total_factura), nombre_archivo: factura.nombre_archivo },
+          mayor:   { fecha: l.fecha, concepto: l.concepto, documento: l.documento, importe: importeMayor, lineaOriginal: l.lineaOriginal },
+          estado:  'CONCILIADA_MANUAL',
+          detalleMatch: { fechaCoincide: true, importeCoincide: true, referenciaEncontrada: false, refSimplificada: null },
+        });
+      }
+    }
+
+    // Fase 2: matching automático para facturas no vinculadas manualmente
+    for (const factura of facturasDrive) {
+      if (facturasUsadas.has(factura.id)) continue;
+      resultados.push(cruzarFacturaEnMayor(factura, lineasFactura, anio, usadas));
+    }
 
     // Líneas del Mayor que no se emparejaron con ninguna factura → SIN_FACTURA
     lineasFactura.forEach((l, idx) => {

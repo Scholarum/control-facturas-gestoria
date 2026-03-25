@@ -447,6 +447,26 @@ export async function ejecutarConciliacionV2(proveedores, alcance) {
   return json.data;
 }
 
+export async function guardarVinculoManual(datos) {
+  const res = await fetch(`${API_BASE}/api/conciliacion/v2/vincular`, {
+    method: 'POST',
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify(datos),
+  });
+  const json = await res.json();
+  if (!json.ok) throw new Error(json.error || 'Error al guardar vinculo');
+}
+
+export async function eliminarVinculoManual(datos) {
+  const res = await fetch(`${API_BASE}/api/conciliacion/v2/vincular`, {
+    method: 'DELETE',
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify(datos),
+  });
+  const json = await res.json();
+  if (!json.ok) throw new Error(json.error || 'Error al eliminar vinculo');
+}
+
 // ─── Plan Contable ────────────────────────────────────────────────────────────
 
 export async function fetchPlanContable(q = '') {
