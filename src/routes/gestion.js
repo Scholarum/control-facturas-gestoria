@@ -18,6 +18,22 @@ const CAMPOS_OBLIGATORIOS = [
   'nombre_receptor', 'cif_receptor', 'total_factura',
 ];
 
+// Condición SQL para verificar incidencia de datos (campos obligatorios vacíos)
+function tieneIncidenciaSQL(alias) {
+  const a = alias;
+  return `(
+    ${a}.datos_extraidos IS NULL
+    OR NOT (${a}.datos_extraidos ~ '^\\s*\\{')
+    OR (${a}.datos_extraidos::jsonb)->>'numero_factura' IS NULL OR TRIM((${a}.datos_extraidos::jsonb)->>'numero_factura') = ''
+    OR (${a}.datos_extraidos::jsonb)->>'fecha_emision' IS NULL OR TRIM((${a}.datos_extraidos::jsonb)->>'fecha_emision') = ''
+    OR (${a}.datos_extraidos::jsonb)->>'nombre_emisor' IS NULL OR TRIM((${a}.datos_extraidos::jsonb)->>'nombre_emisor') = ''
+    OR (${a}.datos_extraidos::jsonb)->>'cif_emisor' IS NULL OR TRIM((${a}.datos_extraidos::jsonb)->>'cif_emisor') = ''
+    OR (${a}.datos_extraidos::jsonb)->>'nombre_receptor' IS NULL OR TRIM((${a}.datos_extraidos::jsonb)->>'nombre_receptor') = ''
+    OR (${a}.datos_extraidos::jsonb)->>'cif_receptor' IS NULL OR TRIM((${a}.datos_extraidos::jsonb)->>'cif_receptor') = ''
+    OR (${a}.datos_extraidos::jsonb)->>'total_factura' IS NULL
+  )`;
+}
+
 function tieneIncidencia(datos) {
   if (!datos) return true;
   const d = typeof datos === 'string' ? JSON.parse(datos) : datos;
@@ -129,14 +145,24 @@ router.post('/descargar-zip', async (req, res) => {
   // Los admins no modifican el estado al descargar
   const esAdmin = req.usuario?.rol === 'ADMIN';
   if (!esAdmin) {
-    // Solo transicionar a DESCARGADA las que no tienen incidencia
-    const idsActualizar = archivos
+    // Solo transicionar a DESCARGADA las que no tienen incidencia de datos ni de proveedor
+    const idsCandidatos = archivos
       .filter(a => a.estado_gestion !== 'CONTABILIZADA' && !tieneIncidencia(a.datos_extraidos))
       .map(a => a.id);
-    if (idsActualizar.length) {
+    if (idsCandidatos.length) {
       await db.query(
-        "UPDATE drive_archivos SET estado_gestion='DESCARGADA' WHERE id = ANY($1::int[])",
-        [idsActualizar]
+        `UPDATE drive_archivos da SET estado_gestion = 'DESCARGADA'
+         WHERE da.id = ANY($1::int[])
+           AND EXISTS (
+             SELECT 1 FROM proveedores p
+             WHERE p.activo = true AND p.cuenta_contable_id IS NOT NULL
+               AND (
+                 (p.cif IS NOT NULL AND da.datos_extraidos IS NOT NULL AND da.datos_extraidos ~ '^\\s*\\{'
+                  AND normalizar_cif((da.datos_extraidos::jsonb)->>'cif_emisor') = normalizar_cif(p.cif))
+                 OR p.nombre_carpeta = da.proveedor
+               )
+           )`,
+        [idsCandidatos]
       );
     }
   }
@@ -302,15 +328,32 @@ router.put('/:id/cg', express.json(), async (req, res) => {
   const cgId = cuenta_gasto_id ? parseInt(cuenta_gasto_id, 10) : null;
 
   const db = getDb();
-  const archivo = await db.one('SELECT estado_gestion, datos_extraidos FROM drive_archivos WHERE id = $1', [id]);
+  const archivo = await db.one(`
+    SELECT da.estado_gestion, da.datos_extraidos, p.id AS proveedor_id, cc.codigo AS cta_proveedor_codigo
+    FROM drive_archivos da
+    LEFT JOIN LATERAL (
+      SELECT p2.* FROM proveedores p2
+      WHERE p2.activo = true AND (
+        (p2.cif IS NOT NULL AND da.datos_extraidos IS NOT NULL AND da.datos_extraidos ~ '^\\s*\\{'
+         AND normalizar_cif((da.datos_extraidos::jsonb)->>'cif_emisor') = normalizar_cif(p2.cif))
+        OR p2.nombre_carpeta = da.proveedor
+      )
+      ORDER BY (p2.cif IS NOT NULL AND da.datos_extraidos IS NOT NULL AND da.datos_extraidos ~ '^\\s*\\{'
+               AND normalizar_cif((da.datos_extraidos::jsonb)->>'cif_emisor') = normalizar_cif(p2.cif)) DESC NULLS LAST
+      LIMIT 1
+    ) p ON true
+    LEFT JOIN plan_contable cc ON cc.id = p.cuenta_contable_id
+    WHERE da.id = $1`, [id]);
   if (!archivo) return res.status(404).json({ ok: false, error: 'Archivo no encontrado' });
   if (archivo.estado_gestion === 'CONTABILIZADA')
     return res.status(400).json({ ok: false, error: 'No se puede modificar una factura contabilizada' });
 
   let nuevoEstado = archivo.estado_gestion || 'PENDIENTE';
   if (cgId) {
-    // No transicionar a CC_ASIGNADA si tiene incidencia
-    if (!tieneIncidencia(archivo.datos_extraidos) && nuevoEstado !== 'CC_ASIGNADA') nuevoEstado = 'CC_ASIGNADA';
+    // Solo transicionar a CC_ASIGNADA si no hay incidencias de datos NI de proveedor
+    const datosOk      = !tieneIncidencia(archivo.datos_extraidos);
+    const proveedorOk  = !!archivo.proveedor_id && !!archivo.cta_proveedor_codigo;
+    if (datosOk && proveedorOk && nuevoEstado !== 'CC_ASIGNADA') nuevoEstado = 'CC_ASIGNADA';
   } else {
     if (nuevoEstado === 'CC_ASIGNADA') nuevoEstado = 'PENDIENTE';
   }
@@ -472,10 +515,12 @@ router.put('/aplicar-cuentas-proveedor', requireAuth, async (req, res) => {
       `UPDATE drive_archivos da
        SET estado_gestion = 'CC_ASIGNADA'
        WHERE da.estado_gestion = 'PENDIENTE'
+         AND NOT ${tieneIncidenciaSQL('da')}
          AND EXISTS (
            SELECT 1 FROM proveedores p
            WHERE p.activo = true
              AND p.cuenta_gasto_id IS NOT NULL
+             AND p.cuenta_contable_id IS NOT NULL
              AND (
                (
                  p.cif IS NOT NULL

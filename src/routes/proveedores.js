@@ -24,9 +24,9 @@ function labelProveedor(p) {
   return p.razon_social || p.nombre_carpeta || '';
 }
 
-// Auto-transicionar facturas PENDIENTE → CC_ASIGNADA si el proveedor tiene cuenta de gasto
+// Auto-transicionar facturas PENDIENTE → CC_ASIGNADA si el proveedor tiene cuenta de gasto Y cuenta contable
 async function autoAsignarFacturasProveedor(db, proveedor) {
-  if (!proveedor.cuenta_gasto_id) return;
+  if (!proveedor.cuenta_gasto_id || !proveedor.cuenta_contable_id) return;
   try {
     await db.query(`
       UPDATE drive_archivos da

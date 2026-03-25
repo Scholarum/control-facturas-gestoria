@@ -147,6 +147,7 @@ async function ejecutarSync(origen = 'MANUAL') {
                SELECT 1 FROM proveedores p
                WHERE p.activo = true
                  AND p.cuenta_gasto_id IS NOT NULL
+                 AND p.cuenta_contable_id IS NOT NULL
                  AND (
                    (
                      p.cif IS NOT NULL
