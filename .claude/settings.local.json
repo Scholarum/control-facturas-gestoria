@@ -28,7 +28,9 @@
       "Bash(ping -n 2 8.8.8.8)",
       "Bash(curl -s --max-time 5 -o /dev/null -w \"%{http_code}\" https://supabase.co)",
       "Bash(nslookup:*)",
-      "Bash(curl:*)"
+      "Bash(curl:*)",
+      "Bash(git rebase:*)",
+      "Bash(GIT_EDITOR=true git rebase --continue)"
     ]
   }
 }

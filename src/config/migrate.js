@@ -276,6 +276,7 @@ async function runMigrations() {
       // Grupo 2 — Inmovilizado (activos que pueden aparecer en facturas)
       { codigo: '200',  descripcion: 'Investigación',                                      grupo: '2' },
       { codigo: '201',  descripcion: 'Desarrollo',                                         grupo: '2' },
+      { codigo: '202',  descripcion: 'Concesiones administrativas',                        grupo: '2' },
       { codigo: '203',  descripcion: 'Propiedad industrial',                               grupo: '2' },
       { codigo: '205',  descripcion: 'Derechos de traspaso',                               grupo: '2' },
       { codigo: '206',  descripcion: 'Aplicaciones informáticas',                          grupo: '2' },
@@ -316,6 +317,32 @@ async function runMigrations() {
         [c.codigo, c.descripcion, c.grupo]
       );
     }
+  }
+
+  // Asegurar cuentas grupo 2 (inversiones/inmovilizado) en bases existentes
+  const cuentasGrupo2 = [
+    { codigo: '200', descripcion: 'Investigación',                        grupo: '2' },
+    { codigo: '201', descripcion: 'Desarrollo',                           grupo: '2' },
+    { codigo: '202', descripcion: 'Concesiones administrativas',          grupo: '2' },
+    { codigo: '203', descripcion: 'Propiedad industrial',                 grupo: '2' },
+    { codigo: '205', descripcion: 'Derechos de traspaso',                 grupo: '2' },
+    { codigo: '206', descripcion: 'Aplicaciones informáticas',            grupo: '2' },
+    { codigo: '210', descripcion: 'Terrenos y bienes naturales',          grupo: '2' },
+    { codigo: '211', descripcion: 'Construcciones',                       grupo: '2' },
+    { codigo: '212', descripcion: 'Instalaciones técnicas',               grupo: '2' },
+    { codigo: '213', descripcion: 'Maquinaria',                           grupo: '2' },
+    { codigo: '214', descripcion: 'Utillaje',                             grupo: '2' },
+    { codigo: '215', descripcion: 'Otras instalaciones',                  grupo: '2' },
+    { codigo: '216', descripcion: 'Mobiliario',                           grupo: '2' },
+    { codigo: '217', descripcion: 'Equipos para procesos de información', grupo: '2' },
+    { codigo: '218', descripcion: 'Elementos de transporte',              grupo: '2' },
+    { codigo: '219', descripcion: 'Otro inmovilizado material',           grupo: '2' },
+  ];
+  for (const c of cuentasGrupo2) {
+    await db.query(
+      'INSERT INTO plan_contable (codigo, descripcion, grupo) VALUES ($1, $2, $3) ON CONFLICT (codigo) DO NOTHING',
+      [c.codigo, c.descripcion, c.grupo]
+    );
   }
 
   // Seed roles built-in

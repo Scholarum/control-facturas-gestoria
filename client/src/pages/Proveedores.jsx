@@ -157,7 +157,7 @@ function SelectorSubcuenta({ cuentaBase, planContable, onCreada, onSeleccionada 
 
 function ModalProveedor({ form, setForm, planContable, guardando, onGuardar, onCerrar, esEdicion, errorModal, onCuentaCreada }) {
   const cuentas4 = planContable.filter(c => c.grupo === '4');
-  const cuentas6 = planContable.filter(c => c.grupo !== '4');
+  const cuentasImputables = planContable.filter(c => c.grupo !== '4');
 
   function set(k, v) { setForm(prev => ({ ...prev, [k]: v })); }
 
@@ -219,7 +219,7 @@ function ModalProveedor({ form, setForm, planContable, guardando, onGuardar, onC
                 Cuenta de Gasto <span className="text-xs font-normal text-gray-400">(Activos grupo 2 / Gastos grupo 6)</span>
               </label>
               <ComboboxCuenta
-                cuentas={cuentas6}
+                cuentas={cuentasImputables}
                 value={form.cuenta_gasto_id}
                 onChange={v => set('cuenta_gasto_id', v)}
                 placeholder="Escribe código o descripción..."
