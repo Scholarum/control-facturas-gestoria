@@ -51,12 +51,22 @@ async function iniciarCrons() {
   if (config.notify_activo === 'true') {
     const expr = buildCronExpr(config.notify_hora, config.notify_frecuencia);
     if (expr && cron.validate(expr)) {
-      notifyTask = cron.schedule(expr, () => {
-        console.log('[Cron] Enviando notificaciones automáticas...');
-        enviarNotificaciones({ origen: 'CRON' }).catch(e => console.error('[Cron] Error notif:', e.message));
+      notifyTask = cron.schedule(expr, async () => {
+        console.log('[Cron] Iniciando envío de notificaciones automáticas...');
+        try {
+          const result = await enviarNotificaciones({ forzar: true, origen: 'CRON' });
+          console.log('[Cron] Notificaciones resultado:', JSON.stringify(result));
+        } catch (e) {
+          console.error('[Cron] Error notificaciones:', e.message);
+        }
       }, { timezone });
       console.log(`[Cron] Notificaciones programadas → ${expr} (${config.notify_frecuencia} a las ${config.notify_hora} ${timezone})`);
     }
+
+    // Catch-up: si el servidor arrancó después de la hora programada
+    catchupNotifSiNecesario(config, timezone).catch(e =>
+      console.warn('[Cron] Error comprobando catch-up notificaciones:', e.message)
+    );
   }
 }
 
@@ -89,6 +99,35 @@ async function catchupSyncSiNecesario(config, timezone) {
 
   console.log(`[Cron] Sync diaria de las ${config.sync_hora} no ejecutada hoy. Lanzando ahora...`);
   ejecutarSync('CRON').catch(e => console.error('[Cron] Error en sync de recuperación:', e.message));
+}
+
+// ─── Catch-up para notificaciones ────────────────────────────────────────────
+
+async function catchupNotifSiNecesario(config, timezone) {
+  if (config.notify_activo !== 'true' || config.notify_frecuencia !== 'diaria') return;
+
+  const [h, m] = (config.notify_hora || '09:00').split(':').map(Number);
+
+  const now  = new Date();
+  const hhmm = now.toLocaleTimeString('es-ES', { timeZone: timezone, hour12: false, hour: '2-digit', minute: '2-digit' });
+  const [hNow, mNow] = hhmm.split(':').map(Number);
+
+  if (hNow < h || (hNow === h && mNow < m)) return;
+
+  try {
+    const db       = getDb();
+    const reciente = await db.one(
+      "SELECT id FROM historial_notificaciones WHERE origen = 'CRON' AND fecha >= NOW() - INTERVAL '20 hours' LIMIT 1"
+    );
+    if (reciente) return;
+  } catch (_) {
+    return;
+  }
+
+  console.log(`[Cron] Notificación diaria de las ${config.notify_hora} no ejecutada hoy. Lanzando ahora...`);
+  enviarNotificaciones({ forzar: true, origen: 'CRON' }).catch(e =>
+    console.error('[Cron] Error en notificación de recuperación:', e.message)
+  );
 }
 
 module.exports = { iniciarCrons };
