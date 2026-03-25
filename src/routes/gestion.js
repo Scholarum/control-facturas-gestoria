@@ -409,4 +409,36 @@ router.post('/exportar-excel', async (req, res) => {
   res.send(buffer);
 });
 
+// ─── PUT /api/drive/aplicar-cuentas-proveedor ────────────────────────────────
+// Pasa a CC_ASIGNADA todas las facturas PENDIENTE cuyo proveedor ya tiene
+// cuenta de gasto definida (por nombre de carpeta o por CIF extraído)
+
+router.put('/aplicar-cuentas-proveedor', requireAdmin, async (req, res) => {
+  try {
+    const db = getDb();
+    const result = await db.query(
+      `UPDATE drive_archivos da
+       SET estado_gestion = 'CC_ASIGNADA'
+       WHERE da.estado_gestion = 'PENDIENTE'
+         AND EXISTS (
+           SELECT 1 FROM proveedores p
+           WHERE p.activo = true
+             AND p.cuenta_gasto_id IS NOT NULL
+             AND (
+               p.nombre_carpeta = da.proveedor
+               OR (
+                 p.cif IS NOT NULL
+                 AND da.datos_extraidos IS NOT NULL
+                 AND da.datos_extraidos ~ '^\\s*\\{'
+                 AND (da.datos_extraidos::jsonb)->>'cif_emisor' = p.cif
+               )
+             )
+         )`
+    );
+    res.json({ ok: true, data: { actualizadas: result.rowCount } });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
 module.exports = router;

@@ -85,6 +85,34 @@ async function ejecutarSync(origen = 'MANUAL') {
       } catch (e) {
         console.error('[Sync] Error en extracción:', e.message);
       }
+
+      // Tras extracción: pasar a CC_ASIGNADA las nuevas facturas cuyo proveedor
+      // ya tiene cuenta de gasto definida (match por carpeta o por CIF extraído)
+      try {
+        await db.query(
+          `UPDATE drive_archivos da
+           SET estado_gestion = 'CC_ASIGNADA'
+           WHERE da.id = ANY($1::int[])
+             AND da.estado_gestion = 'PENDIENTE'
+             AND EXISTS (
+               SELECT 1 FROM proveedores p
+               WHERE p.activo = true
+                 AND p.cuenta_gasto_id IS NOT NULL
+                 AND (
+                   p.nombre_carpeta = da.proveedor
+                   OR (
+                     p.cif IS NOT NULL
+                     AND da.datos_extraidos IS NOT NULL
+                     AND da.datos_extraidos ~ '^\\s*\\{'
+                     AND (da.datos_extraidos::jsonb)->>'cif_emisor' = p.cif
+                   )
+                 )
+             )`,
+          [nuevosIds]
+        );
+      } catch (e) {
+        console.error('[Sync] Error al asignar estado CC_ASIGNADA:', e.message);
+      }
     }
 
     const countRow = await db.one(

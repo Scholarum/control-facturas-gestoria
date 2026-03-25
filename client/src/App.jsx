@@ -8,7 +8,7 @@ import Historial      from './pages/Historial.jsx';
 import Configuracion  from './pages/Configuracion.jsx';
 import Proveedores    from './pages/Proveedores.jsx';
 import SeccionFacturas from './components/SeccionFacturas.jsx';
-import { fetchFacturas, fetchProveedores, exportarExcel, triggerSyncManual, fetchPlanContable, asignarCuentaGasto, asignarCGMasivo, autodetectarProveedores } from './api.js';
+import { fetchFacturas, fetchProveedores, exportarExcel, triggerSyncManual, fetchPlanContable, asignarCuentaGasto, asignarCGMasivo, autodetectarProveedores, aplicarCuentasProveedor } from './api.js';
 
 // ─── Stats ────────────────────────────────────────────────────────────────────
 
@@ -33,7 +33,8 @@ function AppInner() {
   const [loading,         setLoading]         = useState(true);
   const [error,           setError]           = useState(null);
   const [exportandoTotal, setExportandoTotal] = useState(false);
-  const [sincronizando,   setSincronizando]   = useState(false);
+  const [sincronizando,      setSincronizando]      = useState(false);
+  const [aplicandoCuentas,   setAplicandoCuentas]   = useState(false);
   const [syncMsg,         setSyncMsg]         = useState(null); // { ok, texto }
   const [planContable,    setPlanContable]    = useState([]);
   const [alertaProveedores, setAlertaProveedores] = useState([]); // proveedores sin cuentas
@@ -157,6 +158,21 @@ function AppInner() {
     } finally {
       setSincronizando(false);
       setTimeout(() => setSyncMsg(null), 5000);
+    }
+  }
+
+  async function handleAplicarCuentasProveedor() {
+    setAplicandoCuentas(true); setError('');
+    try {
+      const result = await aplicarCuentasProveedor();
+      const nuevas = await fetchFacturas();
+      setTodasFacturas(nuevas);
+      setSyncMsg({ ok: true, texto: `${result.actualizadas} factura${result.actualizadas !== 1 ? 's' : ''} pasada${result.actualizadas !== 1 ? 's' : ''} a "Cta. Gasto"` });
+      setTimeout(() => setSyncMsg(null), 5000);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setAplicandoCuentas(false);
     }
   }
 
@@ -389,9 +405,9 @@ function AppInner() {
               <StatCard label="Contabilizadas" value={stats.contabilizadas} color="text-emerald-600" />
             </div>
 
-            {/* Botón sincronización manual (solo admin) */}
+            {/* Botones de administración (solo admin) */}
             {esAdmin && (
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-3 flex-wrap">
                 <button
                   onClick={handleSyncManual}
                   disabled={sincronizando}
@@ -408,6 +424,23 @@ function AppInner() {
                     </svg>
                   )}
                   {sincronizando ? 'Sincronizando...' : 'Sincronizar con Drive'}
+                </button>
+                <button
+                  onClick={handleAplicarCuentasProveedor}
+                  disabled={aplicandoCuentas || sincronizando}
+                  className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-purple-700 bg-purple-50 hover:bg-purple-100 border border-purple-200 rounded-lg shadow-sm transition-colors disabled:opacity-60"
+                >
+                  {aplicandoCuentas ? (
+                    <svg className="h-4 w-4 animate-spin text-purple-500" viewBox="0 0 24 24" fill="none">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
+                    </svg>
+                  ) : (
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
+                    </svg>
+                  )}
+                  {aplicandoCuentas ? 'Aplicando...' : 'Aplicar cuentas de proveedor'}
                 </button>
                 {syncMsg && (
                   <span className={`text-sm font-medium ${syncMsg.ok ? 'text-emerald-600' : 'text-red-600'}`}>

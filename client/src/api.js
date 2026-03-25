@@ -417,6 +417,16 @@ export async function crearCuentaContable(datos) {
 
 // ─── Proveedores ──────────────────────────────────────────────────────────────
 
+export async function aplicarCuentasProveedor() {
+  const res = await fetch(`${API_BASE}/api/drive/aplicar-cuentas-proveedor`, {
+    method: 'PUT',
+    headers: authHeaders(),
+  });
+  const json = await res.json();
+  if (!json.ok) throw new Error(json.error || 'Error al aplicar cuentas de proveedor');
+  return json.data; // { actualizadas }
+}
+
 export async function autodetectarProveedores() {
   const res = await fetch(`${API_BASE}/api/proveedores/autodetectar`, {
     method: 'POST',
