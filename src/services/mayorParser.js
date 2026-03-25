@@ -1,42 +1,39 @@
 /**
  * mayorParser.js
- * Parseo directo de archivos de Mayor (Excel/CSV) sin IA.
- * Segmenta por proveedor detectando cuentas contables de 8 dígitos.
+ * Parseo directo de archivos de Mayor contable (Excel/CSV).
+ *
+ * Estructura de columnas esperada (A-M):
+ *   A: CUENTA CONTABLE   B: ASIENTO   C: FECHA   D: RAZON SOCIAL/EMPRESA
+ *   E: (vacía)           F: DOCUMENTO G: CONTRAPARTIDA  H: (vacía)
+ *   I: CONCEPTO          J: SEGMENTOS K: DEBE    L: HABER   M: SALDOS
+ *
+ * Segmentación por proveedor:
+ *   - Columna A contiene código de 8 dígitos → inicio de bloque
+ *   - Columna D contiene la razón social
+ *
+ * Identificación de facturas:
+ *   - Columna F (DOCUMENTO) debe empezar por 'F/' → factura recibida
+ *
+ * Datos para matching:
+ *   - Fecha:     Columna C
+ *   - Importe:   Columna L (HABER) = total factura con IVA
+ *   - Concepto:  Columna I → para búsqueda de referencia simplificada
  */
-const XLSX    = require('xlsx');
+const XLSX      = require('xlsx');
 const { getDb } = require('../config/database');
 
-// ─── Detección de columnas ───────────────────────────────────────────────────
+// ─── Índices fijos de columnas (A=0, B=1, ..., M=12) ────────────────────────
 
-const PALABRAS_FECHA    = ['fecha', 'fec', 'date'];
-const PALABRAS_CONCEPTO = ['concepto', 'descripcion', 'detalle', 'texto', 'descripción'];
-const PALABRAS_DEBE     = ['debe', 'cargo', 'debit'];
-const PALABRAS_HABER    = ['haber', 'abono', 'credit', 'crédito', 'credito'];
-
-function detectarColumnas(filas) {
-  // Buscar fila de cabecera en las primeras 15 filas
-  for (let i = 0; i < Math.min(filas.length, 15); i++) {
-    const fila = filas[i];
-    if (!fila || !fila.length) continue;
-
-    const celdas = fila.map(c => String(c || '').toLowerCase().trim());
-    const idx = { fecha: -1, concepto: -1, debe: -1, haber: -1 };
-
-    for (let j = 0; j < celdas.length; j++) {
-      const c = celdas[j];
-      if (idx.fecha === -1    && PALABRAS_FECHA.some(p => c.includes(p)))    idx.fecha = j;
-      if (idx.concepto === -1 && PALABRAS_CONCEPTO.some(p => c.includes(p))) idx.concepto = j;
-      if (idx.debe === -1     && PALABRAS_DEBE.some(p => c === p))           idx.debe = j;
-      if (idx.haber === -1    && PALABRAS_HABER.some(p => c === p))          idx.haber = j;
-    }
-
-    // Necesitamos al menos fecha, concepto y debe
-    if (idx.fecha >= 0 && idx.concepto >= 0 && idx.debe >= 0) {
-      return { ...idx, filaCabecera: i };
-    }
-  }
-  return null;
-}
+const COL = {
+  CUENTA:     0,  // A - Cuenta contable (8 dígitos en cabecera de proveedor)
+  ASIENTO:    1,  // B
+  FECHA:      2,  // C
+  RAZON:      3,  // D - Razón social (en cabecera de proveedor)
+  DOCUMENTO:  5,  // F - 'F/xxx' = factura recibida
+  CONCEPTO:   8,  // I - Texto del concepto (para referencia fuzzy)
+  DEBE:      10,  // K
+  HABER:     11,  // L - Importe total factura con IVA
+};
 
 // ─── Parseo de valores ──────────────────────────────────────────────────────
 
@@ -50,11 +47,9 @@ function parsearFecha(valor) {
   }
 
   const str = String(valor).trim();
-
-  // YYYY-MM-DD
   if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
 
-  // DD/MM/YYYY o DD-MM-YYYY
+  // DD/MM/YYYY, DD-MM-YYYY, DD-MM-YY
   const m = str.match(/^(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{2,4})$/);
   if (m) {
     const anio = m[3].length === 2 ? '20' + m[3] : m[3];
@@ -81,33 +76,34 @@ function parsearImporte(valor) {
   return isNaN(n) ? null : Math.round(n * 100) / 100;
 }
 
-// ─── Detección de líneas de cabecera de proveedor ────────────────────────────
+// ─── Detección de cabecera de proveedor ─────────────────────────────────────
 
-function esLineaCabecera(fila) {
-  if (!fila || !fila.length) return null;
-  // Unir todas las celdas para buscar el patrón
-  const texto = fila.map(c => String(c || '').trim()).join(' ').trim();
-  if (!texto) return null;
+function detectarCabeceraProveedor(fila) {
+  const celdaA = String(fila[COL.CUENTA] || '').trim();
+  if (!/^\d{8}$/.test(celdaA)) return null;
 
-  // Buscar 8 dígitos al inicio de alguna celda o del texto completo
-  const m = texto.match(/\b(\d{8})\b/);
-  if (!m) return null;
-
-  const codigoCuenta = m[1];
-  // El nombre del proveedor es lo que viene después del código
-  let nombreProveedor = texto.substring(texto.indexOf(codigoCuenta) + 8).trim();
-  // Limpiar separadores típicos
-  nombreProveedor = nombreProveedor.replace(/^[\s\-:]+/, '').trim();
-
-  return { codigoCuenta, nombreProveedor: nombreProveedor || null };
+  const razonSocial = String(fila[COL.RAZON] || '').trim();
+  return {
+    codigoCuenta:    celdaA,
+    nombreProveedor: razonSocial || null,
+  };
 }
 
-// ─── Filtro de facturas ─────────────────────────────────────────────────────
+// ─── Identificación de factura (columna F empieza por F/) ───────────────────
 
-function esFacturaRecibida(concepto) {
-  if (!concepto) return false;
-  const c = concepto.toUpperCase();
-  return /\bF\//.test(c) || /\bFRA\b/.test(c) || /\bFACT/.test(c);
+function esFacturaRecibida(fila) {
+  const doc = String(fila[COL.DOCUMENTO] || '').trim().toUpperCase();
+  return doc.startsWith('F/') || doc.startsWith('F ');
+}
+
+// ─── Detectar fila de cabecera para saber dónde empiezan los datos ──────────
+
+function encontrarFilaCabecera(filas) {
+  for (let i = 0; i < Math.min(filas.length, 10); i++) {
+    const celdaA = String(filas[i]?.[COL.CUENTA] || '').toLowerCase().trim();
+    if (celdaA.includes('cuenta')) return i;
+  }
+  return 0; // si no encuentra cabecera, empieza desde 0
 }
 
 // ─── Resolución de proveedores contra la DB ─────────────────────────────────
@@ -122,16 +118,16 @@ async function resolverProveedores(segmentos) {
   `);
 
   return segmentos.map(seg => {
-    // Buscar proveedor cuya cuenta_codigo sea prefijo del código de 8 dígitos del Mayor
+    // Buscar proveedor cuya cuenta_codigo sea prefijo del código de 8 dígitos
     const match = proveedores.find(p =>
       p.cuenta_codigo && seg.codigoCuenta.startsWith(p.cuenta_codigo)
     );
     return {
       ...seg,
-      proveedorId:    match?.id || null,
-      nombreCarpeta:  match?.nombre_carpeta || null,
-      razonSocial:    match?.razon_social || null,
-      cifProveedor:   match?.cif || null,
+      proveedorId:   match?.id || null,
+      nombreCarpeta: match?.nombre_carpeta || null,
+      razonSocial:   match?.razon_social || null,
+      cifProveedor:  match?.cif || null,
     };
   });
 }
@@ -151,33 +147,26 @@ async function parsearMayor(buffer, mimetype, filename) {
     filas = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', raw: true });
   }
 
-  if (!filas.length) throw new Error('El archivo está vacío');
+  if (!filas.length) throw new Error('El archivo esta vacio');
 
-  // Detectar columnas
-  const cols = detectarColumnas(filas);
-  if (!cols) {
-    throw new Error(
-      'No se pudieron detectar las columnas del Mayor. ' +
-      'Verifica que el archivo tenga cabeceras con: Fecha, Concepto/Descripción, Debe, Haber.'
-    );
-  }
+  const filaCabecera = encontrarFilaCabecera(filas);
 
   // Segmentar por proveedor
   const segmentos = [];
-  let segActual = null;
+  let segActual   = null;
   let totalLineas = 0;
 
-  for (let i = cols.filaCabecera + 1; i < filas.length; i++) {
+  for (let i = filaCabecera + 1; i < filas.length; i++) {
     const fila = filas[i];
     if (!fila || !fila.length) continue;
 
-    // ¿Es una línea cabecera de proveedor?
-    const cabecera = esLineaCabecera(fila);
+    // ¿Es una línea cabecera de proveedor? (col A = 8 dígitos, col D = razón social)
+    const cabecera = detectarCabeceraProveedor(fila);
     if (cabecera) {
       if (segActual) segmentos.push(segActual);
       segActual = {
-        codigoCuenta:  cabecera.codigoCuenta,
-        nombreMayor:   cabecera.nombreProveedor,
+        codigoCuenta: cabecera.codigoCuenta,
+        nombreMayor:  cabecera.nombreProveedor,
         lineas: [],
       };
       continue;
@@ -185,26 +174,39 @@ async function parsearMayor(buffer, mimetype, filename) {
 
     if (!segActual) continue;
 
-    // Parsear línea de datos
-    const fecha    = parsearFecha(fila[cols.fecha]);
-    const concepto = String(fila[cols.concepto] || '').trim();
-    const debe     = parsearImporte(fila[cols.debe]);
-    const haber    = cols.haber >= 0 ? parsearImporte(fila[cols.haber]) : null;
+    // Parsear fecha (col C) — si no hay fecha, no es un movimiento
+    const fecha = parsearFecha(fila[COL.FECHA]);
+    if (!fecha) continue;
 
-    // Solo líneas con fecha y algún importe
-    if (!fecha || (debe == null && haber == null)) continue;
+    // Leer importes
+    const debe     = parsearImporte(fila[COL.DEBE]);
+    const haber    = parsearImporte(fila[COL.HABER]);
+    if (debe == null && haber == null) continue;
+
+    // Leer concepto (col I) y documento (col F)
+    const concepto  = String(fila[COL.CONCEPTO] || '').trim();
+    const documento = String(fila[COL.DOCUMENTO] || '').trim();
+    const factura   = esFacturaRecibida(fila);
 
     totalLineas++;
     segActual.lineas.push({
       fecha,
+      documento,
       concepto,
       debe,
       haber,
-      esFactura:     esFacturaRecibida(concepto),
-      lineaOriginal: i + 1, // 1-based para el usuario
+      esFactura:     factura,
+      lineaOriginal: i + 1, // 1-based
     });
   }
   if (segActual) segmentos.push(segActual);
+
+  if (!segmentos.length) {
+    throw new Error(
+      'No se encontraron proveedores en el archivo. ' +
+      'Verifica que el Mayor contenga cuentas contables de 8 digitos en la columna A.'
+    );
+  }
 
   // Resolver proveedores contra la DB
   const proveedoresResueltos = await resolverProveedores(segmentos);

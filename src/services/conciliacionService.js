@@ -146,7 +146,8 @@ function simplificarReferencia(numFactura, anio) {
 }
 
 function cruzarLineaMayor(linea, facturasDrive, anio) {
-  const importeMayor = round2(linea.debe);
+  // Importe de la factura: normalmente en HABER (col L), pero puede estar en DEBE (col K)
+  const importeMayor = round2(linea.haber > 0 ? linea.haber : linea.debe);
   const fechaMayor   = linea.fecha;
   const usadas       = linea._usadas; // Set compartido por proveedor
 
@@ -158,16 +159,21 @@ function cruzarLineaMayor(linea, facturasDrive, anio) {
     return fechaDB === fechaMayor && importeDB === importeMayor;
   });
 
+  const mayorInfo = {
+    fecha: fechaMayor, concepto: linea.concepto, documento: linea.documento,
+    importe: importeMayor, lineaOriginal: linea.lineaOriginal,
+  };
+
   if (!candidatos.length) {
     return {
-      mayor:   { fecha: fechaMayor, concepto: linea.concepto, importe: importeMayor, lineaOriginal: linea.lineaOriginal },
+      mayor:   mayorInfo,
       factura: null,
       estado:  'SIN_MATCH',
       detalleMatch: { fechaCoincide: false, importeCoincide: false, referenciaEncontrada: false, refSimplificada: null },
     };
   }
 
-  // Buscar referencia simplificada en el concepto del Mayor
+  // Buscar referencia simplificada en el concepto del Mayor (col I)
   const conceptoUpper = (linea.concepto || '').toUpperCase();
 
   for (const f of candidatos) {
@@ -176,7 +182,7 @@ function cruzarLineaMayor(linea, facturasDrive, anio) {
     if (refSimp && refSimp !== '0' && conceptoUpper.includes(refSimp)) {
       usadas.add(f.id);
       return {
-        mayor:   { fecha: fechaMayor, concepto: linea.concepto, importe: importeMayor, lineaOriginal: linea.lineaOriginal },
+        mayor:   mayorInfo,
         factura: { id: f.id, numero_factura: numFact, fecha_emision: f.datos.fecha_emision, total_factura: round2(f.datos.total_factura), nombre_archivo: f.nombre_archivo },
         estado:  'CONCILIADA',
         detalleMatch: { fechaCoincide: true, importeCoincide: true, referenciaEncontrada: true, refSimplificada: refSimp },
@@ -189,7 +195,7 @@ function cruzarLineaMayor(linea, facturasDrive, anio) {
   usadas.add(mejor.id);
   const refSimp = simplificarReferencia(mejor.datos?.numero_factura, anio);
   return {
-    mayor:   { fecha: fechaMayor, concepto: linea.concepto, importe: importeMayor, lineaOriginal: linea.lineaOriginal },
+    mayor:   mayorInfo,
     factura: { id: mejor.id, numero_factura: mejor.datos?.numero_factura, fecha_emision: mejor.datos.fecha_emision, total_factura: round2(mejor.datos.total_factura), nombre_archivo: mejor.nombre_archivo },
     estado:  'PARCIAL',
     detalleMatch: { fechaCoincide: true, importeCoincide: true, referenciaEncontrada: false, refSimplificada: refSimp },
@@ -242,9 +248,9 @@ async function ejecutarConciliacionV2(proveedoresConLineas) {
       prov.nombreCarpeta, prov.proveedorId, prov.cifProveedor
     );
 
-    // Filtrar solo líneas de factura con importe en DEBE
+    // Filtrar solo líneas cuyo documento empieza por F/ y tienen importe
     const lineasFactura = (prov.lineas || [])
-      .filter(l => l.esFactura && l.debe > 0);
+      .filter(l => l.esFactura && (l.haber > 0 || l.debe > 0));
 
     const usadas = new Set();
     const resultados = lineasFactura.map(linea => {

@@ -352,7 +352,7 @@ router.post('/v2/parsear', resolveUser, upload.single('archivo'), async (req, re
       razonSocial:   p.razonSocial,
       cifProveedor:  p.cifProveedor,
       numLineas:     p.lineas.length,
-      numFacturas:   p.lineas.filter(l => l.esFactura && l.debe > 0).length,
+      numFacturas:   p.lineas.filter(l => l.esFactura && (l.haber > 0 || l.debe > 0)).length,
       lineas:        p.lineas,
     }));
 

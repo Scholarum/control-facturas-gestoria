@@ -45,7 +45,8 @@ function FilaResultado({ r, globalIdx, conciliacionId, revisiones, guardando, on
   return (
     <tr className={`${bgCls} transition-colors hover:brightness-95`}>
       <td className="px-3 py-2 text-gray-600 whitespace-nowrap text-xs">{fmtFecha(r.mayor.fecha)}</td>
-      <td className="px-3 py-2 text-xs text-gray-700 max-w-[250px] truncate" title={r.mayor.concepto}>{r.mayor.concepto || '\u2014'}</td>
+      <td className="px-3 py-2 font-mono text-xs text-gray-500">{r.mayor.documento || '\u2014'}</td>
+      <td className="px-3 py-2 text-xs text-gray-700 max-w-[220px] truncate" title={r.mayor.concepto}>{r.mayor.concepto || '\u2014'}</td>
       <td className="px-3 py-2 text-right font-semibold text-gray-900 whitespace-nowrap text-xs">{fmtEuro(r.mayor.importe)}</td>
       <td className="px-3 py-2 text-center text-gray-300 text-xs">&harr;</td>
       <td className="px-3 py-2 font-mono text-xs font-medium text-gray-900">{r.factura?.numero_factura || '\u2014'}</td>
@@ -198,14 +199,14 @@ export default function ResultadoConciliacionV2({ resultadosPorProveedor, resume
                 <table className="w-full text-sm">
                   <thead className="bg-gray-50 border-b border-gray-200">
                     <tr>
-                      {['Fecha Mayor','Concepto Mayor','Importe Mayor','','N\u00ba Factura DB','Fecha DB','Importe DB','Ref.','Estado','Rev.'].map(h => (
+                      {['Fecha Mayor','Doc.','Concepto Mayor','Importe Mayor','','N\u00ba Factura DB','Fecha DB','Importe DB','Ref.','Estado','Rev.'].map(h => (
                         <th key={h} className="px-3 py-2 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">{h}</th>
                       ))}
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
                     {resultadosFiltrados.length === 0 ? (
-                      <tr><td colSpan={10} className="py-6 text-center text-sm text-gray-400">Sin resultados con este filtro</td></tr>
+                      <tr><td colSpan={11} className="py-6 text-center text-sm text-gray-400">Sin resultados con este filtro</td></tr>
                     ) : resultadosFiltrados.map(r => (
                       <FilaResultado
                         key={r._globalIdx}
