@@ -729,6 +729,37 @@ router.get('/sage-historial', requireAuth, async (req, res) => {
   res.json({ ok: true, data: rows });
 });
 
+// ─── GET /api/drive/sage-historial/:id/facturas — facturas de un lote ────────
+
+router.get('/sage-historial/:id/facturas', requireAuth, async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const db = getDb();
+  const rows = await db.all(`
+    SELECT se.cif_emisor, se.numero_factura,
+           da.nombre_archivo, da.proveedor,
+           (da.datos_extraidos::jsonb)->>'nombre_emisor'  AS nombre_emisor,
+           (da.datos_extraidos::jsonb)->>'fecha_emision'  AS fecha_emision,
+           (da.datos_extraidos::jsonb)->>'total_factura'  AS total_factura,
+           (da.datos_extraidos::jsonb)->>'total_sin_iva'  AS total_sin_iva,
+           (da.datos_extraidos::jsonb)->>'total_iva'      AS total_iva,
+           cc.codigo AS cta_proveedor, cg.codigo AS cta_gasto
+    FROM sage_facturas_exportadas se
+    JOIN drive_archivos da ON da.id = se.factura_id
+    LEFT JOIN LATERAL (
+      SELECT p2.cuenta_contable_id, p2.cuenta_gasto_id FROM proveedores p2
+      WHERE p2.activo = true AND (
+        (p2.cif IS NOT NULL AND normalizar_cif(p2.cif) = normalizar_cif(se.cif_emisor))
+        OR p2.nombre_carpeta = da.proveedor
+      ) LIMIT 1
+    ) p ON true
+    LEFT JOIN plan_contable cc ON cc.id = p.cuenta_contable_id
+    LEFT JOIN plan_contable cg ON cg.id = COALESCE(da.cuenta_gasto_id, p.cuenta_gasto_id)
+    WHERE se.lote_id = $1
+    ORDER BY se.id
+  `, [id]);
+  res.json({ ok: true, data: rows });
+});
+
 // ─── GET /api/drive/sage-historial/:id/descargar — re-descargar lote ────────
 
 router.get('/sage-historial/:id/descargar', requireAuth, async (req, res) => {

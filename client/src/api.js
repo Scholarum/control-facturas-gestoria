@@ -721,6 +721,13 @@ export async function fetchHistorialSage() {
   return data;
 }
 
+export async function fetchFacturasSageLote(loteId) {
+  const res = await fetch(`${API_BASE}/api/drive/sage-historial/${loteId}/facturas`, { headers: authHeaders() });
+  if (!res.ok) throw new Error('Error al cargar facturas del lote');
+  const { data } = await res.json();
+  return data;
+}
+
 export async function reDescargarSage(id, nombreFichero, format = 'txt') {
   const res = await fetch(`${API_BASE}/api/drive/sage-historial/${id}/descargar?format=${format}`, { headers: authHeaders() });
   if (!res.ok) throw new Error('Error al descargar');

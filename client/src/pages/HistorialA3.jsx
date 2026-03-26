@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { fetchHistorialSage, reDescargarSage } from '../api.js';
+import { fetchHistorialSage, reDescargarSage, fetchFacturasSageLote } from '../api.js';
 
 function fmtFecha(iso) {
   if (!iso) return '';
@@ -27,6 +27,9 @@ export default function HistorialA3() {
   const [error,       setError]       = useState(null);
   const [descargando, setDescargando] = useState(null);
   const [filtros,     setFiltros]     = useState({ fechaDesde: '', fechaHasta: '', usuario: '' });
+  const [expandido,   setExpandido]   = useState(null);
+  const [factLote,    setFactLote]    = useState([]);
+  const [cargandoFact,setCargandoFact]= useState(false);
 
   function set(k, v) { setFiltros(prev => ({ ...prev, [k]: v })); }
   const hayFiltros = Object.values(filtros).some(Boolean);
@@ -46,6 +49,17 @@ export default function HistorialA3() {
     if (filtros.fechaHasta && l.fecha && l.fecha.slice(0, 10) > filtros.fechaHasta) return false;
     return true;
   }), [lotes, filtros]);
+
+  async function toggleDetalle(loteId) {
+    if (expandido === loteId) { setExpandido(null); return; }
+    setExpandido(loteId);
+    setCargandoFact(true);
+    try {
+      const data = await fetchFacturasSageLote(loteId);
+      setFactLote(data);
+    } catch { setFactLote([]); }
+    finally { setCargandoFact(false); }
+  }
 
   async function handleDescargar(lote, format) {
     setDescargando(lote.id);
@@ -110,30 +124,80 @@ export default function HistorialA3() {
             {!loading && filtrados.length === 0 && (
               <tr><td colSpan={7} className="py-16 text-center text-sm text-gray-400">{hayFiltros ? 'Sin resultados con estos filtros' : 'No hay exportaciones SAGE'}</td></tr>
             )}
-            {filtrados.map(lote => (
-              <tr key={lote.id} className="hover:bg-gray-50 transition-colors">
-                <td className="px-4 py-3 text-sm text-gray-700 whitespace-nowrap">{fmtFecha(lote.fecha)}</td>
-                <td className="px-4 py-3"><span className="text-xs font-mono text-orange-700 bg-orange-50 px-2 py-0.5 rounded">{lote.nombre_fichero}</span></td>
-                <td className="px-4 py-3 text-sm text-gray-700">{lote.usuario_nombre || '-'}</td>
-                <td className="px-4 py-3 text-sm text-gray-900 font-semibold text-right">{lote.num_facturas}</td>
-                <td className="px-4 py-3 text-sm text-gray-700 text-right font-mono">{lote.asiento_inicio}</td>
-                <td className="px-4 py-3 text-sm text-gray-700 text-right font-mono">{lote.asiento_fin}</td>
-                <td className="px-4 py-3 text-center">
-                  <div className="flex items-center justify-center gap-1.5">
-                    <button onClick={() => handleDescargar(lote, 'txt')} disabled={descargando === lote.id}
-                      className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-orange-700 bg-orange-50 hover:bg-orange-100 border border-orange-200 rounded-lg transition-colors disabled:opacity-60">
-                      {descargando === lote.id ? <svg className="h-3 w-3 animate-spin" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/></svg> : <IconoDescarga />}
-                      TXT
-                    </button>
-                    <button onClick={() => handleDescargar(lote, 'csv')} disabled={descargando === lote.id}
-                      className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg transition-colors disabled:opacity-60">
-                      <IconoDescarga />
-                      CSV
-                    </button>
-                  </div>
-                </td>
-              </tr>
-            ))}
+            {filtrados.flatMap(lote => {
+              const isOpen = expandido === lote.id;
+              return [
+                <tr key={lote.id} className={`hover:bg-gray-50 transition-colors cursor-pointer ${isOpen ? 'bg-orange-50/30' : ''}`} onClick={() => toggleDetalle(lote.id)}>
+                  <td className="px-4 py-3 text-sm text-gray-700 whitespace-nowrap">
+                    <span className="flex items-center gap-1.5">
+                      <svg xmlns="http://www.w3.org/2000/svg" className={`h-3 w-3 text-gray-400 transition-transform ${isOpen ? 'rotate-90' : ''}`} viewBox="0 0 20 20" fill="currentColor">
+                        <path fillRule="evenodd" d="M7.293 4.293a1 1 0 011.414 0l5 5a1 1 0 010 1.414l-5 5a1 1 0 01-1.414-1.414L11.586 10 7.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                      </svg>
+                      {fmtFecha(lote.fecha)}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3"><span className="text-xs font-mono text-orange-700 bg-orange-50 px-2 py-0.5 rounded">{lote.nombre_fichero}</span></td>
+                  <td className="px-4 py-3 text-sm text-gray-700">{lote.usuario_nombre || '-'}</td>
+                  <td className="px-4 py-3 text-sm text-gray-900 font-semibold text-right">{lote.num_facturas}</td>
+                  <td className="px-4 py-3 text-sm text-gray-700 text-right font-mono">{lote.asiento_inicio}</td>
+                  <td className="px-4 py-3 text-sm text-gray-700 text-right font-mono">{lote.asiento_fin}</td>
+                  <td className="px-4 py-3 text-center" onClick={e => e.stopPropagation()}>
+                    <div className="flex items-center justify-center gap-1.5">
+                      <button onClick={() => handleDescargar(lote, 'txt')} disabled={descargando === lote.id}
+                        className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-orange-700 bg-orange-50 hover:bg-orange-100 border border-orange-200 rounded-lg transition-colors disabled:opacity-60">
+                        {descargando === lote.id ? <svg className="h-3 w-3 animate-spin" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/></svg> : <IconoDescarga />}
+                        TXT
+                      </button>
+                      <button onClick={() => handleDescargar(lote, 'csv')} disabled={descargando === lote.id}
+                        className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg transition-colors disabled:opacity-60">
+                        <IconoDescarga />
+                        CSV
+                      </button>
+                    </div>
+                  </td>
+                </tr>,
+                isOpen && (
+                  <tr key={`det-${lote.id}`}>
+                    <td colSpan={7} className="px-0 py-0 bg-orange-50/20 border-b-2 border-orange-100">
+                      {cargandoFact ? (
+                        <div className="flex justify-center py-4">
+                          <svg className="h-5 w-5 animate-spin text-orange-400" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/></svg>
+                        </div>
+                      ) : factLote.length === 0 ? (
+                        <p className="text-center text-xs text-gray-400 py-4">Sin facturas registradas</p>
+                      ) : (
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-xs">
+                            <thead className="bg-orange-50/60 border-b border-orange-100">
+                              <tr>
+                                {['Proveedor','CIF Emisor','N\u00ba Factura','Fecha','Base','IVA','Total','Cta. Proveedor','Cta. Gasto'].map(h => (
+                                  <th key={h} className="px-3 py-2 text-left font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">{h}</th>
+                                ))}
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-orange-100/50">
+                              {factLote.map((f, i) => (
+                                <tr key={i} className="hover:bg-orange-50/40">
+                                  <td className="px-3 py-1.5 text-gray-800 font-medium max-w-[160px] truncate">{f.nombre_emisor || f.proveedor || '-'}</td>
+                                  <td className="px-3 py-1.5 font-mono text-gray-500">{f.cif_emisor || '-'}</td>
+                                  <td className="px-3 py-1.5 font-mono text-gray-700">{f.numero_factura || '-'}</td>
+                                  <td className="px-3 py-1.5 text-gray-600 whitespace-nowrap">{f.fecha_emision ? fmtFecha(f.fecha_emision) : '-'}</td>
+                                  <td className="px-3 py-1.5 text-right text-gray-700">{f.total_sin_iva ? fmtEuro(parseFloat(f.total_sin_iva)) : '-'}</td>
+                                  <td className="px-3 py-1.5 text-right text-gray-700">{f.total_iva ? fmtEuro(parseFloat(f.total_iva)) : '-'}</td>
+                                  <td className="px-3 py-1.5 text-right font-semibold text-gray-900">{f.total_factura ? fmtEuro(parseFloat(f.total_factura)) : '-'}</td>
+                                  <td className="px-3 py-1.5 font-mono text-gray-500">{f.cta_proveedor || '-'}</td>
+                                  <td className="px-3 py-1.5 font-mono text-gray-500">{f.cta_gasto || '-'}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                ),
+              ].filter(Boolean);
+            })}
           </tbody>
         </table>
       </div>
