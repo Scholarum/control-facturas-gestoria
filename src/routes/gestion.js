@@ -129,15 +129,26 @@ router.post('/descargar-zip', async (req, res) => {
   const zip      = new JSZip();
   const fallidos = [];
 
-  for (const archivo of archivos) {
-    try {
-      const resp = await drive.files.get(
-        { fileId: archivo.google_id, alt: 'media' },
-        { responseType: 'arraybuffer' }
-      );
-      zip.file(archivo.nombre_archivo, Buffer.from(resp.data));
-    } catch (err) {
-      fallidos.push({ id: archivo.id, nombre: archivo.nombre_archivo, error: err.message });
+  // Descargar archivos en paralelo (lotes de 5 para no saturar la API de Drive)
+  const BATCH_SIZE = 5;
+  for (let i = 0; i < archivos.length; i += BATCH_SIZE) {
+    const lote = archivos.slice(i, i + BATCH_SIZE);
+    const resultados = await Promise.allSettled(
+      lote.map(async (archivo) => {
+        const resp = await drive.files.get(
+          { fileId: archivo.google_id, alt: 'media' },
+          { responseType: 'arraybuffer' }
+        );
+        return { archivo, data: Buffer.from(resp.data) };
+      })
+    );
+    for (let j = 0; j < resultados.length; j++) {
+      const r = resultados[j];
+      if (r.status === 'fulfilled') {
+        zip.file(r.value.archivo.nombre_archivo, r.value.data);
+      } else {
+        fallidos.push({ id: lote[j].id, nombre: lote[j].nombre_archivo, error: r.reason?.message || 'Error desconocido' });
+      }
     }
   }
 
@@ -195,7 +206,8 @@ router.post('/descargar-zip', async (req, res) => {
     }).catch(e => console.error('[audit]', e.message));
   }
 
-  const buffer = await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
+  // STORE sin comprimir: los PDFs ya están comprimidos, DEFLATE es lento y no reduce tamaño
+  const buffer = await zip.generateAsync({ type: 'nodebuffer', compression: 'STORE' });
   const fecha  = new Date().toISOString().slice(0, 10);
 
   res.set({
