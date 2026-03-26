@@ -256,7 +256,8 @@ function SelectorSubcuenta({ cuentaBase, planContable, onCreada, onSeleccionada,
 
 // ─── Sub-fila: CC + Vista previa (siempre visible) ───────────────────────────
 
-function FilaCcPreview({ f, planContable, onAsignarCG, selected, esPar = true, onProveedorActualizado }) {
+function FilaCcPreview({ f, planContable, onAsignarCG, selected, esPar = true, onProveedorActualizado, modoGestoria = 'v2' }) {
+  const esV1 = modoGestoria === 'v1';
   const cuentasGasto = planContable.filter(c => c.grupo !== '4');
   const cuentas4     = planContable.filter(c => c.grupo === '4');
   const [cgId,          setCgId]          = useState(String(f.cg_efectiva_id || ''));
@@ -358,29 +359,31 @@ function FilaCcPreview({ f, planContable, onAsignarCG, selected, esPar = true, o
         <td colSpan={100} className="px-2 py-1.5">
           <div className="flex items-center gap-3 flex-wrap" onClick={e => e.stopPropagation()}>
 
-            {/* Cuenta de Gasto */}
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-gray-400 flex-shrink-0">Cta. Gasto:</span>
-              <div className="w-64">
-                <ComboboxCuenta
-                  cuentas={cuentasGasto}
-                  value={cgId}
-                  onChange={handleCgChange}
-                  disabled={esContabilizada}
-                />
+            {/* Cuenta de Gasto — solo v2 */}
+            {!esV1 && (
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-gray-400 flex-shrink-0">Cta. Gasto:</span>
+                <div className="w-64">
+                  <ComboboxCuenta
+                    cuentas={cuentasGasto}
+                    value={cgId}
+                    onChange={handleCgChange}
+                    disabled={esContabilizada}
+                  />
+                </div>
+                {guardando && <span className="text-xs text-purple-400">Guardando...</span>}
+                {cgError  && <span className="text-xs text-red-500">{cgError}</span>}
+                {!cgId && !esContabilizada && (
+                  <span className="text-xs text-amber-500">Asigna Cta. Gasto para poder contabilizar</span>
+                )}
+                {cgId && !esContabilizada && f.cg_efectiva_id && !f.cg_manual_id && (
+                  <span className="text-xs text-gray-400">(por defecto del proveedor)</span>
+                )}
               </div>
-              {guardando && <span className="text-xs text-purple-400">Guardando...</span>}
-              {cgError  && <span className="text-xs text-red-500">{cgError}</span>}
-              {!cgId && !esContabilizada && (
-                <span className="text-xs text-amber-500">Asigna Cta. Gasto para poder contabilizar</span>
-              )}
-              {cgId && !esContabilizada && f.cg_efectiva_id && !f.cg_manual_id && (
-                <span className="text-xs text-gray-400">(por defecto del proveedor)</span>
-              )}
-            </div>
+            )}
 
-            {/* Incidencia proveedor: asignar cuenta contable */}
-            {incProv === 'SIN_CUENTA_CONTABLE' && (
+            {/* Incidencia proveedor: asignar cuenta contable — solo v2 */}
+            {!esV1 && incProv === 'SIN_CUENTA_CONTABLE' && (
               <>
                 <span className="text-gray-200 select-none">|</span>
                 <div className="flex flex-col gap-1">
@@ -409,8 +412,8 @@ function FilaCcPreview({ f, planContable, onAsignarCG, selected, esPar = true, o
               </>
             )}
 
-            {/* Incidencia proveedor: crear proveedor */}
-            {incProv === 'SIN_PROVEEDOR' && (
+            {/* Incidencia proveedor: crear proveedor — solo v2 */}
+            {!esV1 && incProv === 'SIN_PROVEEDOR' && (
               <>
                 <span className="text-gray-200 select-none">|</span>
                 <button onClick={() => { setProvForm({ razon_social: f.datos_extraidos?.nombre_emisor || '', cif: f.datos_extraidos?.cif_emisor || '', nombre_carpeta: f.proveedor || '', cuenta_contable_id: '' }); setModalProv(true); }}
@@ -422,9 +425,6 @@ function FilaCcPreview({ f, planContable, onAsignarCG, selected, esPar = true, o
                 </button>
               </>
             )}
-
-            {/* Separador */}
-            <span className="text-gray-200 select-none">|</span>
 
             {/* Botón Vista previa */}
             {!previewUrl && !previewError && (
@@ -781,7 +781,7 @@ function EmptyState({ hayFiltros, colspan }) {
 export default function TablaFacturas({
   facturas, seleccionados, onToggle, onToggleTodo,
   loading, hayFiltros, esAdmin = false, onRevertir, onEliminar,
-  planContable = [], onAsignarCG, onDatosActualizados, onProveedorActualizado,
+  planContable = [], onAsignarCG, onDatosActualizados, onProveedorActualizado, modoGestoria = 'v2',
 }) {
   const [expandidos, setExpandidos] = useState(new Set());
   const todosSeleccionados = facturas.length > 0 && seleccionados.size === facturas.length;
@@ -848,7 +848,7 @@ export default function TablaFacturas({
                 const puedeRevertir = esAdmin && f.estado_gestion && f.estado_gestion !== 'PENDIENTE';
                 const puedeEliminar = esAdmin && (!f.estado_gestion || f.estado_gestion === 'PENDIENTE');
                 const incidencia    = tieneIncidencia(f);
-                const incProv       = tieneIncidenciaProveedor(f);
+                const incProv       = modoGestoria !== 'v1' ? tieneIncidenciaProveedor(f) : null;
                 const hayAlerta     = incidencia || incProv;
                 const esPar = fIdx % 2 === 0;
 
@@ -972,6 +972,7 @@ export default function TablaFacturas({
                     selected={selected}
                     esPar={esPar}
                     onProveedorActualizado={onProveedorActualizado}
+                    modoGestoria={modoGestoria}
                   />
                 );
 

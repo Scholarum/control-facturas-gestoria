@@ -450,6 +450,7 @@ export default function SeccionFacturas({
         onAsignarCG={onAsignarCG}
         onDatosActualizados={onDatosActualizados}
         onProveedorActualizado={onProveedorActualizado}
+        modoGestoria={modoGestoria}
       />
     </div>
   );

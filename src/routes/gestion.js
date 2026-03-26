@@ -242,13 +242,16 @@ router.put('/contabilizar', async (req, res) => {
     [ids]
   );
 
-  const sinCG = archivos.filter(a => !a.cg_efectiva_id);
-  if (sinCG.length > 0) {
-    return res.status(400).json({
-      ok: false,
-      error: `${sinCG.length} factura(s) no tienen cuenta de gasto asignada`,
-      ids_sin_cg: sinCG.map(a => a.id),
-    });
+  const configCont = await getSistemaConfig();
+  if (configCont.modo_gestoria !== 'v1') {
+    const sinCG = archivos.filter(a => !a.cg_efectiva_id);
+    if (sinCG.length > 0) {
+      return res.status(400).json({
+        ok: false,
+        error: `${sinCG.length} factura(s) no tienen cuenta de gasto asignada`,
+        ids_sin_cg: sinCG.map(a => a.id),
+      });
+    }
   }
 
   await db.query(
