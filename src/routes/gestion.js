@@ -164,16 +164,15 @@ router.post('/descargar-zip', async (req, res) => {
       .map(a => a.id);
     if (idsCandidatos.length) {
       if (configDl.modo_gestoria === 'v1') {
-        // v1: transicionar sin verificar proveedor/cuenta
         await db.query(
-          "UPDATE drive_archivos SET estado_gestion = 'DESCARGADA' WHERE id = ANY($1::int[])",
+          "UPDATE drive_archivos SET estado_gestion = 'DESCARGADA' WHERE id = ANY($1::int[]) AND estado_gestion = 'PENDIENTE'",
           [idsCandidatos]
         );
       } else {
-        // v2: requiere proveedor con cuenta contable
         await db.query(
           `UPDATE drive_archivos da SET estado_gestion = 'DESCARGADA'
            WHERE da.id = ANY($1::int[])
+             AND da.estado_gestion = 'PENDIENTE'
              AND EXISTS (
                SELECT 1 FROM proveedores p
                WHERE p.activo = true AND p.cuenta_contable_id IS NOT NULL
