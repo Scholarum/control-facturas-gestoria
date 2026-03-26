@@ -1039,31 +1039,33 @@ export default function Configuracion({ todasFacturas, onFacturasActualizadas })
       </div>
 
       {/* ── Panel modo gestoría (siempre visible) ── */}
-      <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-sm font-semibold text-gray-900">Modo de funcionamiento para Gestoria</p>
-            <p className="text-xs text-gray-400 mt-0.5">
-              {sistemaConfig.modo_gestoria === 'v1'
-                ? 'v1: La gestoria solo descarga facturas y las contabiliza. Sin cuentas contables ni exportacion A3.'
-                : 'v2: Flujo completo con cuentas contables, cuentas de gasto y exportacion A3/SICE.'}
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            {['v1', 'v2'].map(m => (
-              <button key={m}
-                onClick={() => handleSaveSistema({ modo_gestoria: m })}
-                className={`px-4 py-1.5 text-sm font-semibold rounded-lg transition-colors ${
-                  sistemaConfig.modo_gestoria === m
-                    ? m === 'v1' ? 'bg-amber-100 text-amber-800 ring-1 ring-amber-300' : 'bg-emerald-100 text-emerald-800 ring-1 ring-emerald-300'
-                    : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
-                }`}>
-                {m.toUpperCase()}
-              </button>
-            ))}
+      {sistemaConfig && (
+        <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-semibold text-gray-900">Modo de funcionamiento para Gestoria</p>
+              <p className="text-xs text-gray-400 mt-0.5">
+                {sistemaConfig.modo_gestoria === 'v1'
+                  ? 'v1: La gestoria solo descarga facturas y las contabiliza. Sin cuentas contables ni exportacion A3.'
+                  : 'v2: Flujo completo con cuentas contables, cuentas de gasto y exportacion A3/SICE.'}
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              {['v1', 'v2'].map(m => (
+                <button key={m}
+                  onClick={() => handleSaveSistema({ modo_gestoria: m })}
+                  className={`px-4 py-1.5 text-sm font-semibold rounded-lg transition-colors ${
+                    sistemaConfig.modo_gestoria === m
+                      ? m === 'v1' ? 'bg-amber-100 text-amber-800 ring-1 ring-amber-300' : 'bg-emerald-100 text-emerald-800 ring-1 ring-emerald-300'
+                      : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                  }`}>
+                  {m.toUpperCase()}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
       {/* ── Pestaña: Sincronización de facturas ── */}
       {activeTab === 'sync' && (
