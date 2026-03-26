@@ -155,13 +155,12 @@ router.post('/descargar-zip', async (req, res) => {
 
   if (fallidos.length) zip.file('_errores.json', JSON.stringify(fallidos, null, 2));
 
-  // Los admins no modifican el estado al descargar
+  // Solo la gestoria mueve a DESCARGADA, y solo las que estan en PENDIENTE
   const esAdmin = req.usuario?.rol === 'ADMIN';
   if (!esAdmin) {
-    // Transicionar a DESCARGADA
     const configDl = await getSistemaConfig();
     const idsCandidatos = archivos
-      .filter(a => a.estado_gestion !== 'CONTABILIZADA' && (configDl.modo_gestoria === 'v1' || !tieneIncidencia(a.datos_extraidos)))
+      .filter(a => a.estado_gestion === 'PENDIENTE' && (configDl.modo_gestoria === 'v1' || !tieneIncidencia(a.datos_extraidos)))
       .map(a => a.id);
     if (idsCandidatos.length) {
       if (configDl.modo_gestoria === 'v1') {
