@@ -137,6 +137,7 @@ const tablas = [
     numero_factura   TEXT,
     UNIQUE(cif_emisor, numero_factura)
   )`,
+  `ALTER TABLE lotes_exportacion_sage ADD COLUMN IF NOT EXISTS contenido_txt TEXT`,
   `ALTER TABLE drive_archivos ADD COLUMN IF NOT EXISTS lote_sage_id INTEGER REFERENCES lotes_exportacion_sage(id)`,
 
   // Último asiento SAGE por proveedor

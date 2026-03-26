@@ -696,13 +696,21 @@ export async function exportarSage(ids, asientosPorProveedor, contabilizar = fal
   });
   const json = await res.json();
   if (!json.ok) throw new Error(json.error || 'Error al exportar a SAGE');
-  const { nombre_fichero, contenido_csv } = json.data;
-  const blob = new Blob([contenido_csv], { type: 'text/plain;charset=utf-8;' });
-  const url  = URL.createObjectURL(blob);
-  const a    = document.createElement('a');
-  a.href = url; a.download = nombre_fichero;
-  document.body.appendChild(a); a.click(); document.body.removeChild(a);
-  URL.revokeObjectURL(url);
+  const { nombre_fichero, contenido_txt, contenido_csv } = json.data;
+  // Descargar TXT
+  const blobTxt = new Blob([contenido_txt], { type: 'text/plain;charset=utf-8;' });
+  const urlTxt  = URL.createObjectURL(blobTxt);
+  const aTxt    = document.createElement('a');
+  aTxt.href = urlTxt; aTxt.download = `${nombre_fichero}.txt`;
+  document.body.appendChild(aTxt); aTxt.click(); document.body.removeChild(aTxt);
+  URL.revokeObjectURL(urlTxt);
+  // Descargar CSV
+  const blobCsv = new Blob([contenido_csv], { type: 'text/csv;charset=utf-8;' });
+  const urlCsv  = URL.createObjectURL(blobCsv);
+  const aCsv    = document.createElement('a');
+  aCsv.href = urlCsv; aCsv.download = `${nombre_fichero}.csv`;
+  document.body.appendChild(aCsv); aCsv.click(); document.body.removeChild(aCsv);
+  URL.revokeObjectURL(urlCsv);
   return json.data;
 }
 
@@ -713,13 +721,14 @@ export async function fetchHistorialSage() {
   return data;
 }
 
-export async function reDescargarSage(id, nombreFichero) {
-  const res = await fetch(`${API_BASE}/api/drive/sage-historial/${id}/descargar`, { headers: authHeaders() });
+export async function reDescargarSage(id, nombreFichero, format = 'txt') {
+  const res = await fetch(`${API_BASE}/api/drive/sage-historial/${id}/descargar?format=${format}`, { headers: authHeaders() });
   if (!res.ok) throw new Error('Error al descargar');
   const blob = await res.blob();
+  const ext  = format === 'csv' ? '.csv' : '.txt';
   const url  = URL.createObjectURL(blob);
   const a    = document.createElement('a');
-  a.href = url; a.download = nombreFichero;
+  a.href = url; a.download = `${nombreFichero}${ext}`;
   document.body.appendChild(a); a.click(); document.body.removeChild(a);
   URL.revokeObjectURL(url);
 }

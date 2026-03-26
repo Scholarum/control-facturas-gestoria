@@ -47,9 +47,9 @@ export default function HistorialA3() {
     return true;
   }), [lotes, filtros]);
 
-  async function handleDescargar(lote) {
+  async function handleDescargar(lote, format) {
     setDescargando(lote.id);
-    try { await reDescargarSage(lote.id, lote.nombre_fichero); }
+    try { await reDescargarSage(lote.id, lote.nombre_fichero, format); }
     catch (e) { setError(e.message); }
     finally { setDescargando(null); }
   }
@@ -119,13 +119,18 @@ export default function HistorialA3() {
                 <td className="px-4 py-3 text-sm text-gray-700 text-right font-mono">{lote.asiento_inicio}</td>
                 <td className="px-4 py-3 text-sm text-gray-700 text-right font-mono">{lote.asiento_fin}</td>
                 <td className="px-4 py-3 text-center">
-                  <button onClick={() => handleDescargar(lote)} disabled={descargando === lote.id}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-orange-700 bg-orange-50 hover:bg-orange-100 border border-orange-200 rounded-lg transition-colors disabled:opacity-60">
-                    {descargando === lote.id
-                      ? <svg className="h-3.5 w-3.5 animate-spin" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/></svg>
-                      : <IconoDescarga />}
-                    CSV
-                  </button>
+                  <div className="flex items-center justify-center gap-1.5">
+                    <button onClick={() => handleDescargar(lote, 'txt')} disabled={descargando === lote.id}
+                      className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-orange-700 bg-orange-50 hover:bg-orange-100 border border-orange-200 rounded-lg transition-colors disabled:opacity-60">
+                      {descargando === lote.id ? <svg className="h-3 w-3 animate-spin" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/></svg> : <IconoDescarga />}
+                      TXT
+                    </button>
+                    <button onClick={() => handleDescargar(lote, 'csv')} disabled={descargando === lote.id}
+                      className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg transition-colors disabled:opacity-60">
+                      <IconoDescarga />
+                      CSV
+                    </button>
+                  </div>
                 </td>
               </tr>
             ))}

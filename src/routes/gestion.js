@@ -662,14 +662,14 @@ router.post('/exportar-sage', requireAuth, express.json(), async (req, res) => {
     }
   }
 
-  // Generar fichero con asientos por proveedor
+  // Generar ficheros con asientos por proveedor
   const asientosMap = {};
   if (asientos_por_proveedor) {
     for (const [k, v] of Object.entries(asientos_por_proveedor)) asientosMap[k] = parseInt(v, 10) || 1;
   }
-  const { contenido, asientosFin } = generarFicheroSage(facturasConDatos, asientosMap);
+  const { contenidoTXT, contenidoCSV, asientosFin } = generarFicheroSage(facturasConDatos, asientosMap);
   const fechaStr = new Date().toISOString().slice(0, 10);
-  const nombreFichero = `diario-sage-${fechaStr}.txt`;
+  const nombreFichero = `diario-sage-${fechaStr}`;
 
   const usuarioId     = req.usuario?.id ?? null;
   const usuarioNombre = req.usuario?.nombre ?? null;
@@ -680,11 +680,11 @@ router.post('/exportar-sage', requireAuth, express.json(), async (req, res) => {
   const asientoMin   = todosInicios.length ? Math.min(...todosInicios) : 1;
   const asientoMax   = todosFines.length ? Math.max(...todosFines) : 1;
 
-  // Guardar lote en historial
+  // Guardar lote en historial (ambos contenidos)
   const loteRow = await db.one(
-    `INSERT INTO lotes_exportacion_sage (nombre_fichero, num_facturas, asiento_inicio, asiento_fin, contenido_csv, usuario_id, usuario_nombre)
-     VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
-    [nombreFichero, facturasConDatos.length, asientoMin, asientoMax, contenido, usuarioId, usuarioNombre]
+    `INSERT INTO lotes_exportacion_sage (nombre_fichero, num_facturas, asiento_inicio, asiento_fin, contenido_csv, contenido_txt, usuario_id, usuario_nombre)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
+    [nombreFichero, facturasConDatos.length, asientoMin, asientoMax, contenidoCSV, contenidoTXT, usuarioId, usuarioNombre]
   );
 
   // Marcar facturas como exportadas
@@ -718,7 +718,7 @@ router.post('/exportar-sage', requireAuth, express.json(), async (req, res) => {
     detalle: { lote_id: loteRow.id, count: facturasConDatos.length, asientos: asientosFin, contabilizada: !!marcarContabilizada },
   }).catch(() => {});
 
-  res.json({ ok: true, data: { lote_id: loteRow.id, nombre_fichero: nombreFichero, contenido_csv: contenido, asientos_fin: asientosFin, contabilizada: !!marcarContabilizada } });
+  res.json({ ok: true, data: { lote_id: loteRow.id, nombre_fichero: nombreFichero, contenido_txt: contenidoTXT, contenido_csv: contenidoCSV, asientos_fin: asientosFin, contabilizada: !!marcarContabilizada } });
 });
 
 // ─── GET /api/drive/sage-historial — historial de lotes SAGE ────────────────
@@ -732,12 +732,15 @@ router.get('/sage-historial', requireAuth, async (req, res) => {
 // ─── GET /api/drive/sage-historial/:id/descargar — re-descargar lote ────────
 
 router.get('/sage-historial/:id/descargar', requireAuth, async (req, res) => {
-  const id = parseInt(req.params.id, 10);
-  const db = getDb();
-  const row = await db.one('SELECT nombre_fichero, contenido_csv FROM lotes_exportacion_sage WHERE id = $1', [id]);
+  const id     = parseInt(req.params.id, 10);
+  const format = req.query.format || 'txt';
+  const db     = getDb();
+  const row    = await db.one('SELECT nombre_fichero, contenido_csv, contenido_txt FROM lotes_exportacion_sage WHERE id = $1', [id]);
   if (!row) return res.status(404).json({ ok: false, error: 'Lote no encontrado' });
-  res.set({ 'Content-Type': 'text/plain; charset=utf-8', 'Content-Disposition': `attachment; filename="${row.nombre_fichero}"` });
-  res.send(row.contenido_csv);
+  const contenido = format === 'csv' ? (row.contenido_csv || '') : (row.contenido_txt || row.contenido_csv || '');
+  const ext = format === 'csv' ? '.csv' : '.txt';
+  res.set({ 'Content-Type': 'text/plain; charset=utf-8', 'Content-Disposition': `attachment; filename="${row.nombre_fichero}${ext}"` });
+  res.send(contenido);
 });
 
 

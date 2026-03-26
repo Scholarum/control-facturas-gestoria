@@ -1,37 +1,35 @@
 /**
  * sageExporter.js
- * Genera fichero TXT en protocolo ContaPlus R75 — formato ASCII posiciones fijas.
- * Cada linea tiene exactamente 75 caracteres (campos concatenados sin delimitador).
+ * Genera ficheros para importacion en SAGE ContaPlus — protocolo R75.
  *
- * Campos usados del diario (con posicion y longitud del manual):
- *   Pos  Campo       Tipo  Lon  Dec  Descripcion
- *   1    Asien       N     6         Numero del asiento
- *   2    Fecha       F     8         Fecha AAAAMMDD
- *   3    SubCta      C    12         Subcuenta
- *   4    Contra      C    12         Contrapartida
- *   5    PtaDebe     N    16    2    Importe debe (sin decimales, ceros izq)
- *   6    Concepto    C    25         Concepto del asiento
- *   7    PtaHaber    N    16    2    Importe haber (sin decimales, ceros izq)
- *   8    Factura     N     8         Numero factura IVA
- *   9    Baseimpo    N    16    2    Base imponible
- *  10    IVA         N     5    2    Porcentaje IVA (sin decimales)
- *  11    Recequiv    N     5    2    Recargo equivalencia
- *  12    Documento   C    10         Numero documento
+ * Dos formatos:
+ *   CSV (.csv): 142 campos separados por ; (delimitado)
+ *   TXT (.txt): 142 campos en posiciones fijas (longitud exacta, sin delimitador)
  *
- * Total por linea: 6+8+12+12+16+25+16+8+16+5+5+10 = 139
- * Pero el protocolo R75 original usa 75 chars. Usamos los campos
- * esenciales ajustados a las longitudes del manual y generamos
- * un registro por linea con todos los campos concatenados.
- *
- * NOTA: Segun el manual, el formato CSV usa ; como separador.
- *       Generamos CSV ya que es el formato mas compatible con ContaPlus.
- *       La extension sera .txt para importacion como ASCII.
- *
- * Cuentas IVA soportado (PGC Pymes Scholarum):
- *   47200000 (0%), 47200004 (4%), 47200010 (10%), 47200021 (21%)
+ * Longitudes de los 142 campos del Diario segun el manual:
+ *   Pos  Campo         Tipo Lon Dec | Pos  Campo         Tipo Lon Dec
+ *   1    Asien         N    6       | 22   Auxiliar      C    1
+ *   2    Fecha         F    8       | 23   Serie         C    1
+ *   3    SubCta        C   12       | 24   Sucursal      C    4
+ *   4    Contra        C   12       | 25   CodDivisa     C    5
+ *   5    PtaDebe       N   16   2   | 26   ImpAuxME      N   16   2
+ *   6    Concepto      C   25       | 27   MonedaUso     C    1
+ *   7    PtaHaber      N   16   2   | 28   EuroDebe      N   16   2
+ *   8    Factura       N    8       | 29   EuroHaber     N   16   2
+ *   9    Baseimpo      N   16   2   | 30   BaseEuro      N   16   2
+ *  10    IVA           N    5   2   | 31   NoConv        L    1
+ *  11    Recequiv      N    5   2   | 32   NumeroInv     C   10
+ *  12    Documento     C   10       | 33   Serie_RT      C    1
+ *  13    Departa       C    3       | 34   Factu_RT      N    8
+ *  14    Clave         C    6       | 35   BaseImp_RT    N   16   2
+ *  15    Estado        C    1       | 36   BaseImp_RF    N   16   2
+ *  16    NCasado       N    6       | 37   Rectifica     L    1
+ *  17    TCasado       N    1       | 38   Fecha_RT      F    8
+ *  18    Trans         N    6       | 39   NIC           C    1
+ *  19    Cambio        N   16   6   | 40   Libre_L       L    1
+ *  20    DebeME        N   16   2   | 41   Libre_N       N    6
+ *  21    HaberME       N   16   2   | 42-142 (resto de campos)
  */
-
-const TOTAL_CAMPOS = 142;
 
 const CUENTAS_IVA = {
   0:  '47200000',
@@ -44,32 +42,211 @@ function getCuentaIva(tipo) {
   return CUENTAS_IVA[tipo] || CUENTAS_IVA[21];
 }
 
+// ─── Definicion de campos con longitudes exactas del manual ─────────────────
+// Tipo: N=numerico, C=caracter, F=fecha(8), L=logico(1)
+
+const CAMPOS = [
+  /*  1 */ { lon: 6,  tipo: 'N' },  // Asien
+  /*  2 */ { lon: 8,  tipo: 'F' },  // Fecha
+  /*  3 */ { lon: 12, tipo: 'C' },  // SubCta
+  /*  4 */ { lon: 12, tipo: 'C' },  // Contra
+  /*  5 */ { lon: 16, tipo: 'N', dec: 2 },  // PtaDebe
+  /*  6 */ { lon: 25, tipo: 'C' },  // Concepto
+  /*  7 */ { lon: 16, tipo: 'N', dec: 2 },  // PtaHaber
+  /*  8 */ { lon: 8,  tipo: 'N' },  // Factura
+  /*  9 */ { lon: 16, tipo: 'N', dec: 2 },  // Baseimpo
+  /* 10 */ { lon: 5,  tipo: 'N', dec: 2 },  // IVA
+  /* 11 */ { lon: 5,  tipo: 'N', dec: 2 },  // Recequiv
+  /* 12 */ { lon: 10, tipo: 'C' },  // Documento
+  /* 13 */ { lon: 3,  tipo: 'C' },  // Departa
+  /* 14 */ { lon: 6,  tipo: 'C' },  // Clave
+  /* 15 */ { lon: 1,  tipo: 'C' },  // Estado
+  /* 16 */ { lon: 6,  tipo: 'N' },  // NCasado
+  /* 17 */ { lon: 1,  tipo: 'N' },  // TCasado
+  /* 18 */ { lon: 6,  tipo: 'N' },  // Trans
+  /* 19 */ { lon: 16, tipo: 'N', dec: 6 },  // Cambio
+  /* 20 */ { lon: 16, tipo: 'N', dec: 2 },  // DebeME
+  /* 21 */ { lon: 16, tipo: 'N', dec: 2 },  // HaberME
+  /* 22 */ { lon: 1,  tipo: 'C' },  // Auxiliar
+  /* 23 */ { lon: 1,  tipo: 'C' },  // Serie
+  /* 24 */ { lon: 4,  tipo: 'C' },  // Sucursal
+  /* 25 */ { lon: 5,  tipo: 'C' },  // CodDivisa
+  /* 26 */ { lon: 16, tipo: 'N', dec: 2 },  // ImpAuxME
+  /* 27 */ { lon: 1,  tipo: 'C' },  // MonedaUso
+  /* 28 */ { lon: 16, tipo: 'N', dec: 2 },  // EuroDebe
+  /* 29 */ { lon: 16, tipo: 'N', dec: 2 },  // EuroHaber
+  /* 30 */ { lon: 16, tipo: 'N', dec: 2 },  // BaseEuro
+  /* 31 */ { lon: 1,  tipo: 'L' },  // NoConv
+  /* 32 */ { lon: 10, tipo: 'C' },  // NumeroInv
+  /* 33 */ { lon: 1,  tipo: 'C' },  // Serie_RT
+  /* 34 */ { lon: 8,  tipo: 'N' },  // Factu_RT
+  /* 35 */ { lon: 16, tipo: 'N', dec: 2 },  // BaseImp_RT
+  /* 36 */ { lon: 16, tipo: 'N', dec: 2 },  // BaseImp_RF
+  /* 37 */ { lon: 1,  tipo: 'L' },  // Rectifica
+  /* 38 */ { lon: 8,  tipo: 'F' },  // Fecha_RT
+  /* 39 */ { lon: 1,  tipo: 'C' },  // NIC
+  /* 40 */ { lon: 1,  tipo: 'L' },  // Libre_L
+  /* 41 */ { lon: 6,  tipo: 'N' },  // Libre_N
+  /* 42 */ { lon: 1,  tipo: 'L' },  // IInterrump
+  /* 43 */ { lon: 6,  tipo: 'C' },  // SegActiv
+  /* 44 */ { lon: 6,  tipo: 'C' },  // SegGeog
+  /* 45 */ { lon: 1,  tipo: 'L' },  // IRect349
+  /* 46 */ { lon: 8,  tipo: 'F' },  // Fecha_OP
+  /* 47 */ { lon: 8,  tipo: 'F' },  // Fecha_EX
+  /* 48 */ { lon: 5,  tipo: 'C' },  // Departa5
+  /* 49 */ { lon: 10, tipo: 'C' },  // Factura10
+  /* 50 */ { lon: 5,  tipo: 'N', dec: 2 },  // Porcen_Ana
+  /* 51 */ { lon: 5,  tipo: 'N', dec: 2 },  // Porcen_Seg
+  /* 52 */ { lon: 6,  tipo: 'N' },  // NumApunte
+  /* 53 */ { lon: 16, tipo: 'N', dec: 2 },  // EuroTotal
+  /* 54 */ { lon: 100,tipo: 'C' },  // RazonSoc
+  /* 55 */ { lon: 50, tipo: 'C' },  // Apellido1
+  /* 56 */ { lon: 50, tipo: 'C' },  // Apellido2
+  /* 57 */ { lon: 1,  tipo: 'C' },  // TipoOpe
+  /* 58 */ { lon: 8,  tipo: 'N' },  // nFacTick
+  /* 59 */ { lon: 40, tipo: 'C' },  // NumAculni
+  /* 60 */ { lon: 40, tipo: 'C' },  // NumAcuFin
+  /* 61 */ { lon: 15, tipo: 'C' },  // TerIdNif
+  /* 62 */ { lon: 15, tipo: 'C' },  // TerNIF
+  /* 63 */ { lon: 40, tipo: 'C' },  // TerNom
+  /* 64 */ { lon: 9,  tipo: 'C' },  // TerNif14
+  /* 65 */ { lon: 1,  tipo: 'L' },  // TBienTran
+  /* 66 */ { lon: 10, tipo: 'C' },  // TBienCod
+  /* 67 */ { lon: 1,  tipo: 'L' },  // TransInm
+  /* 68 */ { lon: 1,  tipo: 'L' },  // Metal
+  /* 69 */ { lon: 16, tipo: 'N', dec: 2 },  // MetalImp
+  /* 70 */ { lon: 12, tipo: 'C' },  // Cliente
+  /* 71 */ { lon: 1,  tipo: 'N' },  // OpBienes
+  /* 72 */ { lon: 40, tipo: 'C' },  // FacturaEx
+  /* 73 */ { lon: 1,  tipo: 'C' },  // TipoFac
+  /* 74 */ { lon: 1,  tipo: 'C' },  // TipoIVA
+  /* 75 */ { lon: 40, tipo: 'C' },  // GUID
+  /* 76 */ { lon: 1,  tipo: 'L' },  // L340
+  /* 77 */ { lon: 4,  tipo: 'N' },  // MetalEje
+  /* 78 */ { lon: 15, tipo: 'C' },  // Document15
+  /* 79 */ { lon: 12, tipo: 'C' },  // ClienteSup
+  /* 80 */ { lon: 8,  tipo: 'F' },  // FechaSub
+  /* 81 */ { lon: 16, tipo: 'N', dec: 2 },  // ImporteSup
+  /* 82 */ { lon: 40, tipo: 'C' },  // DocSup
+  /* 83 */ { lon: 12, tipo: 'C' },  // ClientePro
+  /* 84 */ { lon: 8,  tipo: 'F' },  // FechaPro
+  /* 85 */ { lon: 16, tipo: 'N', dec: 2 },  // ImportePro
+  /* 86 */ { lon: 40, tipo: 'C' },  // DocPro
+  /* 87 */ { lon: 2,  tipo: 'N' },  // nClaveIRPF
+  /* 88 */ { lon: 1,  tipo: 'L' },  // IArrend347
+  /* 89 */ { lon: 1,  tipo: 'N' },  // nSitInmueb
+  /* 90 */ { lon: 25, tipo: 'C' },  // cRefCatast
+  /* 91 */ { lon: 1,  tipo: 'N' },  // Concil347
+  /* 92 */ { lon: 2,  tipo: 'N' },  // TipoRegula
+  /* 93 */ { lon: 2,  tipo: 'N' },  // nCritCaja
+  /* 94 */ { lon: 1,  tipo: 'L' },  // ICritCaja
+  /* 95 */ { lon: 8,  tipo: 'F' },  // dMaxLiqui (D=date)
+  /* 96 */ { lon: 16, tipo: 'N', dec: 2 },  // nTotalFac
+  /* 97 */ { lon: 32, tipo: 'C' },  // IdFactura
+  /* 98 */ { lon: 16, tipo: 'N', dec: 2 },  // nCobrPago
+  /* 99 */ { lon: 2,  tipo: 'N' },  // nTipoIG
+  /*100 */ { lon: 50, tipo: 'C' },  // DevoIVAid
+  /*101 */ { lon: 1,  tipo: 'L' },  // LDEVOLUIVA
+  /*102 */ { lon: 1,  tipo: 'C' },  // MedioCrit
+  /*103 */ { lon: 34, tipo: 'C' },  // CuentaCrit
+  /*104 */ { lon: 1,  tipo: 'L' },  // IConAc
+  /*105 */ { lon: 40, tipo: 'C' },  // GuidSPAY
+  /*106 */ { lon: 2,  tipo: 'N' },  // TipoEntr
+  /*107 */ { lon: 2,  tipo: 'N' },  // Mod140
+  /*108 */ { lon: 8,  tipo: 'F' },  // FechaAnota (D)
+  /*109 */ { lon: 2,  tipo: 'N' },  // nTipo140
+  /*110 */ { lon: 11, tipo: 'C' },  // Cuenta140
+  /*111 */ { lon: 16, tipo: 'N', dec: 2 },  // Importe140
+  /*112 */ { lon: 1,  tipo: 'L' },  // IDepAduan
+  /*113 */ { lon: 1,  tipo: 'L' },  // IDifAduan
+  /*114 */ { lon: 2,  tipo: 'N' },  // nInter303
+  /*115 */ { lon: 40, tipo: 'C' },  // IdRecargo
+  /*116 */ { lon: 1,  tipo: 'N' },  // EstadoSII
+  /*117 */ { lon: 2,  tipo: 'N' },  // TipoClave
+  /*118 */ { lon: 2,  tipo: 'N' },  // TipoExenci
+  /*119 */ { lon: 2,  tipo: 'N' },  // TipoNoSuje
+  /*120 */ { lon: 2,  tipo: 'N' },  // TipoFact
+  /*121 */ { lon: 40, tipo: 'C' },  // NAcuIniSII
+  /*122 */ { lon: 40, tipo: 'C' },  // nAcuFinSII
+  /*123 */ { lon: 2,  tipo: 'N', dec: 2 },  // TipoRectif
+  /*124 */ { lon: 16, tipo: 'N', dec: 2 },  // BImpCoste
+  /*125 */ { lon: 1,  tipo: 'L' },  // IEmiTercer
+  /*126 */ { lon: 1,  tipo: 'N' },  // nEntrPrest
+  /*127 */ { lon: 8,  tipo: 'F' },  // Decrecen (D)
+  /*128 */ { lon: 40, tipo: 'C' },  // FactuEx_RT
+  /*129 */ { lon: 2,  tipo: 'N' },  // TipoClave1
+  /*130 */ { lon: 2,  tipo: 'N' },  // TipoClave2
+  /*131 */ { lon: 1,  tipo: 'L' },  // ITAI
+  /*132 */ { lon: 1,  tipo: 'L' },  // lExcl303
+  /*133 */ { lon: 50, tipo: 'C' },  // ConcepNew
+  /*134 */ { lon: 30, tipo: 'C' },  // TerNifNew
+  /*135 */ { lon: 120,tipo: 'C' },  // TerNomNew
+  /*136 */ { lon: 1,  tipo: 'L' },  // SII_1415
+  /*137 */ { lon: 15, tipo: 'C' },  // cAutoriza
+  /*138 */ { lon: 1,  tipo: 'L' },  // IEmiTerDis
+  /*139 */ { lon: 9,  tipo: 'C' },  // NifSuced
+  /*140 */ { lon: 120,tipo: 'C' },  // RazonSuced
+  /*141 */ { lon: 1,  tipo: 'L' },  // IFSimplifi
+  /*142 */ { lon: 1,  tipo: 'L' },  // IFSinIdent
+];
+
 // ─── Helpers de formateo ────────────────────────────────────────────────────
 
-/** Numerico con decimales: sin separador decimal, ceros a la izquierda */
-function numDec(valor, lon, dec) {
-  const n = parseFloat(valor) || 0;
+/** Texto: rellena con espacios a la derecha */
+function fmtC(val, lon) {
+  return String(val || '').substring(0, lon).padEnd(lon, ' ');
+}
+
+/** Numerico: ceros a la izquierda */
+function fmtN(val, lon) {
+  const n = String(parseInt(val, 10) || 0);
+  return n.padStart(lon, '0').substring(0, lon);
+}
+
+/** Numerico con decimales: sin separador, ceros a la izquierda */
+function fmtND(val, lon, dec) {
+  const n = parseFloat(val) || 0;
   const entero = Math.round(Math.abs(n) * Math.pow(10, dec));
   return String(entero).padStart(lon, '0').substring(0, lon);
 }
 
-function fecha(iso) {
-  if (!iso) return '        ';
-  return String(iso).replace(/-/g, '').padEnd(8, ' ').substring(0, 8);
+/** Fecha AAAAMMDD */
+function fmtF(iso, lon) {
+  if (!iso) return ' '.repeat(lon);
+  return String(iso).replace(/-/g, '').substring(0, lon).padEnd(lon, ' ');
 }
 
-function logico(val) {
-  if (val === true) return '.T.';
-  if (val === false) return '.F.';
-  return '';
+/** Logico .T. / .F. / vacio */
+function fmtL(val, lon) {
+  const s = val === true ? '.T.' : val === false ? '.F.' : '';
+  return s.padEnd(lon, ' ').substring(0, lon);
 }
 
-function lineaCSV(campos) {
-  while (campos.length < TOTAL_CAMPOS) campos.push('');
-  return campos.slice(0, TOTAL_CAMPOS).join(';');
+// ─── Generar linea en ambos formatos ────────────────────────────────────────
+
+function formatearCampoTXT(valor, campo) {
+  const v = valor || '';
+  if (campo.tipo === 'C') return fmtC(v, campo.lon);
+  if (campo.tipo === 'F') return fmtF(v, campo.lon);
+  if (campo.tipo === 'L') return fmtL(v === '.T.' ? true : v === '.F.' ? false : v === true ? true : v === false ? false : null, campo.lon);
+  if (campo.tipo === 'N' && campo.dec) return fmtND(v, campo.lon, campo.dec);
+  if (campo.tipo === 'N') return fmtN(v, campo.lon);
+  return fmtC(v, campo.lon);
 }
 
-// ─── Construir lineas por factura ───────────────────────────────────────────
+function lineaTXT(valores) {
+  return CAMPOS.map((campo, i) => formatearCampoTXT(valores[i], campo)).join('');
+}
+
+function lineaCSV(valores) {
+  const result = [];
+  for (let i = 0; i < CAMPOS.length; i++) {
+    result.push(valores[i] || '');
+  }
+  return result.join(';');
+}
+
+// ─── Construir valores por factura ──────────────────────────────────────────
 
 function construirLineasFactura(factura, numAsiento) {
   const d = factura.datos_extraidos || {};
@@ -85,67 +262,60 @@ function construirLineasFactura(factura, numAsiento) {
   const baseSinIva    = parseFloat(d.total_sin_iva) || 0;
   const ctaProveedor  = factura.cta_proveedor_codigo || '';
   const ctaGasto      = factura.cuenta_gasto_codigo || '';
-  const fechaFmt      = fecha(fechaEmision);
+  const fechaFmt      = fechaEmision ? fechaEmision.replace(/-/g, '') : '';
   const asiento       = String(numAsiento);
 
-  const lineas = [];
+  const lineas = []; // cada elemento es un array de 142 valores
 
   // Linea 1: Proveedor en HABER
-  const l1 = new Array(TOTAL_CAMPOS).fill('');
+  const l1 = new Array(142).fill('');
   l1[0]=asiento; l1[1]=fechaFmt; l1[2]=ctaProveedor; l1[3]=ctaGasto;
-  l1[4]='0'; l1[5]=concepto; l1[6]=numDec(totalFactura,16,2);
-  l1[11]=numFactura.substring(0,10); l1[26]='2'; l1[27]='0';
-  l1[28]=numDec(totalFactura,16,2); l1[95]=numDec(totalFactura,16,2);
-  l1[132]=conceptoLargo;
-  lineas.push(lineaCSV(l1));
+  l1[4]=0; l1[5]=concepto; l1[6]=totalFactura;
+  l1[11]=numFactura.substring(0,10); l1[26]='2'; l1[27]=0;
+  l1[28]=totalFactura; l1[95]=totalFactura; l1[132]=conceptoLargo;
+  lineas.push(l1);
 
   // Linea 2: Gasto en DEBE
-  const l2 = new Array(TOTAL_CAMPOS).fill('');
+  const l2 = new Array(142).fill('');
   l2[0]=asiento; l2[1]=fechaFmt; l2[2]=ctaGasto; l2[3]=ctaProveedor;
-  l2[4]=numDec(baseSinIva,16,2); l2[5]=concepto; l2[6]='0';
+  l2[4]=baseSinIva; l2[5]=concepto; l2[6]=0;
   l2[11]=numFactura.substring(0,10); l2[26]='2';
-  l2[27]=numDec(baseSinIva,16,2); l2[28]='0'; l2[132]=conceptoLargo;
-  lineas.push(lineaCSV(l2));
+  l2[27]=baseSinIva; l2[28]=0; l2[132]=conceptoLargo;
+  lineas.push(l2);
 
   // Lineas IVA
+  const crearIva = (base, cuota, tipo) => {
+    const l = new Array(142).fill('');
+    l[0]=asiento; l[1]=fechaFmt; l[2]=getCuentaIva(tipo); l[3]=ctaProveedor;
+    l[4]=cuota; l[5]=concepto; l[6]=0;
+    l[7]=numFactura.substring(0,8); l[8]=base;
+    l[9]=tipo; l[10]=0; l[11]=numFactura.substring(0,10);
+    l[26]='2'; l[27]=cuota; l[28]=0; l[29]=base;
+    l[61]=cifEmisor; l[62]=nombreEmisor.substring(0,15);
+    l[63]=nombreEmisor.substring(0,40);
+    l[72]='R'; l[73]='O'; l[75]='.T.'; l[95]=totalFactura;
+    l[132]=conceptoLargo; l[133]=cifEmisor; l[134]=nombreEmisor.substring(0,120);
+    return l;
+  };
+
   if (ivaList.length === 0) {
     const totalIva = parseFloat(d.total_iva) || 0;
-    if (totalIva > 0) {
-      lineas.push(lineaCSV(crearLineaIva(asiento, fechaFmt, ctaProveedor, concepto, conceptoLargo, numFactura, cifEmisor, nombreEmisor, totalFactura, baseSinIva, totalIva, 21)));
-    }
+    if (totalIva > 0) lineas.push(crearIva(baseSinIva, totalIva, 21));
   } else {
     for (const iva of ivaList) {
       const tipo = iva.tipo || 21, base = parseFloat(iva.base)||0, cuota = parseFloat(iva.cuota)||0;
-      if (cuota > 0 || tipo === 0) {
-        lineas.push(lineaCSV(crearLineaIva(asiento, fechaFmt, ctaProveedor, concepto, conceptoLargo, numFactura, cifEmisor, nombreEmisor, totalFactura, base, cuota, tipo)));
-      }
+      if (cuota > 0 || tipo === 0) lineas.push(crearIva(base, cuota, tipo));
     }
   }
+
   return lineas;
 }
 
-function crearLineaIva(asiento, fechaFmt, ctaProveedor, concepto, conceptoLargo, numFactura, cifEmisor, nombreEmisor, totalFactura, base, cuota, tipoIva) {
-  const ctaIva = getCuentaIva(tipoIva);
-  const l = new Array(TOTAL_CAMPOS).fill('');
-  l[0]=asiento; l[1]=fechaFmt; l[2]=ctaIva; l[3]=ctaProveedor;
-  l[4]=numDec(cuota,16,2); l[5]=concepto; l[6]='0';
-  l[7]=numFactura.substring(0,8); l[8]=numDec(base,16,2);
-  l[9]=numDec(tipoIva,5,2); l[10]='0'; l[11]=numFactura.substring(0,10);
-  l[26]='2'; l[27]=numDec(cuota,16,2); l[28]='0';
-  l[29]=numDec(base,16,2); l[61]=cifEmisor;
-  l[62]=nombreEmisor.substring(0,40); l[72]='R'; l[73]='O';
-  l[75]=logico(true); l[95]=numDec(totalFactura,16,2);
-  l[132]=conceptoLargo; l[133]=cifEmisor;
-  l[134]=nombreEmisor.substring(0,120);
-  return l;
-}
-
 // ─── Funcion principal ──────────────────────────────────────────────────────
-// asientosPorProveedor: { proveedorId: asientoInicio }
 
 function generarFicheroSage(facturas, asientosPorProveedor = {}) {
-  const lineas = [];
-  // Agrupar facturas por proveedor
+  const registros = []; // array de arrays de 142 valores
+
   const porProveedor = {};
   for (const f of facturas) {
     const pid = f.proveedor_id || '_sin';
@@ -153,21 +323,22 @@ function generarFicheroSage(facturas, asientosPorProveedor = {}) {
     porProveedor[pid].push(f);
   }
 
-  const asientosFin = {}; // { proveedorId: ultimoAsiento }
+  const asientosFin = {};
 
   for (const [pid, facts] of Object.entries(porProveedor)) {
     let numAsiento = asientosPorProveedor[pid] || 1;
     for (const factura of facts) {
-      lineas.push(...construirLineasFactura(factura, numAsiento));
+      registros.push(...construirLineasFactura(factura, numAsiento));
       numAsiento++;
     }
     asientosFin[pid] = numAsiento - 1;
   }
 
-  return {
-    contenido: lineas.join('\r\n') + '\r\n',
-    asientosFin,
-  };
+  // Generar ambos formatos
+  const contenidoTXT = registros.map(r => lineaTXT(r)).join('\r\n') + '\r\n';
+  const contenidoCSV = registros.map(r => lineaCSV(r)).join('\r\n') + '\r\n';
+
+  return { contenidoTXT, contenidoCSV, asientosFin };
 }
 
 module.exports = { generarFicheroSage };
