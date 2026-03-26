@@ -220,7 +220,12 @@ export default function SeccionFacturas({
     try {
       await descargarZip(ids);
       if (!esAdmin) {
-        onEstadoActualizado(ids, 'DESCARGADA');
+        // Solo mover a DESCARGADA las que estaban en PENDIENTE
+        const idsPendientes = ids.filter(id => {
+          const f = facturas.find(f => f.id === id);
+          return f && (!f.estado_gestion || f.estado_gestion === 'PENDIENTE');
+        });
+        if (idsPendientes.length) onEstadoActualizado(idsPendientes, 'DESCARGADA');
       }
     } catch (e) {
       setError(e.message);
