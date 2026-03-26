@@ -541,8 +541,62 @@ router.post('/exportar-excel', async (req, res) => {
 
 // ─── POST /api/drive/exportar-sage — generar fichero ContaPlus R75 ───────────
 
+// ─── POST /api/drive/sage-preview — previsualizar proveedores y asientos ────
+
+router.post('/sage-preview', requireAuth, express.json(), async (req, res) => {
+  const { ids } = req.body;
+  if (!ids?.length) return res.status(400).json({ ok: false, error: 'ids requeridos' });
+
+  const db = getDb();
+  const archivos = await db.all(`
+    SELECT da.id, da.proveedor, da.datos_extraidos, da.lote_sage_id,
+           p.id AS proveedor_id, p.razon_social, p.ultimo_asiento_sage,
+           cc.codigo AS cta_proveedor_codigo,
+           COALESCE(cgd.codigo, pg.codigo) AS cuenta_gasto_codigo
+    FROM drive_archivos da
+    LEFT JOIN LATERAL (
+      SELECT p2.* FROM proveedores p2
+      WHERE p2.activo = true AND (
+        (p2.cif IS NOT NULL AND da.datos_extraidos IS NOT NULL AND da.datos_extraidos ~ '^\\s*\\{'
+         AND normalizar_cif((da.datos_extraidos::jsonb)->>'cif_emisor') = normalizar_cif(p2.cif))
+        OR p2.nombre_carpeta = da.proveedor
+      )
+      ORDER BY (p2.cif IS NOT NULL AND da.datos_extraidos IS NOT NULL AND da.datos_extraidos ~ '^\\s*\\{'
+               AND normalizar_cif((da.datos_extraidos::jsonb)->>'cif_emisor') = normalizar_cif(p2.cif)) DESC NULLS LAST
+      LIMIT 1
+    ) p ON true
+    LEFT JOIN plan_contable pg  ON pg.id  = p.cuenta_gasto_id
+    LEFT JOIN plan_contable cgd ON cgd.id = da.cuenta_gasto_id
+    LEFT JOIN plan_contable cc  ON cc.id  = p.cuenta_contable_id
+    WHERE da.id = ANY($1::int[])
+  `, [ids]);
+
+  // Agrupar por proveedor
+  const provMap = {};
+  for (const a of archivos) {
+    const pid = a.proveedor_id || 0;
+    if (!provMap[pid]) {
+      provMap[pid] = {
+        proveedor_id: a.proveedor_id,
+        razon_social: a.razon_social || a.proveedor || 'Sin proveedor',
+        cta_proveedor: a.cta_proveedor_codigo || '',
+        ultimo_asiento: a.ultimo_asiento_sage || 0,
+        siguiente_asiento: (a.ultimo_asiento_sage || 0) + 1,
+        num_facturas: 0,
+        ya_exportadas: 0,
+        sin_cuentas: 0,
+      };
+    }
+    provMap[pid].num_facturas++;
+    if (a.lote_sage_id) provMap[pid].ya_exportadas++;
+    if (!a.cta_proveedor_codigo || !a.cuenta_gasto_codigo) provMap[pid].sin_cuentas++;
+  }
+
+  res.json({ ok: true, data: { proveedores: Object.values(provMap) } });
+});
+
 router.post('/exportar-sage', requireAuth, express.json(), async (req, res) => {
-  const { ids, asiento_inicio } = req.body;
+  const { ids, asientos_por_proveedor, contabilizar: marcarContabilizada } = req.body;
   if (!ids?.length) return res.status(400).json({ ok: false, error: 'ids requeridos' });
 
   const db = getDb();
@@ -608,23 +662,32 @@ router.post('/exportar-sage', requireAuth, express.json(), async (req, res) => {
     }
   }
 
-  // Determinar numero de asiento inicial
-  const inicio = asiento_inicio || 1;
-  const { contenido, asientoFin } = generarFicheroSage(facturasConDatos, inicio);
+  // Generar fichero con asientos por proveedor
+  const asientosMap = {};
+  if (asientos_por_proveedor) {
+    for (const [k, v] of Object.entries(asientos_por_proveedor)) asientosMap[k] = parseInt(v, 10) || 1;
+  }
+  const { contenido, asientosFin } = generarFicheroSage(facturasConDatos, asientosMap);
   const fechaStr = new Date().toISOString().slice(0, 10);
-  const nombreFichero = `diario-sage-${fechaStr}.csv`;
+  const nombreFichero = `diario-sage-${fechaStr}.txt`;
 
   const usuarioId     = req.usuario?.id ?? null;
   const usuarioNombre = req.usuario?.nombre ?? null;
+
+  // Calcular rango global de asientos
+  const todosInicios = Object.values(asientosMap);
+  const todosFines   = Object.values(asientosFin).map(Number);
+  const asientoMin   = todosInicios.length ? Math.min(...todosInicios) : 1;
+  const asientoMax   = todosFines.length ? Math.max(...todosFines) : 1;
 
   // Guardar lote en historial
   const loteRow = await db.one(
     `INSERT INTO lotes_exportacion_sage (nombre_fichero, num_facturas, asiento_inicio, asiento_fin, contenido_csv, usuario_id, usuario_nombre)
      VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
-    [nombreFichero, facturasConDatos.length, inicio, asientoFin, contenido, usuarioId, usuarioNombre]
+    [nombreFichero, facturasConDatos.length, asientoMin, asientoMax, contenido, usuarioId, usuarioNombre]
   );
 
-  // Marcar facturas como exportadas y registrar en tabla de control
+  // Marcar facturas como exportadas
   for (const f of facturasConDatos) {
     const d = f.datos_extraidos;
     await db.query('UPDATE drive_archivos SET lote_sage_id = $1 WHERE id = $2', [loteRow.id, f.id]);
@@ -637,19 +700,25 @@ router.post('/exportar-sage', requireAuth, express.json(), async (req, res) => {
     }
   }
 
-  // Actualizar ultimo_asiento_sage en proveedores
-  const provIds = [...new Set(facturasConDatos.map(f => f.proveedor_id).filter(Boolean))];
-  for (const pid of provIds) {
-    await db.query('UPDATE proveedores SET ultimo_asiento_sage = $1 WHERE id = $2', [asientoFin, pid]);
+  // Actualizar ultimo_asiento_sage por proveedor
+  for (const [pid, ultimo] of Object.entries(asientosFin)) {
+    if (pid !== '_sin') {
+      await db.query('UPDATE proveedores SET ultimo_asiento_sage = $1 WHERE id = $2', [ultimo, parseInt(pid, 10)]);
+    }
+  }
+
+  // Si se pide contabilizar, cambiar estado
+  if (marcarContabilizada) {
+    await db.query("UPDATE drive_archivos SET estado_gestion = 'CONTABILIZADA' WHERE id = ANY($1::int[])", [ids]);
   }
 
   registrarEvento({
     evento: 'EXPORT_SAGE', usuarioId,
     ip: req.clientIp, userAgent: req.userAgent,
-    detalle: { lote_id: loteRow.id, count: facturasConDatos.length, asiento_inicio: inicio, asiento_fin: asientoFin },
+    detalle: { lote_id: loteRow.id, count: facturasConDatos.length, asientos: asientosFin, contabilizada: !!marcarContabilizada },
   }).catch(() => {});
 
-  res.json({ ok: true, data: { lote_id: loteRow.id, nombre_fichero: nombreFichero, contenido_csv: contenido, asiento_fin: asientoFin } });
+  res.json({ ok: true, data: { lote_id: loteRow.id, nombre_fichero: nombreFichero, contenido_csv: contenido, asientos_fin: asientosFin, contabilizada: !!marcarContabilizada } });
 });
 
 // ─── GET /api/drive/sage-historial — historial de lotes SAGE ────────────────
@@ -671,13 +740,6 @@ router.get('/sage-historial/:id/descargar', requireAuth, async (req, res) => {
   res.send(row.contenido_csv);
 });
 
-// ─── GET /api/drive/sage-siguiente-asiento — proponer siguiente asiento ─────
-
-router.get('/sage-siguiente-asiento', requireAuth, async (req, res) => {
-  const db = getDb();
-  const row = await db.one('SELECT MAX(asiento_fin) AS ultimo FROM lotes_exportacion_sage');
-  res.json({ ok: true, data: { siguiente: (row?.ultimo || 0) + 1 } });
-});
 
 // ─── PUT /api/drive/aplicar-cuentas-proveedor ────────────────────────────────
 // Pasa a CC_ASIGNADA todas las facturas PENDIENTE cuyo proveedor ya tiene

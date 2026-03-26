@@ -677,28 +677,33 @@ export async function exportarLoteA3(ids) {
   return json.data;
 }
 
-export async function exportarSage(ids, asientoInicio) {
+export async function sagePreview(ids) {
+  const res = await fetch(`${API_BASE}/api/drive/sage-preview`, {
+    method: 'POST',
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify({ ids }),
+  });
+  const json = await res.json();
+  if (!json.ok) throw new Error(json.error || 'Error al previsualizar');
+  return json.data;
+}
+
+export async function exportarSage(ids, asientosPorProveedor, contabilizar = false) {
   const res = await fetch(`${API_BASE}/api/drive/exportar-sage`, {
     method:  'POST',
     headers: authHeaders({ 'Content-Type': 'application/json' }),
-    body:    JSON.stringify({ ids, asiento_inicio: asientoInicio }),
+    body:    JSON.stringify({ ids, asientos_por_proveedor: asientosPorProveedor, contabilizar }),
   });
   const json = await res.json();
   if (!json.ok) throw new Error(json.error || 'Error al exportar a SAGE');
   const { nombre_fichero, contenido_csv } = json.data;
-  const blob = new Blob([contenido_csv], { type: 'text/csv;charset=utf-8;' });
+  const blob = new Blob([contenido_csv], { type: 'text/plain;charset=utf-8;' });
   const url  = URL.createObjectURL(blob);
   const a    = document.createElement('a');
   a.href = url; a.download = nombre_fichero;
   document.body.appendChild(a); a.click(); document.body.removeChild(a);
   URL.revokeObjectURL(url);
   return json.data;
-}
-
-export async function fetchSiguienteAsientoSage() {
-  const res = await fetch(`${API_BASE}/api/drive/sage-siguiente-asiento`, { headers: authHeaders() });
-  const json = await res.json();
-  return json.data?.siguiente || 1;
 }
 
 export async function fetchHistorialSage() {

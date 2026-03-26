@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, useRef } from 'react';
 import TablaFacturas, { tieneIncidencia, tieneIncidenciaProveedor } from './TablaFacturas.jsx';
-import { descargarZip, contabilizar, revertirEstado, eliminarFactura, asignarCGMasivo, exportarLoteA3, exportarSage, fetchSiguienteAsientoSage } from '../api.js';
+import { descargarZip, contabilizar, revertirEstado, eliminarFactura, asignarCGMasivo, exportarLoteA3, exportarSage, sagePreview } from '../api.js';
 
 // ─── Filtros compactos por sección ────────────────────────────────────────────
 
@@ -175,7 +175,8 @@ export default function SeccionFacturas({
   const [exportandoA3,       setExportandoA3]       = useState(false);
   const [exportandoSage,    setExportandoSage]    = useState(false);
   const [modalSageOpen,     setModalSageOpen]     = useState(false);
-  const [asientoInicio,     setAsientoInicio]     = useState(1);
+  const [sageProveedores,   setSageProveedores]   = useState([]);
+  const [sageAsientos,      setSageAsientos]      = useState({});
   const [modalA3Open,        setModalA3Open]        = useState(false);
   const [ccMasiva,           setCcMasiva]           = useState('');
   const [error,              setError]              = useState('');
@@ -273,19 +274,28 @@ export default function SeccionFacturas({
   }
 
   async function abrirModalSage() {
+    setError('');
     try {
-      const sig = await fetchSiguienteAsientoSage();
-      setAsientoInicio(sig);
-    } catch { setAsientoInicio(1); }
-    setModalSageOpen(true);
+      const ids = Array.from(seleccionados);
+      const data = await sagePreview(ids);
+      setSageProveedores(data.proveedores);
+      const asientos = {};
+      for (const p of data.proveedores) {
+        asientos[p.proveedor_id || 0] = p.siguiente_asiento;
+      }
+      setSageAsientos(asientos);
+      setModalSageOpen(true);
+    } catch (e) { setError(e.message); }
   }
 
-  async function handleExportarSage() {
+  async function handleExportarSage(marcarContabilizada) {
     const ids = Array.from(seleccionados);
     setExportandoSage(true); setError(''); setModalSageOpen(false);
     try {
-      await exportarSage(ids, asientoInicio);
-      onEstadoActualizado(ids, 'CONTABILIZADA');
+      const result = await exportarSage(ids, sageAsientos, marcarContabilizada);
+      if (result.contabilizada) {
+        onEstadoActualizado(ids, 'CONTABILIZADA');
+      }
       setSeleccionados(new Set());
       if (onRefreshFacturas) onRefreshFacturas();
     } catch (e) {
@@ -464,22 +474,64 @@ export default function SeccionFacturas({
       {/* Modal configuracion exportacion SAGE */}
       {modalSageOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setModalSageOpen(false)}>
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4 p-6 space-y-4" onClick={e => e.stopPropagation()}>
-            <h3 className="text-sm font-semibold text-gray-900">Exportar a SAGE ContaPlus</h3>
-            <p className="text-xs text-gray-500">{seleccionados.size} factura(s) seleccionada(s)</p>
-            <div>
-              <label className="block text-xs font-medium text-gray-700 mb-1">Numero de asiento inicial</label>
-              <input type="number" min={1} value={asientoInicio}
-                onChange={e => setAsientoInicio(parseInt(e.target.value, 10) || 1)}
-                className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500" />
-              <p className="text-[10px] text-gray-400 mt-1">Se propone el siguiente al ultimo asiento exportado</p>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4" onClick={e => e.stopPropagation()}>
+            <div className="px-6 py-4 border-b border-gray-100">
+              <h3 className="text-sm font-semibold text-gray-900">Exportar a SAGE ContaPlus</h3>
+              <p className="text-xs text-gray-400 mt-0.5">{seleccionados.size} factura(s) de {sageProveedores.length} proveedor(es)</p>
             </div>
-            <div className="flex justify-end gap-2 pt-2">
-              <button onClick={() => setModalSageOpen(false)} className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800">Cancelar</button>
-              <button onClick={handleExportarSage}
-                className="px-4 py-2 text-sm font-semibold text-white bg-orange-500 hover:bg-orange-600 rounded-lg transition-colors">
-                Exportar CSV
+            <div className="px-6 py-4">
+              <p className="text-xs font-medium text-gray-600 mb-2">Numero de asiento inicial por proveedor</p>
+              <div className="border border-gray-200 rounded-lg overflow-hidden">
+                <table className="w-full text-xs">
+                  <thead className="bg-gray-50 border-b border-gray-200">
+                    <tr>
+                      <th className="px-3 py-2 text-left font-semibold text-gray-500">Proveedor</th>
+                      <th className="px-3 py-2 text-left font-semibold text-gray-500">Cuenta</th>
+                      <th className="px-3 py-2 text-right font-semibold text-gray-500">Facturas</th>
+                      <th className="px-3 py-2 text-right font-semibold text-gray-500">Asiento inicio</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {sageProveedores.map(p => {
+                      const pid = p.proveedor_id || 0;
+                      const hayError = p.ya_exportadas > 0 || p.sin_cuentas > 0;
+                      return (
+                        <tr key={pid} className={hayError ? 'bg-red-50/40' : ''}>
+                          <td className="px-3 py-2 font-medium text-gray-900 max-w-[180px] truncate">{p.razon_social}</td>
+                          <td className="px-3 py-2 font-mono text-gray-500">{p.cta_proveedor || '-'}</td>
+                          <td className="px-3 py-2 text-right text-gray-700">
+                            {p.num_facturas}
+                            {p.ya_exportadas > 0 && <span className="ml-1 text-red-500">({p.ya_exportadas} dup.)</span>}
+                          </td>
+                          <td className="px-3 py-2 text-right">
+                            <input type="number" min={1}
+                              value={sageAsientos[pid] || 1}
+                              onChange={e => setSageAsientos(prev => ({ ...prev, [pid]: parseInt(e.target.value, 10) || 1 }))}
+                              className="w-20 rounded border border-gray-200 px-2 py-1 text-xs text-right font-mono focus:outline-none focus:ring-2 focus:ring-orange-400" />
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+              <p className="text-[10px] text-gray-400 mt-2">Se propone el siguiente al ultimo asiento exportado para cada proveedor</p>
+            </div>
+            <div className="px-6 py-4 border-t border-gray-100 flex justify-between gap-2">
+              <button onClick={() => setModalSageOpen(false)}
+                className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800 transition-colors">
+                Cancelar
               </button>
+              <div className="flex gap-2">
+                <button onClick={() => handleExportarSage(false)}
+                  className="px-4 py-2 text-sm font-semibold text-orange-700 bg-orange-50 hover:bg-orange-100 border border-orange-200 rounded-lg transition-colors">
+                  Generar fichero
+                </button>
+                <button onClick={() => handleExportarSage(true)}
+                  className="px-4 py-2 text-sm font-semibold text-white bg-orange-500 hover:bg-orange-600 rounded-lg transition-colors">
+                  Generar y contabilizar
+                </button>
+              </div>
             </div>
           </div>
         </div>
