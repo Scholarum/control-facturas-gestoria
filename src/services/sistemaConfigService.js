@@ -11,11 +11,21 @@ const DEFAULTS = {
   modo_gestoria:     'v1',       // v1 = solo descarga/contabilizar | v2 = flujo completo con cuentas
 };
 
+let _cache = null;
+let _cacheTs = 0;
+const CACHE_TTL = 5000; // 5 segundos
+
 async function getSistemaConfig() {
+  const now = Date.now();
+  if (_cache && (now - _cacheTs) < CACHE_TTL) return _cache;
+
   const db   = getDb();
   const rows = await db.all('SELECT clave, valor FROM configuracion_sistema');
   const config = { ...DEFAULTS };
   for (const row of rows) config[row.clave] = row.valor;
+
+  _cache = config;
+  _cacheTs = now;
   return config;
 }
 
@@ -31,6 +41,7 @@ async function setSistemaConfig(updates) {
       [clave, String(valor)]
     );
   }
+  _cache = null; // Invalidar cache
 }
 
 module.exports = { getSistemaConfig, setSistemaConfig, DEFAULTS };

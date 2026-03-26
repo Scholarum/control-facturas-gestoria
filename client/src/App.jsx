@@ -52,25 +52,20 @@ function AppInner() {
     }
   }, [user, tab]);
 
-  // Carga inicial — facturas y proveedores controlan el spinner de carga
+  // Carga inicial — todo en paralelo, facturas controla el spinner
   useEffect(() => {
     if (!user) return;
     setLoading(true);
     Promise.all([
       fetchFacturas().then(setTodasFacturas),
       fetchProveedores().then(setProveedores),
+      fetchPlanContable().then(setPlanContable).catch(() => {}),
     ])
       .catch(() => setError('No se pudo conectar con el servidor.'))
       .finally(() => setLoading(false));
   }, [user]);
 
-  // Plan contable — carga independiente, no bloquea la UI
-  useEffect(() => {
-    if (!user) return;
-    fetchPlanContable().then(setPlanContable).catch(() => {});
-  }, [user]);
-
-  // Autodetectar proveedores nuevos por CIF tras cargar facturas
+  // Autodetectar proveedores — en background, no bloquea la UI
   useEffect(() => {
     if (!user || loading) return;
     autodetectarProveedores()

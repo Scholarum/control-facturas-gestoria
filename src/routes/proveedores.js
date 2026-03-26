@@ -91,56 +91,31 @@ router.post('/autodetectar', async (req, res) => {
   try {
     const db = getDb();
 
-    // Recopilar CIFs únicos de facturas procesadas
-    const archivos = await db.all(
-      `SELECT datos_extraidos FROM drive_archivos
-       WHERE datos_extraidos IS NOT NULL AND estado = 'COMPLETADO'`
-    );
+    // Crear proveedores nuevos en una sola query SQL (sin parseo JS)
+    await db.query(`
+      INSERT INTO proveedores (razon_social, cif)
+      SELECT DISTINCT ON (normalizar_cif((da.datos_extraidos::jsonb)->>'cif_emisor'))
+             COALESCE(NULLIF(TRIM((da.datos_extraidos::jsonb)->>'nombre_emisor'), ''), 'Sin nombre'),
+             UPPER(TRIM((da.datos_extraidos::jsonb)->>'cif_emisor'))
+      FROM drive_archivos da
+      WHERE da.datos_extraidos IS NOT NULL
+        AND da.datos_extraidos ~ '^\\s*\\{'
+        AND (da.datos_extraidos::jsonb)->>'cif_emisor' IS NOT NULL
+        AND TRIM((da.datos_extraidos::jsonb)->>'cif_emisor') <> ''
+        AND NOT EXISTS (
+          SELECT 1 FROM proveedores p
+          WHERE p.activo = true
+            AND normalizar_cif(p.cif) = normalizar_cif((da.datos_extraidos::jsonb)->>'cif_emisor')
+        )
+      ON CONFLICT DO NOTHING
+    `);
 
-    const cifMap = new Map(); // cif -> nombre_emisor
-    for (const a of archivos) {
-      try {
-        const d = JSON.parse(a.datos_extraidos);
-        const cif = d.cif_emisor?.trim().toUpperCase();
-        if (cif && !cifMap.has(cif)) {
-          cifMap.set(cif, d.nombre_emisor?.trim() || cif);
-        }
-      } catch {}
-    }
-
-    if (cifMap.size === 0) {
-      const sinCuentas = await db.all(
-        `SELECT id, razon_social, cif, nombre_carpeta FROM proveedores
-         WHERE activo = true AND cuenta_contable_id IS NULL ORDER BY razon_social`
-      );
-      return res.json({ ok: true, data: { creados: 0, sinCuentas } });
-    }
-
-    // Obtener CIFs ya registrados
-    const existentes = await db.all(
-      'SELECT cif FROM proveedores WHERE activo = true AND cif IS NOT NULL'
-    );
-    const cifExistentes = new Set(existentes.map(p => p.cif.trim().toUpperCase()));
-
-    // Crear los que faltan
-    let creados = 0;
-    for (const [cif, nombre] of cifMap) {
-      if (!cifExistentes.has(cif)) {
-        await db.query(
-          'INSERT INTO proveedores (razon_social, cif) VALUES ($1, $2)',
-          [nombre, cif]
-        );
-        creados++;
-      }
-    }
-
-    // Devolver todos los proveedores sin cuentas contables
     const sinCuentas = await db.all(
       `SELECT id, razon_social, cif, nombre_carpeta FROM proveedores
        WHERE activo = true AND cuenta_contable_id IS NULL ORDER BY razon_social`
     );
 
-    res.json({ ok: true, data: { creados, sinCuentas } });
+    res.json({ ok: true, data: { creados: 0, sinCuentas } });
   } catch (err) {
     console.error('[proveedores] autodetectar error:', err.message);
     res.status(500).json({ ok: false, error: err.message });
