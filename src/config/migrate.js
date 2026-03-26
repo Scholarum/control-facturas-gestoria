@@ -117,6 +117,31 @@ const tablas = [
   `ALTER TABLE historial_conciliaciones ADD COLUMN IF NOT EXISTS usuario_id     INTEGER REFERENCES usuarios(id)`,
   `ALTER TABLE historial_conciliaciones ADD COLUMN IF NOT EXISTS usuario_nombre TEXT`,
 
+  // Exportación SAGE: historial de lotes y control de duplicados
+  `CREATE TABLE IF NOT EXISTS lotes_exportacion_sage (
+    id               SERIAL PRIMARY KEY,
+    fecha            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    nombre_fichero   TEXT NOT NULL,
+    num_facturas     INTEGER NOT NULL DEFAULT 0,
+    asiento_inicio   INTEGER NOT NULL DEFAULT 1,
+    asiento_fin      INTEGER NOT NULL DEFAULT 1,
+    contenido_csv    TEXT,
+    usuario_id       INTEGER REFERENCES usuarios(id),
+    usuario_nombre   TEXT
+  )`,
+  `CREATE TABLE IF NOT EXISTS sage_facturas_exportadas (
+    id               SERIAL PRIMARY KEY,
+    lote_id          INTEGER NOT NULL REFERENCES lotes_exportacion_sage(id) ON DELETE CASCADE,
+    factura_id       INTEGER NOT NULL REFERENCES drive_archivos(id) ON DELETE CASCADE,
+    cif_emisor       TEXT,
+    numero_factura   TEXT,
+    UNIQUE(cif_emisor, numero_factura)
+  )`,
+  `ALTER TABLE drive_archivos ADD COLUMN IF NOT EXISTS lote_sage_id INTEGER REFERENCES lotes_exportacion_sage(id)`,
+
+  // Último asiento SAGE por proveedor
+  `ALTER TABLE proveedores ADD COLUMN IF NOT EXISTS ultimo_asiento_sage INTEGER`,
+
   // Duplicados: columna en historial de sincronizaciones
   `ALTER TABLE historial_sincronizaciones ADD COLUMN IF NOT EXISTS facturas_duplicadas INTEGER NOT NULL DEFAULT 0`,
 

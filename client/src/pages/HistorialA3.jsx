@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { fetchHistorialA3, reDescargarA3 } from '../api.js';
+import { fetchHistorialSage, reDescargarSage } from '../api.js';
 
 function fmtFecha(iso) {
   if (!iso) return '';
@@ -32,7 +32,7 @@ export default function HistorialA3() {
   const hayFiltros = Object.values(filtros).some(Boolean);
 
   useEffect(() => {
-    fetchHistorialA3()
+    fetchHistorialSage()
       .then(setLotes)
       .catch(e => setError(e.message))
       .finally(() => setLoading(false));
@@ -49,7 +49,7 @@ export default function HistorialA3() {
 
   async function handleDescargar(lote) {
     setDescargando(lote.id);
-    try { await reDescargarA3(lote.id, lote.nombre_fichero); }
+    try { await reDescargarSage(lote.id, lote.nombre_fichero); }
     catch (e) { setError(e.message); }
     finally { setDescargando(null); }
   }
@@ -58,8 +58,8 @@ export default function HistorialA3() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-lg font-semibold text-gray-900">Historial de Exportaciones A3</h2>
-          <p className="text-sm text-gray-500 mt-0.5">Registro de todos los lotes exportados al formato SICE / A3Simple.</p>
+          <h2 className="text-lg font-semibold text-gray-900">Historial de Exportaciones SAGE</h2>
+          <p className="text-sm text-gray-500 mt-0.5">Registro de todos los lotes exportados en formato ContaPlus R75.</p>
         </div>
       </div>
 
@@ -100,15 +100,15 @@ export default function HistorialA3() {
         <table className="min-w-full divide-y divide-gray-100">
           <thead className="bg-gray-50">
             <tr>
-              {['Fecha','Fichero','Usuario','Facturas','Base','IVA','Total','Descargar'].map((h, i) => (
-                <th key={h} className={`px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide ${i >= 3 && i <= 6 ? 'text-right' : i === 7 ? 'text-center' : 'text-left'}`}>{h}</th>
+              {['Fecha','Fichero','Usuario','Facturas','Asiento ini.','Asiento fin','Descargar'].map((h, i) => (
+                <th key={h} className={`px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide ${i >= 3 && i <= 5 ? 'text-right' : i === 6 ? 'text-center' : 'text-left'}`}>{h}</th>
               ))}
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
-            {loading && <tr><td colSpan={8} className="py-16 text-center text-sm text-gray-400">Cargando...</td></tr>}
+            {loading && <tr><td colSpan={7} className="py-16 text-center text-sm text-gray-400">Cargando...</td></tr>}
             {!loading && filtrados.length === 0 && (
-              <tr><td colSpan={8} className="py-16 text-center text-sm text-gray-400">{hayFiltros ? 'Sin resultados con estos filtros' : 'No hay exportaciones A3'}</td></tr>
+              <tr><td colSpan={7} className="py-16 text-center text-sm text-gray-400">{hayFiltros ? 'Sin resultados con estos filtros' : 'No hay exportaciones SAGE'}</td></tr>
             )}
             {filtrados.map(lote => (
               <tr key={lote.id} className="hover:bg-gray-50 transition-colors">
@@ -116,9 +116,8 @@ export default function HistorialA3() {
                 <td className="px-4 py-3"><span className="text-xs font-mono text-orange-700 bg-orange-50 px-2 py-0.5 rounded">{lote.nombre_fichero}</span></td>
                 <td className="px-4 py-3 text-sm text-gray-700">{lote.usuario_nombre || '-'}</td>
                 <td className="px-4 py-3 text-sm text-gray-900 font-semibold text-right">{lote.num_facturas}</td>
-                <td className="px-4 py-3 text-sm text-gray-700 text-right">{fmtEuro(lote.total_base)}</td>
-                <td className="px-4 py-3 text-sm text-gray-700 text-right">{fmtEuro(lote.total_cuota)}</td>
-                <td className="px-4 py-3 text-sm font-semibold text-gray-900 text-right">{fmtEuro(lote.total_factura)}</td>
+                <td className="px-4 py-3 text-sm text-gray-700 text-right font-mono">{lote.asiento_inicio}</td>
+                <td className="px-4 py-3 text-sm text-gray-700 text-right font-mono">{lote.asiento_fin}</td>
                 <td className="px-4 py-3 text-center">
                   <button onClick={() => handleDescargar(lote)} disabled={descargando === lote.id}
                     className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-orange-700 bg-orange-50 hover:bg-orange-100 border border-orange-200 rounded-lg transition-colors disabled:opacity-60">

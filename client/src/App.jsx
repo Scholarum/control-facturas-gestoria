@@ -252,7 +252,7 @@ function AppInner() {
   const tabs = [
     { id: 'facturas',     label: 'Facturas',              visible: puedeVer('facturas')     },
     { id: 'conciliacion', label: 'Conciliacion de Mayor', visible: puedeVer('conciliacion') },
-    { id: 'historial_a3', label: 'Historial A3',          visible: puedeVer('facturas') && !esV1 },
+    { id: 'historial_a3', label: 'Historial SAGE',        visible: puedeVer('facturas') && !esV1 },
     { id: 'historial',    label: 'Historial',             visible: puedeVer('historial')    },
   ].filter(t => t.visible);
 

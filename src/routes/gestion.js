@@ -542,12 +542,13 @@ router.post('/exportar-excel', async (req, res) => {
 // ─── POST /api/drive/exportar-sage — generar fichero ContaPlus R75 ───────────
 
 router.post('/exportar-sage', requireAuth, express.json(), async (req, res) => {
-  const { ids } = req.body;
+  const { ids, asiento_inicio } = req.body;
   if (!ids?.length) return res.status(400).json({ ok: false, error: 'ids requeridos' });
 
   const db = getDb();
   const archivos = await db.all(`
-    SELECT da.id, da.nombre_archivo, da.proveedor, da.datos_extraidos,
+    SELECT da.id, da.nombre_archivo, da.proveedor, da.datos_extraidos, da.lote_sage_id,
+           p.id AS proveedor_id, p.ultimo_asiento_sage,
            COALESCE(da.cuenta_gasto_id, p.cuenta_gasto_id) AS cg_efectiva_id,
            COALESCE(cgd.codigo, pg.codigo)                  AS cuenta_gasto_codigo,
            cc.codigo                                        AS cta_proveedor_codigo
@@ -571,12 +572,19 @@ router.post('/exportar-sage', requireAuth, express.json(), async (req, res) => {
 
   if (!archivos.length) return res.status(404).json({ ok: false, error: 'Archivos no encontrados' });
 
-  // Validar que todas tengan los datos necesarios
+  // Validar cuentas
   const sinDatos = archivos.filter(a => !a.cta_proveedor_codigo || !a.cuenta_gasto_codigo);
   if (sinDatos.length > 0) {
+    return res.status(400).json({ ok: false, error: `${sinDatos.length} factura(s) sin cuenta contable o cuenta de gasto` });
+  }
+
+  // Verificar duplicados (ya exportadas a SAGE)
+  const yaExportadas = archivos.filter(a => a.lote_sage_id);
+  if (yaExportadas.length > 0) {
     return res.status(400).json({
       ok: false,
-      error: `${sinDatos.length} factura(s) sin cuenta contable o cuenta de gasto asignada`,
+      error: `${yaExportadas.length} factura(s) ya exportadas a SAGE previamente`,
+      ids_duplicadas: yaExportadas.map(a => a.id),
     });
   }
 
@@ -586,24 +594,89 @@ router.post('/exportar-sage', requireAuth, express.json(), async (req, res) => {
     datos_extraidos: a.datos_extraidos ? JSON.parse(a.datos_extraidos) : {},
   }));
 
-  const contenido = generarFicheroSage(facturasConDatos);
-  const fecha     = new Date().toISOString().slice(0, 10);
+  // Verificar duplicados por CIF+numero factura
+  for (const f of facturasConDatos) {
+    const d = f.datos_extraidos;
+    if (d.cif_emisor && d.numero_factura) {
+      const dup = await db.one(
+        'SELECT id FROM sage_facturas_exportadas WHERE cif_emisor = $1 AND numero_factura = $2',
+        [d.cif_emisor.trim().toUpperCase(), d.numero_factura.trim().toUpperCase()]
+      );
+      if (dup) {
+        return res.status(400).json({ ok: false, error: `Factura ${d.numero_factura} de ${d.cif_emisor} ya fue exportada a SAGE` });
+      }
+    }
+  }
 
-  // Registrar evento
-  const usuarioId = req.usuario?.id ?? null;
+  // Determinar numero de asiento inicial
+  const inicio = asiento_inicio || 1;
+  const { contenido, asientoFin } = generarFicheroSage(facturasConDatos, inicio);
+  const fechaStr = new Date().toISOString().slice(0, 10);
+  const nombreFichero = `diario-sage-${fechaStr}.csv`;
+
+  const usuarioId     = req.usuario?.id ?? null;
+  const usuarioNombre = req.usuario?.nombre ?? null;
+
+  // Guardar lote en historial
+  const loteRow = await db.one(
+    `INSERT INTO lotes_exportacion_sage (nombre_fichero, num_facturas, asiento_inicio, asiento_fin, contenido_csv, usuario_id, usuario_nombre)
+     VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
+    [nombreFichero, facturasConDatos.length, inicio, asientoFin, contenido, usuarioId, usuarioNombre]
+  );
+
+  // Marcar facturas como exportadas y registrar en tabla de control
+  for (const f of facturasConDatos) {
+    const d = f.datos_extraidos;
+    await db.query('UPDATE drive_archivos SET lote_sage_id = $1 WHERE id = $2', [loteRow.id, f.id]);
+    if (d.cif_emisor && d.numero_factura) {
+      await db.query(
+        `INSERT INTO sage_facturas_exportadas (lote_id, factura_id, cif_emisor, numero_factura)
+         VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING`,
+        [loteRow.id, f.id, d.cif_emisor.trim().toUpperCase(), d.numero_factura.trim().toUpperCase()]
+      );
+    }
+  }
+
+  // Actualizar ultimo_asiento_sage en proveedores
+  const provIds = [...new Set(facturasConDatos.map(f => f.proveedor_id).filter(Boolean))];
+  for (const pid of provIds) {
+    await db.query('UPDATE proveedores SET ultimo_asiento_sage = $1 WHERE id = $2', [asientoFin, pid]);
+  }
+
   registrarEvento({
-    evento:    'EXPORT_SAGE',
-    usuarioId,
-    ip:        req.clientIp,
-    userAgent: req.userAgent,
-    detalle:   { count: archivos.length, ids },
+    evento: 'EXPORT_SAGE', usuarioId,
+    ip: req.clientIp, userAgent: req.userAgent,
+    detalle: { lote_id: loteRow.id, count: facturasConDatos.length, asiento_inicio: inicio, asiento_fin: asientoFin },
   }).catch(() => {});
 
-  res.set({
-    'Content-Type':        'text/plain; charset=utf-8',
-    'Content-Disposition': `attachment; filename="diario-sage-${fecha}.csv"`,
-  });
-  res.send(contenido);
+  res.json({ ok: true, data: { lote_id: loteRow.id, nombre_fichero: nombreFichero, contenido_csv: contenido, asiento_fin: asientoFin } });
+});
+
+// ─── GET /api/drive/sage-historial — historial de lotes SAGE ────────────────
+
+router.get('/sage-historial', requireAuth, async (req, res) => {
+  const db = getDb();
+  const rows = await db.all('SELECT id, fecha, nombre_fichero, num_facturas, asiento_inicio, asiento_fin, usuario_nombre FROM lotes_exportacion_sage ORDER BY id DESC LIMIT 100');
+  res.json({ ok: true, data: rows });
+});
+
+// ─── GET /api/drive/sage-historial/:id/descargar — re-descargar lote ────────
+
+router.get('/sage-historial/:id/descargar', requireAuth, async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const db = getDb();
+  const row = await db.one('SELECT nombre_fichero, contenido_csv FROM lotes_exportacion_sage WHERE id = $1', [id]);
+  if (!row) return res.status(404).json({ ok: false, error: 'Lote no encontrado' });
+  res.set({ 'Content-Type': 'text/plain; charset=utf-8', 'Content-Disposition': `attachment; filename="${row.nombre_fichero}"` });
+  res.send(row.contenido_csv);
+});
+
+// ─── GET /api/drive/sage-siguiente-asiento — proponer siguiente asiento ─────
+
+router.get('/sage-siguiente-asiento', requireAuth, async (req, res) => {
+  const db = getDb();
+  const row = await db.one('SELECT MAX(asiento_fin) AS ultimo FROM lotes_exportacion_sage');
+  res.json({ ok: true, data: { siguiente: (row?.ultimo || 0) + 1 } });
 });
 
 // ─── PUT /api/drive/aplicar-cuentas-proveedor ────────────────────────────────

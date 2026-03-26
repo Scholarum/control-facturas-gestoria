@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, useRef } from 'react';
 import TablaFacturas, { tieneIncidencia, tieneIncidenciaProveedor } from './TablaFacturas.jsx';
-import { descargarZip, contabilizar, revertirEstado, eliminarFactura, asignarCGMasivo, exportarLoteA3, exportarSage } from '../api.js';
+import { descargarZip, contabilizar, revertirEstado, eliminarFactura, asignarCGMasivo, exportarLoteA3, exportarSage, fetchSiguienteAsientoSage } from '../api.js';
 
 // ─── Filtros compactos por sección ────────────────────────────────────────────
 
@@ -174,6 +174,8 @@ export default function SeccionFacturas({
   const [asignandoCC,        setAsignandoCC]        = useState(false);
   const [exportandoA3,       setExportandoA3]       = useState(false);
   const [exportandoSage,    setExportandoSage]    = useState(false);
+  const [modalSageOpen,     setModalSageOpen]     = useState(false);
+  const [asientoInicio,     setAsientoInicio]     = useState(1);
   const [modalA3Open,        setModalA3Open]        = useState(false);
   const [ccMasiva,           setCcMasiva]           = useState('');
   const [error,              setError]              = useState('');
@@ -270,12 +272,22 @@ export default function SeccionFacturas({
     }
   }
 
+  async function abrirModalSage() {
+    try {
+      const sig = await fetchSiguienteAsientoSage();
+      setAsientoInicio(sig);
+    } catch { setAsientoInicio(1); }
+    setModalSageOpen(true);
+  }
+
   async function handleExportarSage() {
     const ids = Array.from(seleccionados);
-    setExportandoSage(true); setError('');
+    setExportandoSage(true); setError(''); setModalSageOpen(false);
     try {
-      await exportarSage(ids);
+      await exportarSage(ids, asientoInicio);
+      onEstadoActualizado(ids, 'CONTABILIZADA');
       setSeleccionados(new Set());
+      if (onRefreshFacturas) onRefreshFacturas();
     } catch (e) {
       setError(e.message);
     } finally {
@@ -360,7 +372,7 @@ export default function SeccionFacturas({
             {/* Exportar a SAGE — solo en CC Asignada, v2 y con permisos */}
             {!esV1 && tipo === 'cc_asignada' && !soloLectura && (
               <button
-                onClick={handleExportarSage}
+                onClick={abrirModalSage}
                 disabled={exportandoSage || exportandoA3 || contabilizando || descargando || asignandoCC}
                 className="flex items-center gap-1.5 px-4 py-1.5 text-xs font-semibold bg-orange-500 hover:bg-orange-400 text-white rounded-lg transition-colors disabled:opacity-60"
               >
@@ -448,6 +460,30 @@ export default function SeccionFacturas({
           </div>
         );
       })()}
+
+      {/* Modal configuracion exportacion SAGE */}
+      {modalSageOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setModalSageOpen(false)}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4 p-6 space-y-4" onClick={e => e.stopPropagation()}>
+            <h3 className="text-sm font-semibold text-gray-900">Exportar a SAGE ContaPlus</h3>
+            <p className="text-xs text-gray-500">{seleccionados.size} factura(s) seleccionada(s)</p>
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">Numero de asiento inicial</label>
+              <input type="number" min={1} value={asientoInicio}
+                onChange={e => setAsientoInicio(parseInt(e.target.value, 10) || 1)}
+                className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500" />
+              <p className="text-[10px] text-gray-400 mt-1">Se propone el siguiente al ultimo asiento exportado</p>
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <button onClick={() => setModalSageOpen(false)} className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800">Cancelar</button>
+              <button onClick={handleExportarSage}
+                className="px-4 py-2 text-sm font-semibold text-white bg-orange-500 hover:bg-orange-600 rounded-lg transition-colors">
+                Exportar CSV
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Tabla */}
       <TablaFacturas

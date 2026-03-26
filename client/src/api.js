@@ -677,21 +677,44 @@ export async function exportarLoteA3(ids) {
   return json.data;
 }
 
-export async function exportarSage(ids) {
+export async function exportarSage(ids, asientoInicio) {
   const res = await fetch(`${API_BASE}/api/drive/exportar-sage`, {
     method:  'POST',
     headers: authHeaders({ 'Content-Type': 'application/json' }),
-    body:    JSON.stringify({ ids }),
+    body:    JSON.stringify({ ids, asiento_inicio: asientoInicio }),
   });
-  if (!res.ok) {
-    const json = await res.json().catch(() => ({}));
-    throw new Error(json.error || 'Error al exportar a SAGE');
-  }
+  const json = await res.json();
+  if (!json.ok) throw new Error(json.error || 'Error al exportar a SAGE');
+  const { nombre_fichero, contenido_csv } = json.data;
+  const blob = new Blob([contenido_csv], { type: 'text/csv;charset=utf-8;' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href = url; a.download = nombre_fichero;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  return json.data;
+}
+
+export async function fetchSiguienteAsientoSage() {
+  const res = await fetch(`${API_BASE}/api/drive/sage-siguiente-asiento`, { headers: authHeaders() });
+  const json = await res.json();
+  return json.data?.siguiente || 1;
+}
+
+export async function fetchHistorialSage() {
+  const res = await fetch(`${API_BASE}/api/drive/sage-historial`, { headers: authHeaders() });
+  if (!res.ok) throw new Error('Error al cargar historial SAGE');
+  const { data } = await res.json();
+  return data;
+}
+
+export async function reDescargarSage(id, nombreFichero) {
+  const res = await fetch(`${API_BASE}/api/drive/sage-historial/${id}/descargar`, { headers: authHeaders() });
+  if (!res.ok) throw new Error('Error al descargar');
   const blob = await res.blob();
   const url  = URL.createObjectURL(blob);
   const a    = document.createElement('a');
-  const fecha = new Date().toISOString().slice(0, 10);
-  a.href = url; a.download = `diario-sage-${fecha}.csv`;
+  a.href = url; a.download = nombreFichero;
   document.body.appendChild(a); a.click(); document.body.removeChild(a);
   URL.revokeObjectURL(url);
 }
