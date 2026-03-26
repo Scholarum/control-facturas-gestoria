@@ -4,19 +4,20 @@ import { apiLogin, apiLoginGoogle, apiMe, storeToken, clearToken, getStoredToken
 const AuthContext = createContext(null);
 
 export function AuthProvider({ children }) {
-  const [user,     setUser]     = useState(null);
-  const [permisos, setPermisos] = useState({});
-  const [loading,  setLoading]  = useState(true);
+  const [user,         setUser]         = useState(null);
+  const [permisos,     setPermisos]     = useState({});
+  const [modoGestoria, setModoGestoria] = useState('v1');
+  const [loading,      setLoading]      = useState(true);
 
   // Emulación: guarda estado real del admin mientras emula gestoría
-  const [emulacion, setEmulacion] = useState(null); // { userReal, permisosReales }
+  const [emulacion, setEmulacion] = useState(null);
 
   useEffect(() => {
     const token = getStoredToken();
     if (!token) { setLoading(false); return; }
     apiMe()
       .then(data => {
-        if (data) { setUser(data.user); setPermisos(data.permisos || {}); }
+        if (data) { setUser(data.user); setPermisos(data.permisos || {}); setModoGestoria(data.modo_gestoria || 'v1'); }
         else      { clearToken(); }
       })
       .catch(() => { clearToken(); setUser(null); setPermisos({}); })
@@ -24,21 +25,23 @@ export function AuthProvider({ children }) {
   }, []);
 
   async function login(email, password) {
-    const { token, user: u, permisos: p } = await apiLogin(email, password);
-    storeToken(token);
-    setUser(u);
-    setPermisos(p || {});
+    const data = await apiLogin(email, password);
+    storeToken(data.token);
+    setUser(data.user);
+    setPermisos(data.permisos || {});
+    setModoGestoria(data.modo_gestoria || 'v1');
     setEmulacion(null);
-    return u;
+    return data.user;
   }
 
   async function loginWithGoogle(credential) {
-    const { token, user: u, permisos: p } = await apiLoginGoogle(credential);
-    storeToken(token);
-    setUser(u);
-    setPermisos(p || {});
+    const data = await apiLoginGoogle(credential);
+    storeToken(data.token);
+    setUser(data.user);
+    setPermisos(data.permisos || {});
+    setModoGestoria(data.modo_gestoria || 'v1');
     setEmulacion(null);
-    return u;
+    return data.user;
   }
 
   function logout() {
@@ -69,6 +72,8 @@ export function AuthProvider({ children }) {
 
   const esAdmin = user?.rol === 'ADMIN';
   const estaEmulando = !!emulacion;
+  // Admin siempre ve todo (v2), salvo que esté emulando
+  const modoEfectivo = (esAdmin && !estaEmulando) ? 'v2' : modoGestoria;
 
   // ADMIN siempre tiene acceso total; el resto usa la tabla de permisos
   const puedeVer = useCallback((recurso) => {
@@ -88,6 +93,7 @@ export function AuthProvider({ children }) {
       esAdmin: esAdmin && !estaEmulando,
       estaEmulando,
       emularGestoria, detenerEmulacion,
+      modoGestoria: modoEfectivo,
     }}>
       {children}
     </AuthContext.Provider>

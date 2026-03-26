@@ -7,6 +7,7 @@ const { getDb }                     = require('../config/database');
 const { registrarEvento, EVENTOS }  = require('../services/auditService');
 const { buildDriveClient }          = require('../services/driveService');
 const { resolveUser, requireAdmin, requireAuth } = require('../middleware/auth');
+const { getSistemaConfig }          = require('../services/sistemaConfigService');
 
 function parsearArchivo(a) {
   const datos = a.datos_extraidos ? JSON.parse(a.datos_extraidos) : null;
@@ -145,25 +146,35 @@ router.post('/descargar-zip', async (req, res) => {
   // Los admins no modifican el estado al descargar
   const esAdmin = req.usuario?.rol === 'ADMIN';
   if (!esAdmin) {
-    // Solo transicionar a DESCARGADA las que no tienen incidencia de datos ni de proveedor
+    // Transicionar a DESCARGADA
+    const configDl = await getSistemaConfig();
     const idsCandidatos = archivos
-      .filter(a => a.estado_gestion !== 'CONTABILIZADA' && !tieneIncidencia(a.datos_extraidos))
+      .filter(a => a.estado_gestion !== 'CONTABILIZADA' && (configDl.modo_gestoria === 'v1' || !tieneIncidencia(a.datos_extraidos)))
       .map(a => a.id);
     if (idsCandidatos.length) {
-      await db.query(
-        `UPDATE drive_archivos da SET estado_gestion = 'DESCARGADA'
-         WHERE da.id = ANY($1::int[])
-           AND EXISTS (
-             SELECT 1 FROM proveedores p
-             WHERE p.activo = true AND p.cuenta_contable_id IS NOT NULL
-               AND (
-                 (p.cif IS NOT NULL AND da.datos_extraidos IS NOT NULL AND da.datos_extraidos ~ '^\\s*\\{'
-                  AND normalizar_cif((da.datos_extraidos::jsonb)->>'cif_emisor') = normalizar_cif(p.cif))
-                 OR p.nombre_carpeta = da.proveedor
-               )
-           )`,
-        [idsCandidatos]
-      );
+      if (configDl.modo_gestoria === 'v1') {
+        // v1: transicionar sin verificar proveedor/cuenta
+        await db.query(
+          "UPDATE drive_archivos SET estado_gestion = 'DESCARGADA' WHERE id = ANY($1::int[])",
+          [idsCandidatos]
+        );
+      } else {
+        // v2: requiere proveedor con cuenta contable
+        await db.query(
+          `UPDATE drive_archivos da SET estado_gestion = 'DESCARGADA'
+           WHERE da.id = ANY($1::int[])
+             AND EXISTS (
+               SELECT 1 FROM proveedores p
+               WHERE p.activo = true AND p.cuenta_contable_id IS NOT NULL
+                 AND (
+                   (p.cif IS NOT NULL AND da.datos_extraidos IS NOT NULL AND da.datos_extraidos ~ '^\\s*\\{'
+                    AND normalizar_cif((da.datos_extraidos::jsonb)->>'cif_emisor') = normalizar_cif(p.cif))
+                   OR p.nombre_carpeta = da.proveedor
+                 )
+             )`,
+          [idsCandidatos]
+        );
+      }
     }
   }
 
@@ -348,12 +359,20 @@ router.put('/:id/cg', express.json(), async (req, res) => {
   if (archivo.estado_gestion === 'CONTABILIZADA')
     return res.status(400).json({ ok: false, error: 'No se puede modificar una factura contabilizada' });
 
+  const config = await getSistemaConfig();
+  const esV1   = config.modo_gestoria === 'v1';
+
   let nuevoEstado = archivo.estado_gestion || 'PENDIENTE';
   if (cgId) {
-    // Solo transicionar a CC_ASIGNADA si no hay incidencias de datos NI de proveedor
-    const datosOk      = !tieneIncidencia(archivo.datos_extraidos);
-    const proveedorOk  = !!archivo.proveedor_id && !!archivo.cta_proveedor_codigo;
-    if (datosOk && proveedorOk && nuevoEstado !== 'CC_ASIGNADA') nuevoEstado = 'CC_ASIGNADA';
+    if (esV1) {
+      // v1: no requiere proveedor/cuenta contable para transicionar
+      if (nuevoEstado !== 'CC_ASIGNADA') nuevoEstado = 'CC_ASIGNADA';
+    } else {
+      // v2: requiere datos completos + proveedor con cuenta contable
+      const datosOk      = !tieneIncidencia(archivo.datos_extraidos);
+      const proveedorOk  = !!archivo.proveedor_id && !!archivo.cta_proveedor_codigo;
+      if (datosOk && proveedorOk && nuevoEstado !== 'CC_ASIGNADA') nuevoEstado = 'CC_ASIGNADA';
+    }
   } else {
     if (nuevoEstado === 'CC_ASIGNADA') nuevoEstado = 'PENDIENTE';
   }

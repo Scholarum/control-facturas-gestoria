@@ -4,6 +4,7 @@ const router  = express.Router();
 const { login, signToken } = require('../services/authService');
 const { resolveUser, requireAuth } = require('../middleware/auth');
 const { getDb }      = require('../config/database');
+const { getSistemaConfig } = require('../services/sistemaConfigService');
 
 // ─── Helper: obtener permisos de un rol ───────────────────────────────────────
 
@@ -29,7 +30,8 @@ router.post('/login', async (req, res) => {
   try {
     const { token, user } = await login(email, password);
     const permisos = await getPermisos(user.rol);
-    res.json({ ok: true, data: { token, user, permisos } });
+    const config   = await getSistemaConfig();
+    res.json({ ok: true, data: { token, user, permisos, modo_gestoria: config.modo_gestoria } });
   } catch (err) {
     res.status(err.status || 500).json({ ok: false, error: err.message });
   }
@@ -70,7 +72,8 @@ router.post('/google', async (req, res) => {
 
     const token    = signToken({ id: user.id, rol: user.rol });
     const permisos = await getPermisos(user.rol);
-    res.json({ ok: true, data: { token, user, permisos } });
+    const config   = await getSistemaConfig();
+    res.json({ ok: true, data: { token, user, permisos, modo_gestoria: config.modo_gestoria } });
   } catch (err) {
     res.status(500).json({ ok: false, error: 'Error al verificar el token de Google' });
   }
@@ -82,7 +85,8 @@ router.get('/me', resolveUser, requireAuth, async (req, res) => {
   try {
     const { password_hash: _, ...user } = req.usuario;
     const permisos = await getPermisos(user.rol);
-    res.json({ ok: true, data: { user, permisos } });
+    const config   = await getSistemaConfig();
+    res.json({ ok: true, data: { user, permisos, modo_gestoria: config.modo_gestoria } });
   } catch (e) {
     res.status(500).json({ ok: false, error: e.message });
   }

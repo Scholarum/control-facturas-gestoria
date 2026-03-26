@@ -25,7 +25,7 @@ function StatCard({ label, value, color }) {
 // ─── Inner app (requires auth context) ───────────────────────────────────────
 
 function AppInner() {
-  const { user, loading: authLoading, logout, puedeVer, puedeEditar, esAdmin: esAdminReal, estaEmulando, emularGestoria, detenerEmulacion } = useAuth();
+  const { user, loading: authLoading, logout, puedeVer, puedeEditar, esAdmin: esAdminReal, estaEmulando, emularGestoria, detenerEmulacion, modoGestoria } = useAuth();
 
   const [tab,             setTab]             = useState('facturas');
   const [subTab,          setSubTab]          = useState('pendientes');
@@ -247,10 +247,12 @@ function AppInner() {
   if (!user) return <Login />;
 
   // ── Pestañas principales (nav) ──────────────────────────────────────────────
+  const esV1 = modoGestoria === 'v1';
+
   const tabs = [
     { id: 'facturas',     label: 'Facturas',              visible: puedeVer('facturas')     },
-    { id: 'conciliacion', label: 'Conciliación de Mayor', visible: puedeVer('conciliacion') },
-    { id: 'historial_a3', label: 'Historial A3',          visible: puedeVer('facturas')     },
+    { id: 'conciliacion', label: 'Conciliacion de Mayor', visible: puedeVer('conciliacion') },
+    { id: 'historial_a3', label: 'Historial A3',          visible: puedeVer('facturas') && !esV1 },
     { id: 'historial',    label: 'Historial',             visible: puedeVer('historial')    },
   ].filter(t => t.visible);
 
@@ -261,7 +263,7 @@ function AppInner() {
   const subTabs = [
     { id: 'pendientes',     label: 'Pendientes',     count: stats.pendientes,     color: 'text-amber-600',   bg: 'bg-amber-600'   },
     { id: 'descargadas',    label: 'Descargadas',    count: stats.descargadas,    color: 'text-blue-600',    bg: 'bg-blue-600'    },
-    { id: 'cc_asignada',    label: 'Cta. Gasto',     count: stats.ccAsignadas,    color: 'text-purple-600',  bg: 'bg-purple-600'  },
+    ...(!esV1 ? [{ id: 'cc_asignada', label: 'Cta. Gasto', count: stats.ccAsignadas, color: 'text-purple-600', bg: 'bg-purple-600' }] : []),
     { id: 'contabilizadas', label: 'Contabilizadas', count: stats.contabilizadas, color: 'text-emerald-600', bg: 'bg-emerald-600' },
   ];
 
@@ -489,7 +491,7 @@ function AppInner() {
             </div>
 
             {/* Botones de administración */}
-            {(esAdmin || puedeEditar('aplicar_cuentas')) && (
+            {!esV1 && (esAdmin || puedeEditar('aplicar_cuentas')) && (
               <div className="flex items-center gap-3 flex-wrap">
                 {esAdmin && (
                   <button
@@ -598,12 +600,13 @@ function AppInner() {
                 soloLectura={!puedeEditar('facturas')}
                 loading={loading}
                 planContable={planContable}
+                modoGestoria={modoGestoria}
                 onEstadoActualizado={handleEstadoActualizado}
-                onAsignarCG={handleAsignarCG}
-                onAsignarCGMasivo={handleAsignarCGMasivo}
+                onAsignarCG={!esV1 ? handleAsignarCG : undefined}
+                onAsignarCGMasivo={!esV1 ? handleAsignarCGMasivo : undefined}
                 onEliminarFactura={handleEliminarFactura}
-                onDatosActualizados={handleDatosActualizados}
-                onProveedorActualizado={handleProveedorActualizado}
+                onDatosActualizados={!esV1 ? handleDatosActualizados : undefined}
+                onProveedorActualizado={!esV1 ? handleProveedorActualizado : undefined}
               />
             )}
             {subTab === 'descargadas' && (
@@ -615,14 +618,15 @@ function AppInner() {
                 soloLectura={!puedeEditar('facturas')}
                 loading={loading}
                 planContable={planContable}
+                modoGestoria={modoGestoria}
                 onEstadoActualizado={handleEstadoActualizado}
-                onAsignarCG={handleAsignarCG}
-                onAsignarCGMasivo={handleAsignarCGMasivo}
-                onDatosActualizados={handleDatosActualizados}
-                onProveedorActualizado={handleProveedorActualizado}
+                onAsignarCG={!esV1 ? handleAsignarCG : undefined}
+                onAsignarCGMasivo={!esV1 ? handleAsignarCGMasivo : undefined}
+                onDatosActualizados={!esV1 ? handleDatosActualizados : undefined}
+                onProveedorActualizado={!esV1 ? handleProveedorActualizado : undefined}
               />
             )}
-            {subTab === 'cc_asignada' && (
+            {!esV1 && subTab === 'cc_asignada' && (
               <SeccionFacturas
                 tipo="cc_asignada"
                 facturas={ccAsignadas}
@@ -631,6 +635,7 @@ function AppInner() {
                 soloLectura={!puedeEditar('facturas')}
                 loading={loading}
                 planContable={planContable}
+                modoGestoria={modoGestoria}
                 onEstadoActualizado={handleEstadoActualizado}
                 onRefreshFacturas={handleRefreshFacturas}
                 onAsignarCG={handleAsignarCG}
@@ -648,8 +653,9 @@ function AppInner() {
                 soloLectura={!puedeEditar('facturas')}
                 loading={loading}
                 planContable={planContable}
+                modoGestoria={modoGestoria}
                 onEstadoActualizado={handleEstadoActualizado}
-                onAsignarCG={handleAsignarCG}
+                onAsignarCG={!esV1 ? handleAsignarCG : undefined}
               />
             )}
 

@@ -8,6 +8,7 @@ const DEFAULTS = {
   notify_frecuencia: 'diaria',
   notify_hora:       '09:00',
   notify_app_url:    'http://localhost:5173',
+  modo_gestoria:     'v1',       // v1 = solo descarga/contabilizar | v2 = flujo completo con cuentas
 };
 
 async function getSistemaConfig() {

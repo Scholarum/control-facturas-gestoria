@@ -164,7 +164,9 @@ export default function SeccionFacturas({
   onEliminarFactura,
   onDatosActualizados,
   onProveedorActualizado,
+  modoGestoria = 'v2',
 }) {
+  const esV1 = modoGestoria === 'v1';
   const [filtros,       setFiltros]       = useState({ proveedor: '', fechaDesde: '', fechaHasta: '', soloIncidencias: false, soloSinProveedor: false });
   const [seleccionados, setSeleccionados] = useState(new Set());
   const [descargando,        setDescargando]        = useState(false);
@@ -329,8 +331,8 @@ export default function SeccionFacturas({
               {descargando ? 'Generando ZIP...' : `Descargar ZIP (${n})`}
             </button>
 
-            {/* Marcar como CONTABILIZADAS — solo en CC Asignada y con permisos */}
-            {tipo === 'cc_asignada' && !soloLectura && (
+            {/* Marcar como CONTABILIZADAS — en v1 también desde Descargadas */}
+            {((esV1 ? (tipo === 'descargadas' || tipo === 'cc_asignada') : tipo === 'cc_asignada') && !soloLectura) && (
               <button
                 onClick={handleContabilizar}
                 disabled={contabilizando || descargando || asignandoCC || exportandoA3}
@@ -341,8 +343,8 @@ export default function SeccionFacturas({
               </button>
             )}
 
-            {/* Exportar Lote a A3 — solo en CC Asignada y con permisos */}
-            {tipo === 'cc_asignada' && !soloLectura && (
+            {/* Exportar Lote a A3 — solo en CC Asignada, v2 y con permisos */}
+            {!esV1 && tipo === 'cc_asignada' && !soloLectura && (
               <button
                 onClick={() => setModalA3Open(true)}
                 disabled={exportandoA3 || contabilizando || descargando || asignandoCC}
@@ -358,8 +360,8 @@ export default function SeccionFacturas({
             )}
           </div>
 
-          {/* Asignación masiva de Cta. Gasto — disponible en todos los estados salvo Contabilizadas */}
-          {tipo !== 'contabilizadas' && !soloLectura && planContable.length > 0 && (
+          {/* Asignación masiva de Cta. Gasto — solo v2 */}
+          {!esV1 && tipo !== 'contabilizadas' && !soloLectura && planContable.length > 0 && (
             <div className="flex items-center gap-3 bg-purple-600 text-white rounded-xl px-5 py-3 shadow-lg shadow-purple-200 flex-wrap">
               <span className="text-xs font-medium text-purple-100 flex-shrink-0">
                 Asignar Cta. Gasto a {n} {n === 1 ? 'factura' : 'facturas'}:
