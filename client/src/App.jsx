@@ -202,8 +202,18 @@ function AppInner() {
       const result = await aplicarCuentasProveedor();
       const nuevas = await fetchFacturas();
       setTodasFacturas(nuevas);
-      setSyncMsg({ ok: true, texto: `${result.actualizadas} factura${result.actualizadas !== 1 ? 's' : ''} pasada${result.actualizadas !== 1 ? 's' : ''} a "Cta. Gasto"` });
-      setTimeout(() => setSyncMsg(null), 5000);
+      let texto = `${result.actualizadas} factura${result.actualizadas !== 1 ? 's' : ''} pasada${result.actualizadas !== 1 ? 's' : ''} a "Cta. Gasto"`;
+      if (result.pendientes_sin_mover > 0) {
+        // Agrupar motivos
+        const conteo = {};
+        for (const m of (result.motivos || [])) {
+          conteo[m.motivo] = (conteo[m.motivo] || 0) + 1;
+        }
+        const detalle = Object.entries(conteo).map(([motivo, n]) => `${n} ${motivo.toLowerCase()}`).join(', ');
+        texto += ` · ${result.pendientes_sin_mover} sin mover: ${detalle}`;
+      }
+      setSyncMsg({ ok: result.actualizadas > 0, texto });
+      setTimeout(() => setSyncMsg(null), 10000);
     } catch (e) {
       setError(e.message);
     } finally {

@@ -745,34 +745,78 @@ router.get('/sage-historial/:id/descargar', requireAuth, async (req, res) => {
 
 
 // ─── PUT /api/drive/aplicar-cuentas-proveedor ────────────────────────────────
-// Pasa a CC_ASIGNADA todas las facturas PENDIENTE cuyo proveedor ya tiene
-// cuenta de gasto definida (por nombre de carpeta o por CIF extraído)
 
 router.put('/aplicar-cuentas-proveedor', requireAuth, async (req, res) => {
   try {
     const db = getDb();
-    const result = await db.query(
-      `UPDATE drive_archivos da
-       SET estado_gestion = 'CC_ASIGNADA'
-       WHERE da.estado_gestion = 'PENDIENTE'
-         AND NOT ${tieneIncidenciaSQL('da')}
-         AND EXISTS (
-           SELECT 1 FROM proveedores p
-           WHERE p.activo = true
-             AND p.cuenta_gasto_id IS NOT NULL
-             AND p.cuenta_contable_id IS NOT NULL
-             AND (
-               (
-                 p.cif IS NOT NULL
-                 AND da.datos_extraidos IS NOT NULL
-                 AND da.datos_extraidos ~ '^\\s*\\{'
-                 AND normalizar_cif((da.datos_extraidos::jsonb)->>'cif_emisor') = normalizar_cif(p.cif)
-               )
-               OR p.nombre_carpeta = da.proveedor
-             )
-         )`
-    );
-    res.json({ ok: true, data: { actualizadas: result.rowCount } });
+    const config = await getSistemaConfig();
+    const esV1 = config.modo_gestoria === 'v1';
+
+    // Obtener todas las pendientes con info de proveedor y cuentas
+    const pendientes = await db.all(`
+      SELECT da.id, da.nombre_archivo, da.proveedor, da.datos_extraidos, da.cuenta_gasto_id,
+             p.id AS prov_id, p.cuenta_gasto_id AS prov_cg_id, p.cuenta_contable_id AS prov_cc_id
+      FROM drive_archivos da
+      LEFT JOIN LATERAL (
+        SELECT p2.* FROM proveedores p2
+        WHERE p2.activo = true AND (
+          (p2.cif IS NOT NULL AND da.datos_extraidos IS NOT NULL AND da.datos_extraidos ~ '^\\s*\\{'
+           AND normalizar_cif((da.datos_extraidos::jsonb)->>'cif_emisor') = normalizar_cif(p2.cif))
+          OR p2.nombre_carpeta = da.proveedor
+        )
+        ORDER BY (p2.cif IS NOT NULL AND da.datos_extraidos IS NOT NULL AND da.datos_extraidos ~ '^\\s*\\{'
+                 AND normalizar_cif((da.datos_extraidos::jsonb)->>'cif_emisor') = normalizar_cif(p2.cif)) DESC NULLS LAST
+        LIMIT 1
+      ) p ON true
+      WHERE da.estado_gestion = 'PENDIENTE'
+    `);
+
+    const idsActualizar = [];
+    const motivos = []; // { id, nombre, motivo }
+
+    for (const f of pendientes) {
+      const cgEfectiva = f.cuenta_gasto_id || f.prov_cg_id;
+
+      if (esV1) {
+        // v1: solo necesita cuenta de gasto efectiva
+        if (cgEfectiva) {
+          idsActualizar.push(f.id);
+        } else {
+          motivos.push({ id: f.id, nombre: f.nombre_archivo, motivo: 'Sin cuenta de gasto' });
+        }
+        continue;
+      }
+
+      // v2: verificar todo
+      if (!f.prov_id) {
+        motivos.push({ id: f.id, nombre: f.nombre_archivo, motivo: 'Sin proveedor vinculado' });
+        continue;
+      }
+      if (!f.prov_cc_id) {
+        motivos.push({ id: f.id, nombre: f.nombre_archivo, motivo: 'Proveedor sin cuenta contable' });
+        continue;
+      }
+      if (!cgEfectiva) {
+        motivos.push({ id: f.id, nombre: f.nombre_archivo, motivo: 'Sin cuenta de gasto' });
+        continue;
+      }
+      if (tieneIncidencia(f.datos_extraidos)) {
+        motivos.push({ id: f.id, nombre: f.nombre_archivo, motivo: 'Datos de factura incompletos' });
+        continue;
+      }
+      idsActualizar.push(f.id);
+    }
+
+    let actualizadas = 0;
+    if (idsActualizar.length) {
+      const r = await db.query(
+        "UPDATE drive_archivos SET estado_gestion = 'CC_ASIGNADA' WHERE id = ANY($1::int[])",
+        [idsActualizar]
+      );
+      actualizadas = r.rowCount;
+    }
+
+    res.json({ ok: true, data: { actualizadas, pendientes_sin_mover: motivos.length, motivos } });
   } catch (e) {
     res.status(500).json({ ok: false, error: e.message });
   }
