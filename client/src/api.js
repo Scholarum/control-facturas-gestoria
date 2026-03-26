@@ -632,6 +632,18 @@ export async function descargarExcelProveedores() {
   URL.revokeObjectURL(url);
 }
 
+export async function descargarPlantillaProveedores() {
+  const res = await fetch(`${API_BASE}/api/proveedores/plantilla-importacion`, { headers: authHeaders() });
+  if (!res.ok) throw new Error('Error al descargar plantilla');
+  const blob = await res.blob();
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href     = url;
+  a.download = 'plantilla-proveedores.xlsx';
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
 export async function importarProveedoresExcel(file) {
   const fd = new FormData();
   fd.append('archivo', file);
