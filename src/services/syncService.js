@@ -87,6 +87,7 @@ async function ejecutarSync(origen = 'MANUAL') {
 
     let extraccion = { procesada: 0, revision: 0 };
     let facturas_duplicadas = 0;
+    let detalleDuplicadas = [];
     if (idsParaExtraer.length > 0) {
       try {
         extraccion = await ejecutarExtraccion(idsParaExtraer);
@@ -95,11 +96,13 @@ async function ejecutarSync(origen = 'MANUAL') {
       }
 
       // Tras extracción: detectar duplicados (mismo CIF emisor + mismo nº factura)
+      // Las duplicadas se eliminan de drive_archivos y se registran en el detalle del historial
       try {
         const duplicadas = await db.all(`
-          SELECT da.id, da.nombre_archivo,
+          SELECT da.id, da.nombre_archivo, da.ruta_completa, da.google_id, da.proveedor,
                  (da.datos_extraidos::jsonb)->>'cif_emisor'     AS cif,
-                 (da.datos_extraidos::jsonb)->>'numero_factura' AS num
+                 (da.datos_extraidos::jsonb)->>'numero_factura' AS num,
+                 (da.datos_extraidos::jsonb)->>'nombre_emisor'  AS emisor
           FROM drive_archivos da
           WHERE da.id = ANY($1::int[])
             AND da.estado = 'PROCESADA'
@@ -122,14 +125,17 @@ async function ejecutarSync(origen = 'MANUAL') {
 
         if (duplicadas.length > 0) {
           const dupIds = duplicadas.map(d => d.id);
-          await db.query(
-            `UPDATE drive_archivos
-             SET estado = 'DUPLICADA', error_extraccion = 'Factura duplicada: mismo CIF emisor y número de factura'
-             WHERE id = ANY($1::int[])`,
-            [dupIds]
-          );
+          detalleDuplicadas = duplicadas.map(d => ({
+            nombre_archivo: d.nombre_archivo,
+            ruta_drive:     d.ruta_completa,
+            proveedor:      d.proveedor,
+            cif_emisor:     d.cif,
+            numero_factura: d.num,
+            nombre_emisor:  d.emisor,
+          }));
+          await db.query('DELETE FROM drive_archivos WHERE id = ANY($1::int[])', [dupIds]);
           facturas_duplicadas = duplicadas.length;
-          console.log(`[Sync] ${facturas_duplicadas} factura(s) marcada(s) como duplicada(s)`);
+          console.log(`[Sync] ${facturas_duplicadas} factura(s) duplicada(s) eliminada(s)`);
         }
       } catch (e) {
         console.error('[Sync] Error al detectar duplicados:', e.message);
@@ -176,7 +182,7 @@ async function ejecutarSync(origen = 'MANUAL') {
          (origen, estado, facturas_nuevas, facturas_error, facturas_duplicadas, duracion_ms, detalle)
        VALUES ($1, 'OK', $2, $3, $4, $5, $6)`,
       [origen, facturas_nuevas, facturas_error, facturas_duplicadas, duracion_ms,
-       JSON.stringify({ total_escaneadas: archivos.length, extraccion })]
+       JSON.stringify({ total_escaneadas: archivos.length, extraccion, duplicadas: detalleDuplicadas })]
     );
 
     return { facturas_nuevas, facturas_error, facturas_duplicadas, duracion_ms, extraccion };

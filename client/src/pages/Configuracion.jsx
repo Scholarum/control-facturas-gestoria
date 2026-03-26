@@ -399,31 +399,41 @@ function PanelHistorialSync() {
           <table className="w-full text-sm">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
-                {['Fecha', 'Origen', 'Estado', 'Nuevas', 'En revision', 'Duracion', 'Detalle'].map(h => (
+                {['Fecha', 'Origen', 'Estado', 'Nuevas', 'Duplicadas', 'En revision', 'Duracion', 'Detalle'].map(h => (
                   <th key={h} className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {filtrados.map(row => (
-                <tr key={row.id} className="hover:bg-gray-50">
-                  <td className="px-4 py-2.5 text-xs text-gray-600 whitespace-nowrap">{fmtFecha(row.fecha)}</td>
-                  <td className="px-4 py-2.5">
-                    <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ring-1 ring-inset ${row.origen === 'CRON' ? 'bg-purple-50 text-purple-700 ring-purple-200' : 'bg-blue-50 text-blue-700 ring-blue-200'}`}>{row.origen}</span>
-                  </td>
-                  <td className="px-4 py-2.5">
-                    <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ring-1 ring-inset ${row.estado === 'OK' ? 'bg-emerald-50 text-emerald-700 ring-emerald-200' : 'bg-red-50 text-red-700 ring-red-200'}`}>{row.estado}</span>
-                  </td>
-                  <td className="px-4 py-2.5 text-sm font-semibold text-gray-900">{row.facturas_nuevas}</td>
-                  <td className="px-4 py-2.5">
-                    {row.facturas_error > 0 ? <span className="text-sm font-semibold text-red-600">{row.facturas_error}</span> : <span className="text-sm text-gray-400">0</span>}
-                  </td>
-                  <td className="px-4 py-2.5 text-xs text-gray-500">{fmtMs(row.duracion_ms)}</td>
-                  <td className="px-4 py-2.5 text-xs text-gray-400 max-w-[200px] truncate" title={row.detalle?.error || ''}>
-                    {row.detalle?.error ? <span className="text-red-500">{row.detalle.error}</span> : row.detalle?.total_escaneadas != null ? `${row.detalle.total_escaneadas} PDFs escaneados` : '-'}
-                  </td>
-                </tr>
-              ))}
+              {filtrados.map(row => {
+                const dups = row.detalle?.duplicadas || [];
+                const numDups = row.facturas_duplicadas || dups.length || 0;
+                const dupTooltip = dups.length
+                  ? dups.map(d => `${d.nombre_archivo} (${d.numero_factura || '?'} - ${d.cif_emisor || '?'}) en ${d.ruta_drive || '?'}`).join('\n')
+                  : '';
+                return (
+                  <tr key={row.id} className="hover:bg-gray-50">
+                    <td className="px-4 py-2.5 text-xs text-gray-600 whitespace-nowrap">{fmtFecha(row.fecha)}</td>
+                    <td className="px-4 py-2.5">
+                      <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ring-1 ring-inset ${row.origen === 'CRON' ? 'bg-purple-50 text-purple-700 ring-purple-200' : 'bg-blue-50 text-blue-700 ring-blue-200'}`}>{row.origen}</span>
+                    </td>
+                    <td className="px-4 py-2.5">
+                      <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ring-1 ring-inset ${row.estado === 'OK' ? 'bg-emerald-50 text-emerald-700 ring-emerald-200' : 'bg-red-50 text-red-700 ring-red-200'}`}>{row.estado}</span>
+                    </td>
+                    <td className="px-4 py-2.5 text-sm font-semibold text-gray-900">{row.facturas_nuevas}</td>
+                    <td className="px-4 py-2.5" title={dupTooltip}>
+                      <span className={numDups > 0 ? 'text-sm font-semibold text-amber-600 cursor-help' : 'text-sm text-gray-400'}>{numDups}</span>
+                    </td>
+                    <td className="px-4 py-2.5">
+                      {row.facturas_error > 0 ? <span className="text-sm font-semibold text-red-600">{row.facturas_error}</span> : <span className="text-sm text-gray-400">0</span>}
+                    </td>
+                    <td className="px-4 py-2.5 text-xs text-gray-500">{fmtMs(row.duracion_ms)}</td>
+                    <td className="px-4 py-2.5 text-xs text-gray-400 max-w-[200px] truncate" title={row.detalle?.error || ''}>
+                      {row.detalle?.error ? <span className="text-red-500">{row.detalle.error}</span> : row.detalle?.total_escaneadas != null ? `${row.detalle.total_escaneadas} PDFs escaneados` : '-'}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         )}
