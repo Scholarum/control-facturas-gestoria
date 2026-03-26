@@ -59,14 +59,8 @@ async function iniciarCrons() {
       console.log(`[Cron] Sync programada -> ${expr} (${config.sync_frecuencia} a las ${config.sync_hora} ${timezone})`);
     }
 
-    // Catch-up: solo si es diaria, la hora ya paso, estamos dentro de 2h de ventana,
-    // y no hay ejecucion reciente
-    if (config.sync_frecuencia === 'diaria') {
-      const diff = minutosDesdeProgramada(config.sync_hora, timezone);
-      if (diff > 0 && diff <= 120) {
-        catchup('sync', config.sync_hora, timezone);
-      }
-    }
+    // Catch-up desactivado: usar cron externo (cron-job.org) para fiabilidad
+    // Los endpoints /api/sincronizacion/cron-sync y /cron-notify son la via fiable
   }
 
   // ─── Notificaciones ───────────────────────────────────────────────────
@@ -85,12 +79,7 @@ async function iniciarCrons() {
       console.log(`[Cron] Notificaciones programadas -> ${expr} (${config.notify_frecuencia} a las ${config.notify_hora} ${timezone})`);
     }
 
-    if (config.notify_frecuencia === 'diaria') {
-      const diff = minutosDesdeProgramada(config.notify_hora, timezone);
-      if (diff > 0 && diff <= 120) {
-        catchup('notify', config.notify_hora, timezone);
-      }
-    }
+    // Catch-up desactivado: usar cron externo para fiabilidad
   }
 }
 

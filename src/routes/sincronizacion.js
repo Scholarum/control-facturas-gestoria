@@ -114,4 +114,82 @@ router.get('/estado-mensaje/:messageId', requireAdmin, async (req, res) => {
   }
 });
 
+// ─── POST /api/sincronizacion/cron-trigger — endpoint para cron externo ─────
+// Protegido por token secreto en cabecera x-cron-token o query ?token=
+// Ejecuta sync y/o notificaciones segun la configuracion activa.
+// Uso: configurar en cron-job.org o similar con la URL y el token.
+
+router.post('/cron-trigger', async (req, res) => {
+  const secret = process.env.CRON_SECRET;
+  if (!secret) return res.status(500).json({ ok: false, error: 'CRON_SECRET no configurado en el servidor' });
+
+  const token = req.headers['x-cron-token'] || req.query.token;
+  if (token !== secret) return res.status(401).json({ ok: false, error: 'Token invalido' });
+
+  const config = await getSistemaConfig();
+  const resultados = {};
+
+  // Sync
+  if (config.sync_activo === 'true') {
+    try {
+      resultados.sync = await ejecutarSync('CRON');
+    } catch (e) {
+      resultados.sync = { error: e.message };
+    }
+  } else {
+    resultados.sync = { saltado: true, motivo: 'sync desactivada' };
+  }
+
+  // Notificaciones
+  if (config.notify_activo === 'true') {
+    try {
+      resultados.notificaciones = await enviarNotificaciones({ forzar: true, origen: 'CRON' });
+    } catch (e) {
+      resultados.notificaciones = { error: e.message };
+    }
+  } else {
+    resultados.notificaciones = { saltado: true, motivo: 'notificaciones desactivadas' };
+  }
+
+  res.json({ ok: true, data: resultados });
+});
+
+// ─── POST /api/sincronizacion/cron-sync — solo sync via cron externo ────────
+
+router.post('/cron-sync', async (req, res) => {
+  const secret = process.env.CRON_SECRET;
+  if (!secret) return res.status(500).json({ ok: false, error: 'CRON_SECRET no configurado' });
+  const token = req.headers['x-cron-token'] || req.query.token;
+  if (token !== secret) return res.status(401).json({ ok: false, error: 'Token invalido' });
+
+  const config = await getSistemaConfig();
+  if (config.sync_activo !== 'true') return res.json({ ok: true, data: { saltado: true } });
+
+  try {
+    const result = await ejecutarSync('CRON');
+    res.json({ ok: true, data: result });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+// ─── POST /api/sincronizacion/cron-notify — solo notificaciones via cron ────
+
+router.post('/cron-notify', async (req, res) => {
+  const secret = process.env.CRON_SECRET;
+  if (!secret) return res.status(500).json({ ok: false, error: 'CRON_SECRET no configurado' });
+  const token = req.headers['x-cron-token'] || req.query.token;
+  if (token !== secret) return res.status(401).json({ ok: false, error: 'Token invalido' });
+
+  const config = await getSistemaConfig();
+  if (config.notify_activo !== 'true') return res.json({ ok: true, data: { saltado: true } });
+
+  try {
+    const result = await enviarNotificaciones({ forzar: true, origen: 'CRON' });
+    res.json({ ok: true, data: result });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
 module.exports = router;
