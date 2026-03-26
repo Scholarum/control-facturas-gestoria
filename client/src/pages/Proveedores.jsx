@@ -293,12 +293,24 @@ function ModalImportar({ onImportar, onCerrar, importando }) {
         <div className="px-6 py-5 space-y-4">
           {!resultado ? (
             <>
-              <p className="text-sm text-gray-600">
-                El archivo debe tener las columnas:<br />
-                <span className="font-mono text-xs text-gray-500">
-                  Razón Social · Nombre Carpeta · CIF · Código Cuenta Contable · Código Cuenta Gasto
-                </span>
-              </p>
+              <div className="text-sm text-gray-600 space-y-1.5">
+                <p>
+                  Columnas obligatorias: <span className="font-semibold">Razon Social</span>, <span className="font-semibold">CIF</span>, <span className="font-semibold">Cuenta Contable</span>
+                </p>
+                <p className="text-xs text-gray-400">
+                  Opcionales: Nombre Carpeta, Cuenta Gasto
+                </p>
+                <p className="text-xs text-gray-400">
+                  Las cuentas contables que no existan se crean automaticamente.
+                </p>
+                <a href="/api/proveedores/plantilla-importacion" download
+                  className="inline-flex items-center gap-1.5 text-xs font-medium text-blue-600 hover:text-blue-800 hover:underline">
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clipRule="evenodd" />
+                  </svg>
+                  Descargar plantilla de ejemplo
+                </a>
+              </div>
               <label className={`flex items-center gap-3 cursor-pointer rounded-lg border-2 border-dashed px-4 py-4 transition-colors ${
                 archivo ? 'border-blue-300 bg-blue-50' : 'border-gray-300 hover:border-blue-400 hover:bg-gray-50'
               }`}>
@@ -347,6 +359,9 @@ function ModalImportar({ onImportar, onCerrar, importando }) {
                 <p className="text-sm text-emerald-700">
                   <span className="font-semibold">{resultado.insertados}</span> nuevos ·{' '}
                   <span className="font-semibold">{resultado.actualizados}</span> actualizados
+                  {resultado.cuentasCreadas > 0 && (
+                    <> · <span className="font-semibold">{resultado.cuentasCreadas}</span> cuentas creadas</>
+                  )}
                 </p>
               </div>
               {resultado.errores?.length > 0 && (

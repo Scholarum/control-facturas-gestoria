@@ -242,7 +242,26 @@ router.get('/excel', async (req, res) => {
   res.send(buffer);
 });
 
-// POST /importar - importación masiva desde Excel
+// GET /plantilla-importacion - descargar plantilla Excel de ejemplo
+router.get('/plantilla-importacion', async (req, res) => {
+  const filas = [
+    { 'Razon Social': 'EMPRESA EJEMPLO SL', 'CIF': 'B12345678', 'Cuenta Contable': '40000001', 'Nombre Carpeta': '', 'Cuenta Gasto': '' },
+    { 'Razon Social': 'SERVICIOS DEMO SA',  'CIF': 'A87654321', 'Cuenta Contable': '40000002', 'Nombre Carpeta': 'SERVICIOS DEMO', 'Cuenta Gasto': '62300001' },
+  ];
+  const ws = XLSX.utils.json_to_sheet(filas);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Proveedores');
+  ws['!cols'] = [{ wch: 30 }, { wch: 14 }, { wch: 18 }, { wch: 25 }, { wch: 18 }];
+  const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+  res.set({
+    'Content-Type':        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'Content-Disposition': 'attachment; filename="plantilla-proveedores.xlsx"',
+    'Content-Length':      buffer.length,
+  });
+  res.send(buffer);
+});
+
+// POST /importar - importacion masiva desde Excel
 router.post('/importar', requireAdmin, upload.single('archivo'), async (req, res) => {
   if (!req.file) return res.status(400).json({ ok: false, error: 'archivo requerido' });
 
@@ -250,28 +269,65 @@ router.post('/importar', requireAdmin, upload.single('archivo'), async (req, res
   const ws    = wb.Sheets[wb.SheetNames[0]];
   const filas = XLSX.utils.sheet_to_json(ws);
 
-  if (!filas.length) return res.status(400).json({ ok: false, error: 'El archivo está vacío' });
+  if (!filas.length) return res.status(400).json({ ok: false, error: 'El archivo esta vacio' });
 
   const db     = getDb();
   const cuentas = await db.all('SELECT id, codigo FROM plan_contable WHERE activo = true');
   const cuentasMap = {};
   for (const c of cuentas) cuentasMap[c.codigo.trim()] = c.id;
 
-  let insertados = 0, actualizados = 0;
+  let insertados = 0, actualizados = 0, cuentasCreadas = 0;
   const errores = [];
 
   for (const [i, fila] of filas.entries()) {
-    const razon_social   = String(fila['Razón Social']   || fila['Razon Social']   || '').trim();
+    const razon_social   = String(fila['Razon Social']   || fila['Razón Social']   || '').trim();
     const nombre_carpeta = String(fila['Nombre Carpeta'] || '').trim() || null;
     const cif            = String(fila['CIF']            || '').trim().toUpperCase() || null;
-    const codContable    = String(fila['Código Cuenta Contable'] || fila['Codigo Cuenta Contable'] || '').trim();
-    const codGasto       = String(fila['Código Cuenta Gasto']    || fila['Codigo Cuenta Gasto']    || '').trim();
+    const codContable    = String(fila['Cuenta Contable'] || fila['Código Cuenta Contable'] || fila['Codigo Cuenta Contable'] || '').trim();
+    const codGasto       = String(fila['Cuenta Gasto']    || fila['Código Cuenta Gasto']    || fila['Codigo Cuenta Gasto']    || '').trim();
 
-    if (!razon_social) { errores.push({ fila: i + 2, error: 'Razón Social vacía' }); continue; }
-    if (cif && !validarCIF(cif)) { errores.push({ fila: i + 2, error: `CIF inválido: ${cif}` }); continue; }
+    if (!razon_social) { errores.push({ fila: i + 2, error: 'Razon Social vacia' }); continue; }
+    if (cif && !validarCIF(cif)) { errores.push({ fila: i + 2, error: `CIF invalido: ${cif}` }); continue; }
 
-    const cuenta_contable_id = codContable ? (cuentasMap[codContable] ?? null) : null;
-    const cuenta_gasto_id    = codGasto    ? (cuentasMap[codGasto]    ?? null) : null;
+    // Resolver cuenta contable: buscar existente o crear si no existe
+    let cuenta_contable_id = codContable ? (cuentasMap[codContable] ?? null) : null;
+    if (codContable && !cuenta_contable_id) {
+      try {
+        const grupo = codContable.charAt(0);
+        const row = await db.one(
+          `INSERT INTO plan_contable (codigo, descripcion, grupo)
+           VALUES ($1, $2, $3)
+           ON CONFLICT (codigo) DO UPDATE SET descripcion = EXCLUDED.descripcion, activo = true
+           RETURNING id`,
+          [codContable, razon_social, grupo]
+        );
+        cuenta_contable_id = row.id;
+        cuentasMap[codContable] = row.id;
+        cuentasCreadas++;
+      } catch (e) {
+        errores.push({ fila: i + 2, error: `Error creando cuenta ${codContable}: ${e.message}` });
+      }
+    }
+
+    // Resolver cuenta de gasto: buscar existente o crear
+    let cuenta_gasto_id = codGasto ? (cuentasMap[codGasto] ?? null) : null;
+    if (codGasto && !cuenta_gasto_id) {
+      try {
+        const grupo = codGasto.charAt(0);
+        const row = await db.one(
+          `INSERT INTO plan_contable (codigo, descripcion, grupo)
+           VALUES ($1, $2, $3)
+           ON CONFLICT (codigo) DO UPDATE SET descripcion = EXCLUDED.descripcion, activo = true
+           RETURNING id`,
+          [codGasto, razon_social, grupo]
+        );
+        cuenta_gasto_id = row.id;
+        cuentasMap[codGasto] = row.id;
+        cuentasCreadas++;
+      } catch (e) {
+        errores.push({ fila: i + 2, error: `Error creando cuenta ${codGasto}: ${e.message}` });
+      }
+    }
 
     const existing = cif
       ? await db.one('SELECT id FROM proveedores WHERE cif = $1', [cif])
@@ -279,8 +335,9 @@ router.post('/importar', requireAdmin, upload.single('archivo'), async (req, res
 
     if (existing) {
       await db.query(
-        `UPDATE proveedores SET razon_social=$1, nombre_carpeta=$2, cif=$3,
-         cuenta_contable_id=$4, cuenta_gasto_id=$5, activo=true, updated_at=NOW()
+        `UPDATE proveedores SET razon_social=$1, nombre_carpeta=COALESCE($2, nombre_carpeta), cif=$3,
+         cuenta_contable_id=COALESCE($4, cuenta_contable_id), cuenta_gasto_id=COALESCE($5, cuenta_gasto_id),
+         activo=true, updated_at=NOW()
          WHERE id=$6`,
         [razon_social, nombre_carpeta, cif, cuenta_contable_id, cuenta_gasto_id, existing.id]
       );
@@ -295,7 +352,35 @@ router.post('/importar', requireAdmin, upload.single('archivo'), async (req, res
     }
   }
 
-  res.json({ ok: true, data: { insertados, actualizados, errores } });
+  // Rellenar nombre_carpeta desde Drive para proveedores sin carpeta pero con CIF coincidente
+  try {
+    await db.query(`
+      UPDATE proveedores p
+      SET nombre_carpeta = sub.proveedor, updated_at = NOW()
+      FROM (
+        SELECT DISTINCT da.proveedor,
+               normalizar_cif((da.datos_extraidos::jsonb)->>'cif_emisor') AS cif_norm
+        FROM drive_archivos da
+        WHERE da.proveedor IS NOT NULL
+          AND da.datos_extraidos IS NOT NULL
+          AND da.datos_extraidos ~ '^\\s*\\{'
+          AND (da.datos_extraidos::jsonb)->>'cif_emisor' IS NOT NULL
+      ) sub
+      WHERE p.nombre_carpeta IS NULL
+        AND p.cif IS NOT NULL
+        AND normalizar_cif(p.cif) = sub.cif_norm
+    `);
+  } catch (e) {
+    console.error('[Proveedores] Error rellenando nombre_carpeta desde Drive:', e.message);
+  }
+
+  // Auto-asignar facturas para los proveedores importados
+  const provsActualizados = await db.all('SELECT * FROM proveedores WHERE activo = true AND cuenta_gasto_id IS NOT NULL AND cuenta_contable_id IS NOT NULL');
+  for (const prov of provsActualizados) {
+    await autoAsignarFacturasProveedor(db, prov);
+  }
+
+  res.json({ ok: true, data: { insertados, actualizados, cuentasCreadas, errores } });
 });
 
 // ─── PUT /:id/cuenta-contable — asignar cuenta contable (admin + gestoría) ──
