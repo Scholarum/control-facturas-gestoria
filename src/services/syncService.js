@@ -86,6 +86,7 @@ async function ejecutarSync(origen = 'MANUAL') {
     const idsParaExtraer = sincRows.map(r => r.id);
 
     let extraccion = { procesada: 0, revision: 0 };
+    let facturas_duplicadas = 0;
     if (idsParaExtraer.length > 0) {
       try {
         extraccion = await ejecutarExtraccion(idsParaExtraer);
@@ -94,7 +95,6 @@ async function ejecutarSync(origen = 'MANUAL') {
       }
 
       // Tras extracción: detectar duplicados (mismo CIF emisor + mismo nº factura)
-      let facturas_duplicadas = 0;
       try {
         const duplicadas = await db.all(`
           SELECT da.id, da.nombre_archivo,
