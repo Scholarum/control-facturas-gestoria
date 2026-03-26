@@ -16,6 +16,7 @@ const EVENTOS = {
   EXPORT_A3:             'EXPORT_A3',
   ELIMINAR_FACTURA:      'ELIMINAR_FACTURA',
   EDICION_DATOS_FACTURA: 'EDICION_DATOS_FACTURA',
+  EXPORT_SAGE:           'EXPORT_SAGE',
 };
 
 async function registrarEvento({ evento, facturaId, usuarioId, ip, userAgent, tokenUsado, detalle }) {

@@ -677,6 +677,25 @@ export async function exportarLoteA3(ids) {
   return json.data;
 }
 
+export async function exportarSage(ids) {
+  const res = await fetch(`${API_BASE}/api/drive/exportar-sage`, {
+    method:  'POST',
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
+    body:    JSON.stringify({ ids }),
+  });
+  if (!res.ok) {
+    const json = await res.json().catch(() => ({}));
+    throw new Error(json.error || 'Error al exportar a SAGE');
+  }
+  const blob = await res.blob();
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  const fecha = new Date().toISOString().slice(0, 10);
+  a.href = url; a.download = `diario-sage-${fecha}.csv`;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
 export async function fetchHistorialA3() {
   const res = await fetch(`${API_BASE}/api/exportacion-a3`, { headers: authHeaders() });
   if (!res.ok) throw new Error('Error al cargar historial A3');

@@ -8,6 +8,7 @@ const { registrarEvento, EVENTOS }  = require('../services/auditService');
 const { buildDriveClient }          = require('../services/driveService');
 const { resolveUser, requireAdmin, requireAuth } = require('../middleware/auth');
 const { getSistemaConfig }          = require('../services/sistemaConfigService');
+const { generarFicheroSage }       = require('../services/sageExporter');
 
 function parsearArchivo(a) {
   const datos = a.datos_extraidos ? JSON.parse(a.datos_extraidos) : null;
@@ -536,6 +537,73 @@ router.post('/exportar-excel', async (req, res) => {
     'Content-Length':      buffer.length,
   });
   res.send(buffer);
+});
+
+// ─── POST /api/drive/exportar-sage — generar fichero ContaPlus R75 ───────────
+
+router.post('/exportar-sage', requireAuth, express.json(), async (req, res) => {
+  const { ids } = req.body;
+  if (!ids?.length) return res.status(400).json({ ok: false, error: 'ids requeridos' });
+
+  const db = getDb();
+  const archivos = await db.all(`
+    SELECT da.id, da.nombre_archivo, da.proveedor, da.datos_extraidos,
+           COALESCE(da.cuenta_gasto_id, p.cuenta_gasto_id) AS cg_efectiva_id,
+           COALESCE(cgd.codigo, pg.codigo)                  AS cuenta_gasto_codigo,
+           cc.codigo                                        AS cta_proveedor_codigo
+    FROM drive_archivos da
+    LEFT JOIN LATERAL (
+      SELECT p2.* FROM proveedores p2
+      WHERE p2.activo = true AND (
+        (p2.cif IS NOT NULL AND da.datos_extraidos IS NOT NULL AND da.datos_extraidos ~ '^\\s*\\{'
+         AND normalizar_cif((da.datos_extraidos::jsonb)->>'cif_emisor') = normalizar_cif(p2.cif))
+        OR p2.nombre_carpeta = da.proveedor
+      )
+      ORDER BY (p2.cif IS NOT NULL AND da.datos_extraidos IS NOT NULL AND da.datos_extraidos ~ '^\\s*\\{'
+               AND normalizar_cif((da.datos_extraidos::jsonb)->>'cif_emisor') = normalizar_cif(p2.cif)) DESC NULLS LAST
+      LIMIT 1
+    ) p ON true
+    LEFT JOIN plan_contable pg  ON pg.id  = p.cuenta_gasto_id
+    LEFT JOIN plan_contable cgd ON cgd.id = da.cuenta_gasto_id
+    LEFT JOIN plan_contable cc  ON cc.id  = p.cuenta_contable_id
+    WHERE da.id = ANY($1::int[])
+  `, [ids]);
+
+  if (!archivos.length) return res.status(404).json({ ok: false, error: 'Archivos no encontrados' });
+
+  // Validar que todas tengan los datos necesarios
+  const sinDatos = archivos.filter(a => !a.cta_proveedor_codigo || !a.cuenta_gasto_codigo);
+  if (sinDatos.length > 0) {
+    return res.status(400).json({
+      ok: false,
+      error: `${sinDatos.length} factura(s) sin cuenta contable o cuenta de gasto asignada`,
+    });
+  }
+
+  // Parsear datos_extraidos
+  const facturasConDatos = archivos.map(a => ({
+    ...a,
+    datos_extraidos: a.datos_extraidos ? JSON.parse(a.datos_extraidos) : {},
+  }));
+
+  const contenido = generarFicheroSage(facturasConDatos);
+  const fecha     = new Date().toISOString().slice(0, 10);
+
+  // Registrar evento
+  const usuarioId = req.usuario?.id ?? null;
+  registrarEvento({
+    evento:    'EXPORT_SAGE',
+    usuarioId,
+    ip:        req.clientIp,
+    userAgent: req.userAgent,
+    detalle:   { count: archivos.length, ids },
+  }).catch(() => {});
+
+  res.set({
+    'Content-Type':        'text/plain; charset=utf-8',
+    'Content-Disposition': `attachment; filename="diario-sage-${fecha}.csv"`,
+  });
+  res.send(contenido);
 });
 
 // ─── PUT /api/drive/aplicar-cuentas-proveedor ────────────────────────────────
