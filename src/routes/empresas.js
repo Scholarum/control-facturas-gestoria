@@ -3,22 +3,53 @@ const router  = express.Router();
 const { getDb } = require('../config/database');
 const { resolveUser, requireAdmin, requireAuth } = require('../middleware/auth');
 
-// GET / — listar empresas activas
+// GET / — listar empresas con conteos
 router.get('/', requireAuth, async (req, res) => {
   const db = getDb();
-  const rows = await db.all('SELECT * FROM empresas WHERE activo = true ORDER BY nombre');
+  const rows = await db.all(`
+    SELECT e.*,
+      (SELECT COUNT(*) FROM plan_contable pc WHERE pc.empresa_id = e.id AND pc.activo = true) AS num_cuentas,
+      (SELECT COUNT(*) FROM drive_archivos da WHERE da.empresa_id = e.id) AS num_facturas
+    FROM empresas e WHERE e.activo = true ORDER BY e.nombre
+  `);
   res.json({ ok: true, data: rows });
+});
+
+// GET /:id/detalle — detalle completo de una empresa
+router.get('/:id/detalle', requireAuth, async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const db = getDb();
+  const empresa = await db.one('SELECT * FROM empresas WHERE id = $1', [id]);
+  if (!empresa) return res.status(404).json({ ok: false, error: 'No encontrada' });
+
+  const [cuentas, facturas, proveedores, lotes, conciliaciones] = await Promise.all([
+    db.one('SELECT COUNT(*) AS n FROM plan_contable WHERE empresa_id = $1 AND activo = true', [id]),
+    db.one('SELECT COUNT(*) AS n FROM drive_archivos WHERE empresa_id = $1', [id]),
+    db.one('SELECT COUNT(*) AS n FROM proveedor_empresa WHERE empresa_id = $1', [id]),
+    db.one('SELECT COUNT(*) AS n FROM lotes_exportacion_sage WHERE empresa_id = $1', [id]),
+    db.one('SELECT COUNT(*) AS n FROM historial_conciliaciones WHERE empresa_id = $1', [id]),
+  ]);
+
+  res.json({ ok: true, data: {
+    ...empresa,
+    num_cuentas: parseInt(cuentas?.n, 10) || 0,
+    num_facturas: parseInt(facturas?.n, 10) || 0,
+    num_proveedores: parseInt(proveedores?.n, 10) || 0,
+    num_lotes_sage: parseInt(lotes?.n, 10) || 0,
+    num_conciliaciones: parseInt(conciliaciones?.n, 10) || 0,
+  }});
 });
 
 // POST / — crear empresa (admin)
 router.post('/', requireAdmin, express.json(), async (req, res) => {
-  const { nombre, cif } = req.body;
+  const { nombre, cif, direccion, telefono, email, web } = req.body;
   if (!nombre?.trim() || !cif?.trim()) return res.status(400).json({ ok: false, error: 'nombre y cif requeridos' });
   const db = getDb();
   try {
     const row = await db.one(
-      'INSERT INTO empresas (nombre, cif) VALUES ($1, $2) RETURNING *',
-      [nombre.trim(), cif.trim().toUpperCase()]
+      `INSERT INTO empresas (nombre, cif, direccion, telefono, email, web)
+       VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+      [nombre.trim(), cif.trim().toUpperCase(), direccion?.trim()||null, telefono?.trim()||null, email?.trim()||null, web?.trim()||null]
     );
     res.json({ ok: true, data: row });
   } catch (e) {

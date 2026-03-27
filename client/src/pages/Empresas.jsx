@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useAuth } from '../context/AuthContext.jsx';
 
 const API_BASE = (import.meta.env.VITE_API_URL ?? '').replace(/\/$/, '');
 function authHeaders(extra = {}) {
@@ -6,23 +7,41 @@ function authHeaders(extra = {}) {
   return { ...(token ? { Authorization: `Bearer ${token}` } : {}), ...extra };
 }
 
+async function fetchEmpresas() {
+  const res = await fetch(`${API_BASE}/api/empresas`, { headers: authHeaders() });
+  const json = await res.json();
+  return json.data || [];
+}
+
+async function fetchEmpresaDetalle(id) {
+  const res = await fetch(`${API_BASE}/api/empresas/${id}/detalle`, { headers: authHeaders() });
+  const json = await res.json();
+  return json.data || {};
+}
+
 export default function Empresas() {
+  const { empresas: empresasCtx, cambiarEmpresa, empresaActiva } = useAuth();
   const [empresas,  setEmpresas]  = useState([]);
   const [loading,   setLoading]   = useState(true);
   const [modal,     setModal]     = useState(null);
+  const [detalle,   setDetalle]   = useState(null); // empresa expandida
+  const [detalleData, setDetalleData] = useState(null);
   const [form,      setForm]      = useState({ nombre: '', cif: '', direccion: '', telefono: '', email: '', web: '' });
   const [guardando, setGuardando] = useState(false);
   const [error,     setError]     = useState('');
 
   async function cargar() {
-    try {
-      const res = await fetch(`${API_BASE}/api/empresas`, { headers: authHeaders() });
-      const json = await res.json();
-      setEmpresas(json.data || []);
-    } catch {} finally { setLoading(false); }
+    try { setEmpresas(await fetchEmpresas()); }
+    catch {} finally { setLoading(false); }
   }
 
   useEffect(() => { cargar(); }, []);
+
+  async function toggleDetalle(id) {
+    if (detalle === id) { setDetalle(null); return; }
+    setDetalle(id); setDetalleData(null);
+    try { setDetalleData(await fetchEmpresaDetalle(id)); } catch {}
+  }
 
   function abrirNueva() {
     setForm({ nombre: '', cif: '', direccion: '', telefono: '', email: '', web: '' });
@@ -30,7 +49,7 @@ export default function Empresas() {
   }
 
   function abrirEditar(e) {
-    setForm({ nombre: e.nombre || '', cif: e.cif || '', direccion: e.direccion || '', telefono: e.telefono || '', email: e.email || '', web: e.web || '' });
+    setForm({ nombre: e.nombre||'', cif: e.cif||'', direccion: e.direccion||'', telefono: e.telefono||'', email: e.email||'', web: e.web||'' });
     setModal({ empresa: e }); setError('');
   }
 
@@ -44,7 +63,11 @@ export default function Empresas() {
       const json = await res.json();
       if (!json.ok) throw new Error(json.error);
       setModal(null);
-      cargar();
+      await cargar();
+      // Recargar empresas en el contexto global para actualizar el selector
+      const nuevasEmpresas = await fetchEmpresas();
+      // Forzar recarga via window
+      window.location.reload();
     } catch (e) { setError(e.message); }
     finally { setGuardando(false); }
   }
@@ -54,7 +77,7 @@ export default function Empresas() {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-base font-semibold text-gray-900">Empresas</h2>
-          <p className="text-xs text-gray-400 mt-0.5">Gestiona las sociedades del sistema</p>
+          <p className="text-xs text-gray-400 mt-0.5">Gestiona las sociedades del sistema. Cada empresa receptora de facturas debe estar registrada aqui.</p>
         </div>
         <button onClick={abrirNueva}
           className="flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors">
@@ -65,6 +88,12 @@ export default function Empresas() {
         </button>
       </div>
 
+      {/* Info */}
+      <div className="rounded-lg bg-blue-50 border border-blue-100 px-4 py-3 text-xs text-blue-700">
+        <p>Cada empresa tiene su propio plan contable, cuentas de proveedor y ficheros SAGE. Las facturas se asignan automaticamente a la empresa cuyo CIF coincide con el receptor de la factura.</p>
+      </div>
+
+      {/* Tabla */}
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
         {loading ? (
           <div className="flex justify-center py-16">
@@ -77,25 +106,85 @@ export default function Empresas() {
           <table className="w-full text-sm">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
-                {['Nombre', 'CIF', 'Direccion', 'Contacto', 'Acciones'].map(h => (
+                {['','Nombre', 'CIF', 'Direccion', 'Plan contable', 'Facturas', 'Acciones'].map(h => (
                   <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {empresas.map(e => (
-                <tr key={e.id} className="hover:bg-gray-50 transition-colors">
-                  <td className="px-4 py-3 font-medium text-gray-900">{e.nombre}</td>
-                  <td className="px-4 py-3 font-mono text-xs text-gray-600">{e.cif}</td>
-                  <td className="px-4 py-3 text-xs text-gray-600">{e.direccion || '-'}</td>
-                  <td className="px-4 py-3 text-xs text-gray-600">
-                    {e.email || e.telefono || '-'}
-                  </td>
-                  <td className="px-4 py-3">
-                    <button onClick={() => abrirEditar(e)} className="text-xs text-blue-600 hover:text-blue-800 font-medium">Editar</button>
-                  </td>
-                </tr>
-              ))}
+              {empresas.map(e => {
+                const isOpen = detalle === e.id;
+                const esActiva = empresaActiva?.id === e.id;
+                return [
+                  <tr key={e.id} className={`hover:bg-gray-50 transition-colors cursor-pointer ${esActiva ? 'bg-blue-50/30' : ''}`} onClick={() => toggleDetalle(e.id)}>
+                    <td className="px-4 py-3 w-8">
+                      <svg xmlns="http://www.w3.org/2000/svg" className={`h-3.5 w-3.5 text-gray-400 transition-transform ${isOpen ? 'rotate-90' : ''}`} viewBox="0 0 20 20" fill="currentColor">
+                        <path fillRule="evenodd" d="M7.293 4.293a1 1 0 011.414 0l5 5a1 1 0 010 1.414l-5 5a1 1 0 01-1.414-1.414L11.586 10 7.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                      </svg>
+                    </td>
+                    <td className="px-4 py-3 font-medium text-gray-900">
+                      {e.nombre}
+                      {esActiva && <span className="ml-2 inline-flex rounded-full px-2 py-0.5 text-[10px] font-medium bg-blue-100 text-blue-700 ring-1 ring-inset ring-blue-200">Activa</span>}
+                    </td>
+                    <td className="px-4 py-3 font-mono text-xs text-gray-600">{e.cif}</td>
+                    <td className="px-4 py-3 text-xs text-gray-600">{e.direccion || '-'}</td>
+                    <td className="px-4 py-3 text-xs text-gray-600">{e.num_cuentas != null ? `${e.num_cuentas} cuentas` : '-'}</td>
+                    <td className="px-4 py-3 text-xs text-gray-600">{e.num_facturas != null ? e.num_facturas : '-'}</td>
+                    <td className="px-4 py-3" onClick={ev => ev.stopPropagation()}>
+                      <div className="flex items-center gap-2">
+                        <button onClick={() => abrirEditar(e)} className="text-xs text-blue-600 hover:text-blue-800 font-medium">Editar</button>
+                        {!esActiva && (
+                          <button onClick={() => cambiarEmpresa(e)} className="text-xs text-emerald-600 hover:text-emerald-800 font-medium">Activar</button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>,
+                  isOpen && (
+                    <tr key={`det-${e.id}`}>
+                      <td colSpan={7} className="px-6 py-4 bg-gray-50/60 border-b-2 border-gray-200">
+                        {!detalleData ? (
+                          <div className="flex justify-center py-4"><svg className="h-5 w-5 animate-spin text-blue-400" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/></svg></div>
+                        ) : (
+                          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-xs">
+                            <div>
+                              <p className="text-gray-400 mb-1">Telefono</p>
+                              <p className="text-gray-800">{detalleData.telefono || '-'}</p>
+                            </div>
+                            <div>
+                              <p className="text-gray-400 mb-1">Email</p>
+                              <p className="text-gray-800">{detalleData.email || '-'}</p>
+                            </div>
+                            <div>
+                              <p className="text-gray-400 mb-1">Web</p>
+                              <p className="text-gray-800">{detalleData.web || '-'}</p>
+                            </div>
+                            <div>
+                              <p className="text-gray-400 mb-1">Plan contable</p>
+                              <p className="text-gray-800 font-semibold">{detalleData.num_cuentas || 0} cuentas</p>
+                            </div>
+                            <div>
+                              <p className="text-gray-400 mb-1">Facturas totales</p>
+                              <p className="text-gray-800 font-semibold">{detalleData.num_facturas || 0}</p>
+                            </div>
+                            <div>
+                              <p className="text-gray-400 mb-1">Proveedores vinculados</p>
+                              <p className="text-gray-800 font-semibold">{detalleData.num_proveedores || 0}</p>
+                            </div>
+                            <div>
+                              <p className="text-gray-400 mb-1">Exportaciones SAGE</p>
+                              <p className="text-gray-800 font-semibold">{detalleData.num_lotes_sage || 0}</p>
+                            </div>
+                            <div>
+                              <p className="text-gray-400 mb-1">Conciliaciones</p>
+                              <p className="text-gray-800 font-semibold">{detalleData.num_conciliaciones || 0}</p>
+                            </div>
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  ),
+                ].filter(Boolean);
+              })}
             </tbody>
           </table>
         )}
@@ -112,14 +201,15 @@ export default function Empresas() {
             <div className="px-6 py-5 space-y-3">
               {error && <div className="rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-700">{error}</div>}
               <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">Nombre *</label>
+                <label className="block text-xs font-medium text-gray-700 mb-1">Razon Social *</label>
                 <input value={form.nombre} onChange={e => setForm(p => ({ ...p, nombre: e.target.value }))}
                   className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
               </div>
               <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">CIF *</label>
+                <label className="block text-xs font-medium text-gray-700 mb-1">CIF / VAT *</label>
                 <input value={form.cif} onChange={e => setForm(p => ({ ...p, cif: e.target.value.toUpperCase() }))}
                   className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                <p className="text-[10px] text-gray-400 mt-0.5">El CIF debe coincidir con el receptor (cif_receptor) de las facturas</p>
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-700 mb-1">Direccion</label>
