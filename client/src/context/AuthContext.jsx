@@ -86,6 +86,13 @@ export function AuthProvider({ children }) {
     return permisos[recurso] === 'edit';
   }, [user, permisos, emulacion]);
 
+  async function recargarEmpresas() {
+    try {
+      const data = await apiMe();
+      if (data?.empresas) initEmpresas(data.empresas);
+    } catch {}
+  }
+
   return (
     <AuthContext.Provider value={{
       user, permisos, loading, login, loginWithGoogle, logout, updateUser,
@@ -93,7 +100,7 @@ export function AuthProvider({ children }) {
       esAdmin: esAdmin && !estaEmulando,
       estaEmulando, emularGestoria, detenerEmulacion,
       modoGestoria: modoEfectivo,
-      empresas, empresaActiva, cambiarEmpresa,
+      empresas, empresaActiva, cambiarEmpresa, recargarEmpresas,
     }}>
       {children}
     </AuthContext.Provider>

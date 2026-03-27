@@ -20,7 +20,7 @@ async function fetchEmpresaDetalle(id) {
 }
 
 export default function Empresas() {
-  const { empresas: empresasCtx, cambiarEmpresa, empresaActiva } = useAuth();
+  const { empresas: empresasCtx, cambiarEmpresa, empresaActiva, recargarEmpresas } = useAuth();
   const [empresas,  setEmpresas]  = useState([]);
   const [loading,   setLoading]   = useState(true);
   const [modal,     setModal]     = useState(null);
@@ -119,9 +119,7 @@ export default function Empresas() {
       setModal(null);
       await cargar();
       // Recargar empresas en el contexto global para actualizar el selector
-      const nuevasEmpresas = await fetchEmpresas();
-      // Forzar recarga via window
-      window.location.reload();
+      await recargarEmpresas();
     } catch (e) { setError(e.message); }
     finally { setGuardando(false); }
   }
