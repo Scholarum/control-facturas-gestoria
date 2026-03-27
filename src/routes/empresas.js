@@ -29,12 +29,13 @@ router.post('/', requireAdmin, express.json(), async (req, res) => {
 
 // PUT /:id — editar empresa (admin)
 router.put('/:id', requireAdmin, express.json(), async (req, res) => {
-  const { nombre, cif } = req.body;
+  const { nombre, cif, direccion, telefono, email, web } = req.body;
   const id = parseInt(req.params.id, 10);
   const db = getDb();
   const row = await db.one(
-    'UPDATE empresas SET nombre = $1, cif = $2 WHERE id = $3 AND activo = true RETURNING *',
-    [nombre?.trim(), cif?.trim().toUpperCase(), id]
+    `UPDATE empresas SET nombre=$1, cif=$2, direccion=$3, telefono=$4, email=$5, web=$6
+     WHERE id=$7 AND activo=true RETURNING *`,
+    [nombre?.trim(), cif?.trim().toUpperCase(), direccion?.trim()||null, telefono?.trim()||null, email?.trim()||null, web?.trim()||null, id]
   );
   if (!row) return res.status(404).json({ ok: false, error: 'Empresa no encontrada' });
   res.json({ ok: true, data: row });

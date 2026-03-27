@@ -569,9 +569,10 @@ router.post('/sage-preview', requireAuth, express.json(), async (req, res) => {
                AND normalizar_cif((da.datos_extraidos::jsonb)->>'cif_emisor') = normalizar_cif(p2.cif)) DESC NULLS LAST
       LIMIT 1
     ) p ON true
-    LEFT JOIN plan_contable pg  ON pg.id  = p.cuenta_gasto_id
+    LEFT JOIN proveedor_empresa pe ON pe.proveedor_id = p.id AND pe.empresa_id = da.empresa_id
+    LEFT JOIN plan_contable pg  ON pg.id  = pe.cuenta_gasto_id
     LEFT JOIN plan_contable cgd ON cgd.id = da.cuenta_gasto_id
-    LEFT JOIN plan_contable cc  ON cc.id  = p.cuenta_contable_id
+    LEFT JOIN plan_contable cc  ON cc.id  = pe.cuenta_contable_id
     WHERE da.id = ANY($1::int[])
   `, [ids]);
 
@@ -605,11 +606,11 @@ router.post('/exportar-sage', requireAuth, express.json(), async (req, res) => {
 
   const db = getDb();
   const archivos = await db.all(`
-    SELECT da.id, da.nombre_archivo, da.proveedor, da.datos_extraidos, da.lote_sage_id,
-           p.id AS proveedor_id, p.ultimo_asiento_sage,
-           COALESCE(da.cuenta_gasto_id, p.cuenta_gasto_id) AS cg_efectiva_id,
-           COALESCE(cgd.codigo, pg.codigo)                  AS cuenta_gasto_codigo,
-           cc.codigo                                        AS cta_proveedor_codigo
+    SELECT da.id, da.nombre_archivo, da.proveedor, da.datos_extraidos, da.lote_sage_id, da.empresa_id,
+           p.id AS proveedor_id, pe.ultimo_asiento_sage,
+           COALESCE(da.cuenta_gasto_id, pe.cuenta_gasto_id) AS cg_efectiva_id,
+           COALESCE(cgd.codigo, peg.codigo)                  AS cuenta_gasto_codigo,
+           pec.codigo                                        AS cta_proveedor_codigo
     FROM drive_archivos da
     LEFT JOIN LATERAL (
       SELECT p2.* FROM proveedores p2
@@ -622,9 +623,10 @@ router.post('/exportar-sage', requireAuth, express.json(), async (req, res) => {
                AND normalizar_cif((da.datos_extraidos::jsonb)->>'cif_emisor') = normalizar_cif(p2.cif)) DESC NULLS LAST
       LIMIT 1
     ) p ON true
-    LEFT JOIN plan_contable pg  ON pg.id  = p.cuenta_gasto_id
-    LEFT JOIN plan_contable cgd ON cgd.id = da.cuenta_gasto_id
-    LEFT JOIN plan_contable cc  ON cc.id  = p.cuenta_contable_id
+    LEFT JOIN proveedor_empresa pe  ON pe.proveedor_id = p.id AND pe.empresa_id = da.empresa_id
+    LEFT JOIN plan_contable peg     ON peg.id = pe.cuenta_gasto_id
+    LEFT JOIN plan_contable cgd     ON cgd.id = da.cuenta_gasto_id
+    LEFT JOIN plan_contable pec     ON pec.id = pe.cuenta_contable_id
     WHERE da.id = ANY($1::int[])
   `, [ids]);
 

@@ -9,6 +9,7 @@ import Configuracion  from './pages/Configuracion.jsx';
 import Proveedores    from './pages/Proveedores.jsx';
 import SeccionFacturas from './components/SeccionFacturas.jsx';
 import HistorialA3    from './pages/HistorialA3.jsx';
+import Empresas       from './pages/Empresas.jsx';
 import { fetchFacturas, fetchProveedores, exportarExcel, triggerSyncManual, fetchPlanContable, asignarCuentaGasto, asignarCGMasivo, autodetectarProveedores, aplicarCuentasProveedor, vincularProveedores, fetchRoles } from './api.js';
 
 // ─── Stats ────────────────────────────────────────────────────────────────────
@@ -277,7 +278,7 @@ function AppInner() {
     { id: 'historial',    label: 'Historial',             visible: puedeVer('historial')    },
   ].filter(t => t.visible);
 
-  const ADMIN_TABS = ['usuarios', 'proveedores', 'configuracion'];
+  const ADMIN_TABS = ['usuarios', 'proveedores', 'empresas', 'configuracion'];
   const tabAdminActivo  = ADMIN_TABS.includes(tab);
   const hayMenuAdmin    = puedeVer('usuarios') || puedeVer('proveedores') || puedeVer('configuracion');
 
@@ -366,9 +367,10 @@ function AppInner() {
               {adminMenuOpen && (
                 <div className="absolute right-0 top-full mt-1.5 w-48 bg-white border border-gray-200 rounded-xl shadow-lg py-1 z-50">
                   {[
-                    { id: 'proveedores',   icon: '🏢', label: 'Proveedores',  visible: puedeVer('proveedores')   },
-                    { id: 'usuarios',      icon: '👥', label: 'Usuarios',     visible: puedeVer('usuarios')      },
-                    { id: 'configuracion', icon: '⚙️',  label: 'Configuración', visible: puedeVer('configuracion') },
+                    { id: 'proveedores',   icon: '🏢', label: 'Proveedores',    visible: puedeVer('proveedores')   },
+                    { id: 'empresas',      icon: '🏛️', label: 'Empresas',       visible: puedeVer('configuracion') },
+                    { id: 'usuarios',      icon: '👥', label: 'Usuarios',       visible: puedeVer('usuarios')      },
+                    { id: 'configuracion', icon: '⚙️',  label: 'Configuracion', visible: puedeVer('configuracion') },
                   ].filter(i => i.visible).map(item => (
                     <button
                       key={item.id}
@@ -494,6 +496,9 @@ function AppInner() {
 
         {/* ── Pestaña Proveedores ── */}
         {tab === 'proveedores' && puedeVer('proveedores') && <Proveedores />}
+
+        {/* ── Pestaña Empresas ── */}
+        {tab === 'empresas' && puedeVer('configuracion') && <Empresas />}
 
         {/* ── Pestaña Conciliación ── */}
         {tab === 'conciliacion' && <Conciliacion proveedores={proveedores} />}

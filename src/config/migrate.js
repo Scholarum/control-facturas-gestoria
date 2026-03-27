@@ -122,9 +122,17 @@ const tablas = [
     id          SERIAL PRIMARY KEY,
     nombre      TEXT NOT NULL,
     cif         TEXT NOT NULL UNIQUE,
+    direccion   TEXT,
+    telefono    TEXT,
+    email       TEXT,
+    web         TEXT,
     activo      BOOLEAN NOT NULL DEFAULT true,
     created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
   )`,
+  `ALTER TABLE empresas ADD COLUMN IF NOT EXISTS direccion TEXT`,
+  `ALTER TABLE empresas ADD COLUMN IF NOT EXISTS telefono TEXT`,
+  `ALTER TABLE empresas ADD COLUMN IF NOT EXISTS email TEXT`,
+  `ALTER TABLE empresas ADD COLUMN IF NOT EXISTS web TEXT`,
   `CREATE TABLE IF NOT EXISTS proveedor_empresa (
     id                 SERIAL PRIMARY KEY,
     proveedor_id       INTEGER NOT NULL REFERENCES proveedores(id) ON DELETE CASCADE,

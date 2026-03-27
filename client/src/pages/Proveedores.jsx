@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { useAuth } from '../context/AuthContext.jsx';
 import {
   fetchProveedoresCrud, fetchPlanContable,
   crearProveedor, editarProveedor, eliminarProveedor,
@@ -452,6 +453,7 @@ function BuscadorAvanzado({ filtros, onChange }) {
 // ─── Página principal ─────────────────────────────────────────────────────────
 
 export default function Proveedores() {
+  const { empresaActiva } = useAuth();
   const [proveedores,   setProveedores]   = useState([]);
   const [planContable,  setPlanContable]  = useState([]);
   const [loading,       setLoading]       = useState(true);
@@ -467,11 +469,13 @@ export default function Proveedores() {
   const [filtros,       setFiltros]       = useState({ razonSocial: '', cif: '', cuentaContable: '', cuentaGasto: '' });
 
   useEffect(() => {
-    Promise.all([fetchProveedoresCrud(), fetchPlanContable()])
+    if (!empresaActiva) return;
+    setLoading(true);
+    Promise.all([fetchProveedoresCrud(empresaActiva.id), fetchPlanContable(empresaActiva.id)])
       .then(([p, pc]) => { setProveedores(p); setPlanContable(pc); })
       .catch(() => setError('Error al cargar datos'))
       .finally(() => setLoading(false));
-  }, []);
+  }, [empresaActiva]);
 
   // Filtrado en tiempo real
   const proveedoresFiltrados = proveedores.filter(p => {
