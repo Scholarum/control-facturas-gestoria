@@ -1,7 +1,11 @@
 const express   = require('express');
+const multer    = require('multer');
+const XLSX      = require('xlsx');
 const router    = express.Router();
 const { getDb } = require('../config/database');
 const { resolveUser, requireAdmin } = require('../middleware/auth');
+
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
 router.use(resolveUser);
 
@@ -28,23 +32,85 @@ router.get('/', async (req, res) => {
 // POST / - añadir cuenta personalizada (solo admin)
 router.post('/', requireAdmin, async (req, res) => {
   try {
-    const { codigo, descripcion, grupo } = req.body;
+    const { codigo, descripcion, grupo, empresa_id } = req.body;
     if (!codigo?.trim() || !descripcion?.trim()) {
       return res.status(400).json({ ok: false, error: 'codigo y descripcion requeridos' });
     }
     const db  = getDb();
     const row = await db.one(
-      `INSERT INTO plan_contable (codigo, descripcion, grupo)
-       VALUES ($1, $2, $3)
-       ON CONFLICT (codigo) DO UPDATE SET descripcion = EXCLUDED.descripcion, activo = true
+      `INSERT INTO plan_contable (codigo, descripcion, grupo, empresa_id)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (codigo) DO UPDATE SET descripcion = EXCLUDED.descripcion, empresa_id = COALESCE(EXCLUDED.empresa_id, plan_contable.empresa_id), activo = true
        RETURNING *`,
-      [codigo.trim(), descripcion.trim(), grupo?.trim() || codigo.trim().charAt(0)]
+      [codigo.trim(), descripcion.trim(), grupo?.trim() || codigo.trim().charAt(0), empresa_id || null]
     );
     res.json({ ok: true, data: row });
   } catch (err) {
     console.error('[plan-contable] POST error:', err.message);
     res.status(500).json({ ok: false, error: err.message });
   }
+});
+
+// POST /importar — importacion masiva desde Excel para una empresa
+router.post('/importar', requireAdmin, upload.single('archivo'), async (req, res) => {
+  if (!req.file) return res.status(400).json({ ok: false, error: 'archivo requerido' });
+  const empresaId = req.query.empresa ? parseInt(req.query.empresa, 10) : null;
+  if (!empresaId) return res.status(400).json({ ok: false, error: 'empresa requerida (?empresa=ID)' });
+
+  const wb = XLSX.read(req.file.buffer, { type: 'buffer' });
+  const ws = wb.Sheets[wb.SheetNames[0]];
+  const filas = XLSX.utils.sheet_to_json(ws);
+
+  if (!filas.length) return res.status(400).json({ ok: false, error: 'El archivo esta vacio' });
+
+  const db = getDb();
+  let insertadas = 0, actualizadas = 0;
+  const errores = [];
+
+  for (const [i, fila] of filas.entries()) {
+    const codigo      = String(fila['Codigo'] || fila['codigo'] || fila['Código'] || '').trim();
+    const descripcion = String(fila['Descripcion'] || fila['descripcion'] || fila['Descripción'] || fila['Titulo'] || '').trim();
+
+    if (!codigo) { errores.push({ fila: i + 2, error: 'Codigo vacio' }); continue; }
+
+    const grupo = codigo.charAt(0);
+    try {
+      const existe = await db.one('SELECT id FROM plan_contable WHERE codigo = $1', [codigo]);
+      if (existe) {
+        await db.query('UPDATE plan_contable SET descripcion = $1, empresa_id = $2, activo = true WHERE id = $3',
+          [descripcion || codigo, empresaId, existe.id]);
+        actualizadas++;
+      } else {
+        await db.query('INSERT INTO plan_contable (codigo, descripcion, grupo, empresa_id) VALUES ($1, $2, $3, $4)',
+          [codigo, descripcion || codigo, grupo, empresaId]);
+        insertadas++;
+      }
+    } catch (e) {
+      errores.push({ fila: i + 2, error: e.message });
+    }
+  }
+
+  res.json({ ok: true, data: { insertadas, actualizadas, errores } });
+});
+
+// GET /plantilla — descargar plantilla Excel para importacion
+router.get('/plantilla', async (req, res) => {
+  const filas = [
+    { Codigo: '40000001', Descripcion: 'Proveedor Ejemplo SL' },
+    { Codigo: '47200021', Descripcion: 'H.P. IVA Soportado 21%' },
+    { Codigo: '62300001', Descripcion: 'Servicios profesionales' },
+  ];
+  const ws = XLSX.utils.json_to_sheet(filas);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Plan Contable');
+  ws['!cols'] = [{ wch: 15 }, { wch: 40 }];
+  const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+  res.set({
+    'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'Content-Disposition': 'attachment; filename="plantilla-plan-contable.xlsx"',
+    'Content-Length': buffer.length,
+  });
+  res.send(buffer);
 });
 
 // DELETE /:id - eliminar subcuenta (solo si es subcuenta y no está en uso)

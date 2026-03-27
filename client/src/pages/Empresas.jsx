@@ -53,6 +53,37 @@ export default function Empresas() {
     setModal({ empresa: e }); setError('');
   }
 
+  async function handleImportarPlanContable(empresaId, file) {
+    if (!file) return;
+    const fd = new FormData();
+    fd.append('archivo', file);
+    try {
+      const res = await fetch(`${API_BASE}/api/plan-contable/importar?empresa=${empresaId}`, {
+        method: 'POST', headers: authHeaders(), body: fd,
+      });
+      const json = await res.json();
+      if (!json.ok) throw new Error(json.error);
+      alert(`Plan contable importado: ${json.data.insertadas} nuevas, ${json.data.actualizadas} actualizadas${json.data.errores?.length ? `, ${json.data.errores.length} errores` : ''}`);
+      // Recargar detalle
+      if (detalle === empresaId) {
+        setDetalleData(null);
+        setDetalleData(await fetchEmpresaDetalle(empresaId));
+      }
+      cargar();
+    } catch (e) { alert('Error: ' + e.message); }
+  }
+
+  async function handleDescargarPlantillaPlan() {
+    try {
+      const res = await fetch(`${API_BASE}/api/plan-contable/plantilla`, { headers: authHeaders() });
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href = url; a.download = 'plantilla-plan-contable.xlsx';
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch {}
+  }
+
   async function guardar() {
     if (!form.nombre.trim() || !form.cif.trim()) { setError('Nombre y CIF son obligatorios'); return; }
     setGuardando(true); setError('');
@@ -145,38 +176,59 @@ export default function Empresas() {
                         {!detalleData ? (
                           <div className="flex justify-center py-4"><svg className="h-5 w-5 animate-spin text-blue-400" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/></svg></div>
                         ) : (
-                          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-xs">
-                            <div>
-                              <p className="text-gray-400 mb-1">Telefono</p>
-                              <p className="text-gray-800">{detalleData.telefono || '-'}</p>
+                          <div className="space-y-4">
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-xs">
+                              <div>
+                                <p className="text-gray-400 mb-1">Telefono</p>
+                                <p className="text-gray-800">{detalleData.telefono || '-'}</p>
+                              </div>
+                              <div>
+                                <p className="text-gray-400 mb-1">Email</p>
+                                <p className="text-gray-800">{detalleData.email || '-'}</p>
+                              </div>
+                              <div>
+                                <p className="text-gray-400 mb-1">Web</p>
+                                <p className="text-gray-800">{detalleData.web || '-'}</p>
+                              </div>
+                              <div>
+                                <p className="text-gray-400 mb-1">Plan contable</p>
+                                <p className="text-gray-800 font-semibold">{detalleData.num_cuentas || 0} cuentas</p>
+                              </div>
+                              <div>
+                                <p className="text-gray-400 mb-1">Facturas totales</p>
+                                <p className="text-gray-800 font-semibold">{detalleData.num_facturas || 0}</p>
+                              </div>
+                              <div>
+                                <p className="text-gray-400 mb-1">Proveedores vinculados</p>
+                                <p className="text-gray-800 font-semibold">{detalleData.num_proveedores || 0}</p>
+                              </div>
+                              <div>
+                                <p className="text-gray-400 mb-1">Exportaciones SAGE</p>
+                                <p className="text-gray-800 font-semibold">{detalleData.num_lotes_sage || 0}</p>
+                              </div>
+                              <div>
+                                <p className="text-gray-400 mb-1">Conciliaciones</p>
+                                <p className="text-gray-800 font-semibold">{detalleData.num_conciliaciones || 0}</p>
+                              </div>
                             </div>
-                            <div>
-                              <p className="text-gray-400 mb-1">Email</p>
-                              <p className="text-gray-800">{detalleData.email || '-'}</p>
-                            </div>
-                            <div>
-                              <p className="text-gray-400 mb-1">Web</p>
-                              <p className="text-gray-800">{detalleData.web || '-'}</p>
-                            </div>
-                            <div>
-                              <p className="text-gray-400 mb-1">Plan contable</p>
-                              <p className="text-gray-800 font-semibold">{detalleData.num_cuentas || 0} cuentas</p>
-                            </div>
-                            <div>
-                              <p className="text-gray-400 mb-1">Facturas totales</p>
-                              <p className="text-gray-800 font-semibold">{detalleData.num_facturas || 0}</p>
-                            </div>
-                            <div>
-                              <p className="text-gray-400 mb-1">Proveedores vinculados</p>
-                              <p className="text-gray-800 font-semibold">{detalleData.num_proveedores || 0}</p>
-                            </div>
-                            <div>
-                              <p className="text-gray-400 mb-1">Exportaciones SAGE</p>
-                              <p className="text-gray-800 font-semibold">{detalleData.num_lotes_sage || 0}</p>
-                            </div>
-                            <div>
-                              <p className="text-gray-400 mb-1">Conciliaciones</p>
-                              <p className="text-gray-800 font-semibold">{detalleData.num_conciliaciones || 0}</p>
+
+                            {/* Importar plan contable */}
+                            <div className="border-t border-gray-200 pt-3">
+                              <p className="text-xs font-semibold text-gray-700 mb-2">Plan contable</p>
+                              <div className="flex items-center gap-3 flex-wrap">
+                                <label className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg cursor-pointer transition-colors">
+                                  <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/>
+                                  </svg>
+                                  Importar Excel
+                                  <input type="file" accept=".xlsx,.xls" className="hidden" onChange={ev => handleImportarPlanContable(e.id, ev.target.files[0])} />
+                                </label>
+                                <button onClick={() => handleDescargarPlantillaPlan()}
+                                  className="text-xs text-blue-600 hover:text-blue-800 hover:underline">
+                                  Descargar plantilla
+                                </button>
+                                <span className="text-[10px] text-gray-400">Excel con columnas: Codigo, Descripcion</span>
+                              </div>
                             </div>
                           </div>
                         )}
