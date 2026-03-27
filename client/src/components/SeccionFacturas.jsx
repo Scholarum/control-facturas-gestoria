@@ -6,7 +6,7 @@ import { descargarZip, contabilizar, revertirEstado, eliminarFactura, asignarCGM
 
 const inputCls = 'rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm text-gray-800 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500';
 
-function FiltrosSeccion({ filtros, onChange, proveedores }) {
+function FiltrosSeccion({ filtros, onChange, proveedores, totalFacturas, totalFiltradas, numIncidencias, numSinProveedor }) {
   const hayFiltros = Object.values(filtros).some(Boolean);
   function set(k, v) { onChange({ ...filtros, [k]: v }); }
 
@@ -32,19 +32,22 @@ function FiltrosSeccion({ filtros, onChange, proveedores }) {
         <input type="checkbox" checked={!!filtros.soloIncidencias}
           onChange={e => set('soloIncidencias', e.target.checked)}
           className="h-3.5 w-3.5 rounded border-gray-300 text-red-500 focus:ring-red-400" />
-        <span className="text-xs font-medium text-red-600">Datos incompletos</span>
+        <span className="text-xs font-medium text-red-600">Datos incompletos{numIncidencias > 0 ? ` (${numIncidencias})` : ''}</span>
       </label>
       <label className="self-end flex items-center gap-1.5 px-3 py-1.5 text-sm cursor-pointer select-none">
         <input type="checkbox" checked={!!filtros.soloSinProveedor}
           onChange={e => set('soloSinProveedor', e.target.checked)}
           className="h-3.5 w-3.5 rounded border-gray-300 text-orange-500 focus:ring-orange-400" />
-        <span className="text-xs font-medium text-orange-600">Sin proveedor/cuenta</span>
+        <span className="text-xs font-medium text-orange-600">Sin proveedor/cuenta{numSinProveedor > 0 ? ` (${numSinProveedor})` : ''}</span>
       </label>
       {hayFiltros && (
         <button onClick={() => onChange({ proveedor: '', fechaDesde: '', fechaHasta: '', soloIncidencias: false, soloSinProveedor: false })}
           className="self-end px-3 py-1.5 text-sm text-gray-500 hover:text-gray-800 hover:bg-gray-100 rounded-lg transition-colors">
           Limpiar
         </button>
+      )}
+      {hayFiltros && (
+        <span className="self-end text-xs text-gray-400 ml-auto">{totalFiltradas} de {totalFacturas}</span>
       )}
     </div>
   );
@@ -337,7 +340,10 @@ export default function SeccionFacturas({
 
       {/* Barra de filtros */}
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm px-4 py-3">
-        <FiltrosSeccion filtros={filtros} onChange={setFiltros} proveedores={proveedores} />
+        <FiltrosSeccion filtros={filtros} onChange={setFiltros} proveedores={proveedores}
+          totalFacturas={facturas.length} totalFiltradas={filtradas.length}
+          numIncidencias={facturas.filter(f => tieneIncidencia(f)).length}
+          numSinProveedor={facturas.filter(f => tieneIncidenciaProveedor(f)).length} />
       </div>
 
       {/* Error */}
