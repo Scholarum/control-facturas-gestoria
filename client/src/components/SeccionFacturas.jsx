@@ -28,20 +28,26 @@ function FiltrosSeccion({ filtros, onChange, proveedores, totalFacturas, totalFi
         <label className="text-xs font-medium text-gray-500">Fecha hasta</label>
         <input type="date" value={filtros.fechaHasta} onChange={e => set('fechaHasta', e.target.value)} className={inputCls} />
       </div>
-      <label className="self-end flex items-center gap-1.5 px-3 py-1.5 text-sm cursor-pointer select-none">
-        <input type="checkbox" checked={!!filtros.soloIncidencias}
-          onChange={e => set('soloIncidencias', e.target.checked)}
-          className="h-3.5 w-3.5 rounded border-gray-300 text-red-500 focus:ring-red-400" />
-        <span className="text-xs font-medium text-red-600">Datos incompletos{numIncidencias > 0 ? ` (${numIncidencias})` : ''}</span>
-      </label>
-      <label className="self-end flex items-center gap-1.5 px-3 py-1.5 text-sm cursor-pointer select-none">
-        <input type="checkbox" checked={!!filtros.soloSinProveedor}
-          onChange={e => set('soloSinProveedor', e.target.checked)}
-          className="h-3.5 w-3.5 rounded border-gray-300 text-orange-500 focus:ring-orange-400" />
-        <span className="text-xs font-medium text-orange-600">Sin proveedor/cuenta{numSinProveedor > 0 ? ` (${numSinProveedor})` : ''}</span>
-      </label>
+      <div className="flex flex-col gap-1">
+        <label className="text-xs font-medium text-gray-500">Datos</label>
+        <select value={filtros.soloIncidencias || ''} onChange={e => set('soloIncidencias', e.target.value)}
+          className={`${inputCls} min-w-[130px] ${filtros.soloIncidencias === 'si' ? 'text-red-600 font-medium' : filtros.soloIncidencias === 'no' ? 'text-emerald-600 font-medium' : ''}`}>
+          <option value="">Todos</option>
+          <option value="si">Incompletos ({numIncidencias})</option>
+          <option value="no">Completos ({totalFacturas - numIncidencias})</option>
+        </select>
+      </div>
+      <div className="flex flex-col gap-1">
+        <label className="text-xs font-medium text-gray-500">Proveedor</label>
+        <select value={filtros.soloSinProveedor || ''} onChange={e => set('soloSinProveedor', e.target.value)}
+          className={`${inputCls} min-w-[140px] ${filtros.soloSinProveedor === 'si' ? 'text-orange-600 font-medium' : filtros.soloSinProveedor === 'no' ? 'text-emerald-600 font-medium' : ''}`}>
+          <option value="">Todos</option>
+          <option value="si">Sin proveedor/cta ({numSinProveedor})</option>
+          <option value="no">Con proveedor ({totalFacturas - numSinProveedor})</option>
+        </select>
+      </div>
       {hayFiltros && (
-        <button onClick={() => onChange({ proveedor: '', fechaDesde: '', fechaHasta: '', soloIncidencias: false, soloSinProveedor: false })}
+        <button onClick={() => onChange({ proveedor: '', fechaDesde: '', fechaHasta: '', soloIncidencias: '', soloSinProveedor: '' })}
           className="self-end px-3 py-1.5 text-sm text-gray-500 hover:text-gray-800 hover:bg-gray-100 rounded-lg transition-colors">
           Limpiar
         </button>
@@ -170,7 +176,7 @@ export default function SeccionFacturas({
   modoGestoria = 'v2',
 }) {
   const esV1 = modoGestoria === 'v1';
-  const [filtros,       setFiltros]       = useState({ proveedor: '', fechaDesde: '', fechaHasta: '', soloIncidencias: false, soloSinProveedor: false });
+  const [filtros,       setFiltros]       = useState({ proveedor: '', fechaDesde: '', fechaHasta: '', soloIncidencias: '', soloSinProveedor: '' });
   const [seleccionados, setSeleccionados] = useState(new Set());
   const [descargando,        setDescargando]        = useState(false);
   const [contabilizando,     setContabilizando]     = useState(false);
@@ -189,8 +195,10 @@ export default function SeccionFacturas({
     if (filtros.proveedor  && f.proveedor !== filtros.proveedor) return false;
     if (filtros.fechaDesde && d?.fecha_emision && d.fecha_emision < filtros.fechaDesde) return false;
     if (filtros.fechaHasta && d?.fecha_emision && d.fecha_emision > filtros.fechaHasta) return false;
-    if (filtros.soloIncidencias && !tieneIncidencia(f)) return false;
-    if (filtros.soloSinProveedor && !tieneIncidenciaProveedor(f)) return false;
+    if (filtros.soloIncidencias === 'si' && !tieneIncidencia(f)) return false;
+    if (filtros.soloIncidencias === 'no' && tieneIncidencia(f)) return false;
+    if (filtros.soloSinProveedor === 'si' && !tieneIncidenciaProveedor(f)) return false;
+    if (filtros.soloSinProveedor === 'no' && tieneIncidenciaProveedor(f)) return false;
     return true;
   }), [facturas, filtros]);
 
