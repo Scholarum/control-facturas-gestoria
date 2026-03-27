@@ -100,8 +100,9 @@ export async function desactivarUsuario(id) {
 
 // ─── Facturas ─────────────────────────────────────────────────────────────────
 
-export async function fetchFacturas() {
-  const res = await fetch(`${API_BASE}/api/drive`, { headers: authHeaders() });
+export async function fetchFacturas(empresaId) {
+  const q = empresaId ? `?empresa=${empresaId}` : '';
+  const res = await fetch(`${API_BASE}/api/drive${q}`, { headers: authHeaders() });
   if (!res.ok) throw new Error('Error al cargar facturas');
   const { data } = await res.json();
   return data;
@@ -491,10 +492,15 @@ export async function eliminarVinculoManual(datos) {
 
 // ─── Plan Contable ────────────────────────────────────────────────────────────
 
-export async function fetchPlanContable(q = '') {
-  const url = q
-    ? `${API_BASE}/api/plan-contable?q=${encodeURIComponent(q)}`
-    : `${API_BASE}/api/plan-contable`;
+export async function fetchPlanContable(empresaIdOrQuery = '') {
+  const params = new URLSearchParams();
+  if (typeof empresaIdOrQuery === 'number') {
+    params.set('empresa', empresaIdOrQuery);
+  } else if (empresaIdOrQuery) {
+    params.set('q', empresaIdOrQuery);
+  }
+  const qs = params.toString();
+  const url = qs ? `${API_BASE}/api/plan-contable?${qs}` : `${API_BASE}/api/plan-contable`;
   const res = await fetch(url, { headers: authHeaders() });
   if (!res.ok) throw new Error('Error al cargar plan contable');
   const { data } = await res.json();

@@ -25,7 +25,7 @@ function StatCard({ label, value, color }) {
 // ─── Inner app (requires auth context) ───────────────────────────────────────
 
 function AppInner() {
-  const { user, loading: authLoading, logout, puedeVer, puedeEditar, esAdmin: esAdminReal, estaEmulando, emularGestoria, detenerEmulacion, modoGestoria } = useAuth();
+  const { user, loading: authLoading, logout, puedeVer, puedeEditar, esAdmin: esAdminReal, estaEmulando, emularGestoria, detenerEmulacion, modoGestoria, empresas, empresaActiva, cambiarEmpresa } = useAuth();
 
   const [tab,             setTab]             = useState('facturas');
   const [subTab,          setSubTab]          = useState('pendientes');
@@ -53,18 +53,18 @@ function AppInner() {
     }
   }, [user, tab]);
 
-  // Carga inicial — todo en paralelo, facturas controla el spinner
+  // Carga inicial — todo en paralelo, recargar al cambiar empresa
   useEffect(() => {
-    if (!user) return;
+    if (!user || !empresaActiva) return;
     setLoading(true);
     Promise.all([
-      fetchFacturas().then(setTodasFacturas),
+      fetchFacturas(empresaActiva.id).then(setTodasFacturas),
       fetchProveedores().then(setProveedores),
-      fetchPlanContable().then(setPlanContable).catch(() => {}),
+      fetchPlanContable(empresaActiva.id).then(setPlanContable).catch(() => {}),
     ])
       .catch(() => setError('No se pudo conectar con el servidor.'))
       .finally(() => setLoading(false));
-  }, [user]);
+  }, [user, empresaActiva]);
 
   // Autodetectar proveedores — en background, no bloquea la UI
   useEffect(() => {
@@ -116,9 +116,8 @@ function AppInner() {
   }
 
   async function handleProveedorActualizado() {
-    // Refrescar facturas y proveedores para que se actualicen los vínculos
     try {
-      const [nuevas, provs] = await Promise.all([fetchFacturas(), fetchProveedores()]);
+      const [nuevas, provs] = await Promise.all([fetchFacturas(empresaActiva?.id), fetchProveedores()]);
       setTodasFacturas(nuevas);
       setProveedores(provs);
     } catch {}
@@ -168,7 +167,7 @@ function AppInner() {
 
   async function handleRefreshFacturas() {
     try {
-      const nuevas = await fetchFacturas();
+      const nuevas = await fetchFacturas(empresaActiva?.id);
       setTodasFacturas(nuevas);
     } catch (_) {}
   }
@@ -316,6 +315,22 @@ function AppInner() {
             <span className="text-xl">🧾</span>
             <span className="font-semibold text-gray-900 text-sm hidden sm:block">Control de Facturas</span>
           </div>
+
+          {/* Selector de empresa */}
+          {empresas.length > 1 && (
+            <div className="flex items-center gap-1.5 ml-4">
+              {empresas.map(e => (
+                <button key={e.id} onClick={() => cambiarEmpresa(e)}
+                  className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
+                    empresaActiva?.id === e.id
+                      ? 'bg-blue-600 text-white shadow-sm'
+                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                  }`}>
+                  {e.nombre.split(' ')[0]}
+                </button>
+              ))}
+            </div>
+          )}
 
           {/* Pestañas principales */}
           <nav className="flex gap-1 flex-1">

@@ -5,17 +5,19 @@ const { resolveUser, requireAdmin } = require('../middleware/auth');
 
 router.use(resolveUser);
 
-// GET / - listar cuentas (con búsqueda opcional ?q=)
+// GET / - listar cuentas (con búsqueda opcional ?q= y filtro ?empresa=)
 router.get('/', async (req, res) => {
   try {
     const db = getDb();
-    const { q } = req.query;
+    const { q, empresa } = req.query;
+    const empresaId = parseInt(empresa, 10) || null;
+    const filtroEmpresa = empresaId ? `AND (empresa_id = ${empresaId} OR empresa_id IS NULL)` : '';
     const rows = q
       ? await db.all(
-          `SELECT * FROM plan_contable WHERE activo = true AND (codigo ILIKE $1 OR descripcion ILIKE $1) ORDER BY codigo`,
+          `SELECT * FROM plan_contable WHERE activo = true ${filtroEmpresa} AND (codigo ILIKE $1 OR descripcion ILIKE $1) ORDER BY codigo`,
           [`%${q}%`]
         )
-      : await db.all(`SELECT * FROM plan_contable WHERE activo = true ORDER BY codigo`);
+      : await db.all(`SELECT * FROM plan_contable WHERE activo = true ${filtroEmpresa} ORDER BY codigo`);
     res.json({ ok: true, data: rows });
   } catch (err) {
     console.error('[plan-contable] GET error:', err.message);

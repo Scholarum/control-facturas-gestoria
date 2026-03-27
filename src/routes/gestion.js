@@ -53,20 +53,24 @@ router.use(resolveUser);
 
 router.get('/', async (req, res) => {
   const db = getDb();
+  const empresaId = parseInt(req.query.empresa, 10) || null;
+  const whereEmpresa = empresaId ? 'AND da.empresa_id = $1' : '';
+  const params = empresaId ? [empresaId] : [];
+
   const archivos = await db.all(`
     SELECT
       da.id, da.google_id, da.nombre_archivo, da.ruta_completa,
       da.proveedor, da.fecha_subida, da.estado, da.estado_gestion,
       da.datos_extraidos, da.error_extraccion, da.procesado_at, da.ultima_sync,
-      da.lote_a3_id,
+      da.lote_a3_id, da.empresa_id,
       p.id                                                        AS proveedor_id,
       p.razon_social,
       p.cif                                                       AS proveedor_cif,
       da.cuenta_gasto_id                                          AS cg_manual_id,
-      COALESCE(da.cuenta_gasto_id, p.cuenta_gasto_id)             AS cg_efectiva_id,
-      COALESCE(cgd.codigo,  pg.codigo)                            AS cuenta_gasto_codigo,
-      COALESCE(cgd.descripcion, pg.descripcion)                   AS cuenta_gasto_desc,
-      cc.codigo                                                   AS cta_proveedor_codigo,
+      COALESCE(da.cuenta_gasto_id, pe.cuenta_gasto_id)            AS cg_efectiva_id,
+      COALESCE(cgd.codigo,  peg.codigo)                           AS cuenta_gasto_codigo,
+      COALESCE(cgd.descripcion, peg.descripcion)                  AS cuenta_gasto_desc,
+      pec.codigo                                                  AS cta_proveedor_codigo,
       la.nombre_fichero                                           AS lote_a3_nombre,
       la.fecha                                                    AS lote_a3_fecha
     FROM drive_archivos da
@@ -90,12 +94,14 @@ router.get('/', async (req, res) => {
                ) DESC NULLS LAST
       LIMIT 1
     ) p ON true
-    LEFT JOIN plan_contable pg  ON pg.id  = p.cuenta_gasto_id
-    LEFT JOIN plan_contable cgd ON cgd.id = da.cuenta_gasto_id
-    LEFT JOIN plan_contable cc  ON cc.id  = p.cuenta_contable_id
+    LEFT JOIN proveedor_empresa pe  ON pe.proveedor_id = p.id AND pe.empresa_id = da.empresa_id
+    LEFT JOIN plan_contable peg     ON peg.id = pe.cuenta_gasto_id
+    LEFT JOIN plan_contable cgd     ON cgd.id = da.cuenta_gasto_id
+    LEFT JOIN plan_contable pec     ON pec.id = pe.cuenta_contable_id
     LEFT JOIN lotes_exportacion_a3 la ON la.id = da.lote_a3_id
+    WHERE 1=1 ${whereEmpresa}
     ORDER BY da.id DESC
-  `);
+  `, params);
   res.json({ ok: true, data: archivos.map(parsearArchivo) });
 });
 

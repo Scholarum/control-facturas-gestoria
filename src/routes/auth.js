@@ -31,7 +31,8 @@ router.post('/login', async (req, res) => {
     const { token, user } = await login(email, password);
     const permisos = await getPermisos(user.rol);
     const config   = await getSistemaConfig();
-    res.json({ ok: true, data: { token, user, permisos, modo_gestoria: config.modo_gestoria } });
+    const empresas = await db.all('SELECT id, nombre, cif FROM empresas WHERE activo = true ORDER BY nombre');
+    res.json({ ok: true, data: { token, user, permisos, modo_gestoria: config.modo_gestoria, empresas } });
   } catch (err) {
     res.status(err.status || 500).json({ ok: false, error: err.message });
   }
@@ -73,7 +74,8 @@ router.post('/google', async (req, res) => {
     const token    = signToken({ id: user.id, rol: user.rol });
     const permisos = await getPermisos(user.rol);
     const config   = await getSistemaConfig();
-    res.json({ ok: true, data: { token, user, permisos, modo_gestoria: config.modo_gestoria } });
+    const empresas = await db.all('SELECT id, nombre, cif FROM empresas WHERE activo = true ORDER BY nombre');
+    res.json({ ok: true, data: { token, user, permisos, modo_gestoria: config.modo_gestoria, empresas } });
   } catch (err) {
     res.status(500).json({ ok: false, error: 'Error al verificar el token de Google' });
   }
@@ -86,7 +88,8 @@ router.get('/me', resolveUser, requireAuth, async (req, res) => {
     const { password_hash: _, ...user } = req.usuario;
     const permisos = await getPermisos(user.rol);
     const config   = await getSistemaConfig();
-    res.json({ ok: true, data: { user, permisos, modo_gestoria: config.modo_gestoria } });
+    const empresas = await db.all('SELECT id, nombre, cif FROM empresas WHERE activo = true ORDER BY nombre');
+    res.json({ ok: true, data: { user, permisos, modo_gestoria: config.modo_gestoria, empresas } });
   } catch (e) {
     res.status(500).json({ ok: false, error: e.message });
   }

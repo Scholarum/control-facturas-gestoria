@@ -30,6 +30,7 @@ app.use('/api/auth',          require('./routes/auth'));
 app.use('/api/drive',         require('./routes/gestion'));
 app.use('/api/facturas',      require('./routes/facturas'));
 app.use('/api/conciliacion',  require('./routes/conciliacion'));
+app.use('/api/empresas',      require('./routes/empresas'));
 app.use('/api/usuarios',       require('./routes/usuarios'));
 app.use('/api/auditoria',      require('./routes/auditoria'));
 app.use('/api/configuracion',  require('./routes/configuracion'));

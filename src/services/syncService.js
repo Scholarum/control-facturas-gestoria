@@ -113,6 +113,25 @@ async function ejecutarSync(origen = 'MANUAL') {
       }
       console.log(`[Sync] Extraccion completada: ${extraccion.procesada} OK, ${extraccion.revision} revision`);
 
+      // Asignar empresa_id por CIF receptor
+      try {
+        await db.query(`
+          UPDATE drive_archivos da SET empresa_id = e.id
+          FROM empresas e
+          WHERE da.id = ANY($1::int[])
+            AND da.empresa_id IS NULL
+            AND da.datos_extraidos IS NOT NULL AND da.datos_extraidos ~ '^\\s*\\{'
+            AND normalizar_cif((da.datos_extraidos::jsonb)->>'cif_receptor') = normalizar_cif(e.cif)
+        `, [idsParaExtraer]);
+        // Facturas sin empresa → asignar la primera empresa por defecto
+        await db.query(`
+          UPDATE drive_archivos SET empresa_id = (SELECT id FROM empresas WHERE activo = true ORDER BY id LIMIT 1)
+          WHERE id = ANY($1::int[]) AND empresa_id IS NULL
+        `, [idsParaExtraer]);
+      } catch (e) {
+        console.error('[Sync] Error asignando empresa_id:', e.message);
+      }
+
       // Detectar duplicados
       try {
         const duplicadas = await db.all(`

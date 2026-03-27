@@ -117,6 +117,29 @@ const tablas = [
   `ALTER TABLE historial_conciliaciones ADD COLUMN IF NOT EXISTS usuario_id     INTEGER REFERENCES usuarios(id)`,
   `ALTER TABLE historial_conciliaciones ADD COLUMN IF NOT EXISTS usuario_nombre TEXT`,
 
+  // ─── MULTIEMPRESA ──────────────────────────────────────────────────────────
+  `CREATE TABLE IF NOT EXISTS empresas (
+    id          SERIAL PRIMARY KEY,
+    nombre      TEXT NOT NULL,
+    cif         TEXT NOT NULL UNIQUE,
+    activo      BOOLEAN NOT NULL DEFAULT true,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`,
+  `CREATE TABLE IF NOT EXISTS proveedor_empresa (
+    id                 SERIAL PRIMARY KEY,
+    proveedor_id       INTEGER NOT NULL REFERENCES proveedores(id) ON DELETE CASCADE,
+    empresa_id         INTEGER NOT NULL REFERENCES empresas(id) ON DELETE CASCADE,
+    cuenta_contable_id INTEGER REFERENCES plan_contable(id),
+    cuenta_gasto_id    INTEGER REFERENCES plan_contable(id),
+    ultimo_asiento_sage INTEGER,
+    UNIQUE(proveedor_id, empresa_id)
+  )`,
+  `ALTER TABLE drive_archivos ADD COLUMN IF NOT EXISTS empresa_id INTEGER REFERENCES empresas(id)`,
+  `ALTER TABLE plan_contable ADD COLUMN IF NOT EXISTS empresa_id INTEGER REFERENCES empresas(id)`,
+  `ALTER TABLE lotes_exportacion_sage ADD COLUMN IF NOT EXISTS empresa_id INTEGER REFERENCES empresas(id)`,
+  `ALTER TABLE historial_conciliaciones ADD COLUMN IF NOT EXISTS empresa_id INTEGER REFERENCES empresas(id)`,
+  `ALTER TABLE historial_sincronizaciones ADD COLUMN IF NOT EXISTS empresa_id INTEGER REFERENCES empresas(id)`,
+
   // Exportación SAGE: historial de lotes y control de duplicados
   `CREATE TABLE IF NOT EXISTS lotes_exportacion_sage (
     id               SERIAL PRIMARY KEY,
@@ -459,6 +482,50 @@ async function runMigrations() {
   await db.query(
     "UPDATE drive_archivos SET estado = 'SINCRONIZADA' WHERE estado = 'PENDIENTE'"
   );
+
+  // ─── Seed empresas ──────────────────────────────────────────────────────────
+  const empresasSeed = [
+    { nombre: 'Scholarum Digital SL', cif: 'B86610821' },
+    { nombre: 'Laredo Tech SL',      cif: 'B19822352' },
+  ];
+  for (const e of empresasSeed) {
+    await db.query(
+      'INSERT INTO empresas (nombre, cif) VALUES ($1, $2) ON CONFLICT (cif) DO NOTHING',
+      [e.nombre, e.cif]
+    );
+  }
+
+  // Migrar datos existentes a multiempresa (una sola vez)
+  // 1. Asignar empresa_id a plan_contable existente (Scholarum por defecto)
+  await db.query(`
+    UPDATE plan_contable SET empresa_id = (SELECT id FROM empresas WHERE cif = 'B86610821' LIMIT 1)
+    WHERE empresa_id IS NULL
+  `);
+  // 2. Mover cuentas de proveedores a proveedor_empresa para la empresa por defecto
+  await db.query(`
+    INSERT INTO proveedor_empresa (proveedor_id, empresa_id, cuenta_contable_id, cuenta_gasto_id, ultimo_asiento_sage)
+    SELECT p.id, (SELECT id FROM empresas WHERE cif = 'B86610821' LIMIT 1),
+           p.cuenta_contable_id, p.cuenta_gasto_id, p.ultimo_asiento_sage
+    FROM proveedores p
+    WHERE p.activo = true AND (p.cuenta_contable_id IS NOT NULL OR p.cuenta_gasto_id IS NOT NULL)
+      AND NOT EXISTS (
+        SELECT 1 FROM proveedor_empresa pe
+        WHERE pe.proveedor_id = p.id AND pe.empresa_id = (SELECT id FROM empresas WHERE cif = 'B86610821' LIMIT 1)
+      )
+  `);
+  // 3. Asignar empresa_id a facturas existentes por CIF receptor
+  await db.query(`
+    UPDATE drive_archivos da SET empresa_id = e.id
+    FROM empresas e
+    WHERE da.empresa_id IS NULL
+      AND da.datos_extraidos IS NOT NULL AND da.datos_extraidos ~ '^\\s*\\{'
+      AND normalizar_cif((da.datos_extraidos::jsonb)->>'cif_receptor') = normalizar_cif(e.cif)
+  `);
+  // 4. Facturas sin CIF receptor → asignar a Scholarum por defecto
+  await db.query(`
+    UPDATE drive_archivos SET empresa_id = (SELECT id FROM empresas WHERE cif = 'B86610821' LIMIT 1)
+    WHERE empresa_id IS NULL
+  `);
 
   console.log('Migración PostgreSQL completada.');
 }
