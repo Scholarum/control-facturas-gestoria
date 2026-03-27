@@ -469,11 +469,11 @@ export async function parsearMayorV2(formData) {
   return json.data;
 }
 
-export async function ejecutarConciliacionV2(proveedores, alcance) {
+export async function ejecutarConciliacionV2(proveedores, alcance, empresaId) {
   const res = await fetch(`${API_BASE}/api/conciliacion/v2/ejecutar`, {
     method: 'POST',
     headers: authHeaders({ 'Content-Type': 'application/json' }),
-    body: JSON.stringify({ proveedores, alcance }),
+    body: JSON.stringify({ proveedores, alcance, empresa_id: empresaId }),
   });
   const json = await res.json();
   if (!json.ok) throw new Error(json.error || 'Error en la conciliación');
@@ -578,8 +578,9 @@ export async function eliminarRol(id) {
   if (!json.ok) throw new Error(json.error || 'Error al eliminar rol');
 }
 
-export async function vincularProveedores() {
-  const res = await fetch(`${API_BASE}/api/drive/vincular-proveedores`, {
+export async function vincularProveedores(empresaId) {
+  const q = empresaId ? `?empresa=${empresaId}` : '';
+  const res = await fetch(`${API_BASE}/api/drive/vincular-proveedores${q}`, {
     method: 'PUT', headers: authHeaders(),
   });
   const json = await res.json();
@@ -587,8 +588,9 @@ export async function vincularProveedores() {
   return json.data;
 }
 
-export async function aplicarCuentasProveedor() {
-  const res = await fetch(`${API_BASE}/api/drive/aplicar-cuentas-proveedor`, {
+export async function aplicarCuentasProveedor(empresaId) {
+  const q = empresaId ? `?empresa=${empresaId}` : '';
+  const res = await fetch(`${API_BASE}/api/drive/aplicar-cuentas-proveedor${q}`, {
     method: 'PUT',
     headers: authHeaders(),
   });

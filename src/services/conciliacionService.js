@@ -202,15 +202,15 @@ function cruzarFacturaEnMayor(factura, lineasMayor, anio, usadas) {
   };
 }
 
-async function obtenerFacturasPorProveedor(nombreCarpeta, proveedorId, cifProveedor) {
+async function obtenerFacturasPorProveedor(nombreCarpeta, proveedorId, cifProveedor, empresaId) {
   const db = getDb();
   let archivos;
+  const filtroEmpresa = empresaId ? `AND da.empresa_id = ${parseInt(empresaId, 10)}` : '';
 
   if (proveedorId) {
-    // Buscar por nombre_carpeta O por CIF del proveedor
     archivos = await db.all(`
       SELECT da.* FROM drive_archivos da
-      WHERE da.estado = 'PROCESADA'
+      WHERE da.estado = 'PROCESADA' ${filtroEmpresa}
         AND (
           da.proveedor = $1
           OR (
@@ -222,10 +222,9 @@ async function obtenerFacturasPorProveedor(nombreCarpeta, proveedorId, cifProvee
         )
     `, [nombreCarpeta || '', cifProveedor || null]);
   } else {
-    // Sin proveedor vinculado, solo buscar por nombre_carpeta si existe
     if (nombreCarpeta) {
       archivos = await db.all(
-        "SELECT * FROM drive_archivos WHERE proveedor = $1 AND estado = 'PROCESADA'",
+        `SELECT * FROM drive_archivos WHERE proveedor = $1 AND estado = 'PROCESADA' ${filtroEmpresa}`,
         [nombreCarpeta]
       );
     } else {
@@ -247,14 +246,14 @@ async function obtenerVinculosManuales(facturaIds) {
   );
 }
 
-async function ejecutarConciliacionV2(proveedoresConLineas) {
+async function ejecutarConciliacionV2(proveedoresConLineas, empresaId) {
   const anio = new Date().getFullYear();
   const resultadosPorProveedor = [];
   let totalConciliadas = 0, totalConciliadasManual = 0, totalParciales = 0, totalSinMatch = 0, totalSinFactura = 0, totalLineas = 0;
 
   for (const prov of proveedoresConLineas) {
     const facturasDrive = await obtenerFacturasPorProveedor(
-      prov.nombreCarpeta, prov.proveedorId, prov.cifProveedor
+      prov.nombreCarpeta, prov.proveedorId, prov.cifProveedor, empresaId
     );
 
     // Líneas del Mayor filtradas: documento F/ con importe

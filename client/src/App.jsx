@@ -200,7 +200,7 @@ function AppInner() {
   async function handleVincularProveedores() {
     setVinculandoProvs(true); setError('');
     try {
-      const result = await vincularProveedores();
+      const result = await vincularProveedores(empresaActiva?.id);
       const nuevas = await fetchFacturas();
       setTodasFacturas(nuevas);
       let texto = `${result.carpetas_rellenadas} carpeta(s) vinculada(s)`;
@@ -216,7 +216,7 @@ function AppInner() {
   async function handleAplicarCuentasProveedor() {
     setAplicandoCuentas(true); setError('');
     try {
-      const result = await aplicarCuentasProveedor();
+      const result = await aplicarCuentasProveedor(empresaActiva?.id);
       const nuevas = await fetchFacturas();
       setTodasFacturas(nuevas);
       let texto = `${result.actualizadas} factura${result.actualizadas !== 1 ? 's' : ''} pasada${result.actualizadas !== 1 ? 's' : ''} a "Cta. Gasto"`;

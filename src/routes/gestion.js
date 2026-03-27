@@ -839,10 +839,13 @@ router.put('/aplicar-cuentas-proveedor', requireAuth, async (req, res) => {
     const config = await getSistemaConfig();
     const esV1 = config.modo_gestoria === 'v1';
 
-    // Obtener todas las pendientes con info de proveedor y cuentas
+    const empresaId = req.query.empresa ? parseInt(req.query.empresa, 10) : null;
+    const filtroEmpresa = empresaId ? `AND da.empresa_id = ${empresaId}` : '';
+
+    // Obtener todas las pendientes con info de proveedor y cuentas (de proveedor_empresa)
     const pendientes = await db.all(`
       SELECT da.id, da.nombre_archivo, da.proveedor, da.datos_extraidos, da.cuenta_gasto_id,
-             p.id AS prov_id, p.cuenta_gasto_id AS prov_cg_id, p.cuenta_contable_id AS prov_cc_id
+             p.id AS prov_id, pe.cuenta_gasto_id AS prov_cg_id, pe.cuenta_contable_id AS prov_cc_id
       FROM drive_archivos da
       LEFT JOIN LATERAL (
         SELECT p2.* FROM proveedores p2
@@ -855,7 +858,8 @@ router.put('/aplicar-cuentas-proveedor', requireAuth, async (req, res) => {
                  AND normalizar_cif((da.datos_extraidos::jsonb)->>'cif_emisor') = normalizar_cif(p2.cif)) DESC NULLS LAST
         LIMIT 1
       ) p ON true
-      WHERE da.estado_gestion = 'PENDIENTE'
+      LEFT JOIN proveedor_empresa pe ON pe.proveedor_id = p.id AND pe.empresa_id = da.empresa_id
+      WHERE da.estado_gestion = 'PENDIENTE' ${filtroEmpresa}
     `);
 
     const idsActualizar = [];

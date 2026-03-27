@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
+import { useAuth } from '../context/AuthContext.jsx';
 import ResultadoConciliacion from '../components/ResultadoConciliacion.jsx';
 import ResultadoConciliacionV2 from '../components/ResultadoConciliacionV2.jsx';
 import {
@@ -259,6 +260,7 @@ function PantallaSeleccion({ datosParseo, onEjecutar, onVolver }) {
 // ─── Página principal ─────────────────────────────────────────────────────────
 
 export default function Conciliacion({ proveedores }) {
+  const { empresaActiva } = useAuth();
   const [fase, setFase]                           = useState(FASES.FORM);
   const [archivo, setArchivo]                     = useState(null);
   const [datosParseo, setDatosParseo]             = useState(null);
@@ -302,7 +304,7 @@ export default function Conciliacion({ proveedores }) {
     setFase(FASES.EJECUTANDO);
     setError('');
     try {
-      const data = await ejecutarConciliacionV2(proveedoresSeleccionados, alcance);
+      const data = await ejecutarConciliacionV2(proveedoresSeleccionados, alcance, empresaActiva?.id);
       setResultado(data);
       setResultadoVersion('v2');
       setFase(FASES.RESULTADO);

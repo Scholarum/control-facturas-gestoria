@@ -371,7 +371,7 @@ router.post('/v2/parsear', resolveUser, upload.single('archivo'), async (req, re
 // ─── POST /api/conciliacion/v2/ejecutar ─────────────────────────────────────
 
 router.post('/v2/ejecutar', resolveUser, express.json({ limit: '5mb' }), async (req, res) => {
-  const { proveedores, alcance } = req.body;
+  const { proveedores, alcance, empresa_id } = req.body;
   if (!proveedores?.length) return res.status(400).json({ ok: false, error: 'Proveedores requeridos' });
 
   const usuarioId     = req.usuario?.id     ?? null;
@@ -379,7 +379,7 @@ router.post('/v2/ejecutar', resolveUser, express.json({ limit: '5mb' }), async (
 
   let resultado;
   try {
-    resultado = await ejecutarConciliacionV2(proveedores);
+    resultado = await ejecutarConciliacionV2(proveedores, empresa_id);
   } catch (err) {
     return res.status(err.status || 500).json({ ok: false, error: err.message });
   }
