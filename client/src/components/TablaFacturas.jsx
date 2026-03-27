@@ -547,18 +547,17 @@ function CampoEditable({ label, valor, campo, datosOriginales, onGuardar, tipo =
   const [val, setVal]           = useState(valor || '');
   const [guardando, setGuardando] = useState(false);
 
-  if (!esVacio) {
-    // Campo informado por Gemini → solo lectura
-    return tipo === 'number'
-      ? <span className="text-sm font-bold text-gray-900">{fmtEuro(valor)}</span>
-      : <span className="text-sm font-medium text-gray-900">{valor}</span>;
-  }
+  // Sincronizar val cuando el valor externo cambia
+  useEffect(() => { setVal(valor || ''); }, [valor]);
 
   if (!editando) {
+    const display = tipo === 'number' && valor != null
+      ? fmtEuro(valor)
+      : (valor || 'Sin datos');
     return (
       <button onClick={() => setEditando(true)}
-        className="text-sm text-red-400 italic hover:text-red-600 hover:underline transition-colors cursor-pointer">
-        {valor || 'Sin datos'} ✎
+        className={`text-sm transition-colors cursor-pointer ${esVacio ? 'text-red-400 italic hover:text-red-600' : 'font-medium text-gray-900 hover:text-blue-600'} hover:underline`}>
+        {display} <span className="text-gray-300 text-xs">&#9998;</span>
       </button>
     );
   }
@@ -684,12 +683,12 @@ function PanelDetalleFiscal({ f, onDatosActualizados }) {
                 </tbody>
               </table>
             )}
-            {ivaVacio && !editandoIva && (
-              <button onClick={() => setEditandoIva(true)} className="text-xs text-red-400 italic hover:text-red-600 hover:underline">
-                Sin desglose disponible ✎
+            {!editandoIva && (
+              <button onClick={() => setEditandoIva(true)} className={`text-xs hover:underline ${ivaVacio ? 'text-red-400 italic hover:text-red-600' : 'text-blue-500 hover:text-blue-700'}`}>
+                {ivaVacio ? 'Sin desglose disponible' : 'Editar desglose'} <span className="text-gray-300">&#9998;</span>
               </button>
             )}
-            {ivaVacio && editandoIva && (
+            {editandoIva && (
               <div className="space-y-2 bg-white/60 rounded-lg p-2 border border-red-200" onClick={e => e.stopPropagation()}>
                 <div className="flex items-center gap-2">
                   <select value={ivaForm.tipo} onChange={e => setIvaForm(p => ({ ...p, tipo: e.target.value }))}

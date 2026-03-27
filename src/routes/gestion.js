@@ -944,7 +944,7 @@ router.delete('/:id', requireAdmin, async (req, res) => {
   res.json({ ok: true });
 });
 
-// ─── PUT /api/drive/:id/datos — editar campos vacíos de datos_extraidos ──────
+// ─── PUT /api/drive/:id/datos — editar campos de datos_extraidos ─────────────
 
 const CAMPOS_EDITABLES = [
   'numero_factura', 'fecha_emision', 'nombre_emisor', 'cif_emisor',
@@ -960,34 +960,22 @@ router.put('/:id/datos', requireAuth, express.json(), async (req, res) => {
 
   const datosActuales = archivo.datos_extraidos ? JSON.parse(archivo.datos_extraidos) : {};
   const cambios = {};
-  const rechazados = [];
+  const anteriores = {};
 
   for (const campo of CAMPOS_EDITABLES) {
     if (req.body[campo] === undefined) continue;
-
-    // Solo se pueden editar campos que llegaron vacíos de la extracción
-    const valorActual = datosActuales[campo];
-    if (valorActual != null && valorActual !== '' && valorActual !== 0) {
-      rechazados.push(campo);
-      continue;
-    }
-
+    anteriores[campo] = datosActuales[campo] ?? null;
     cambios[campo] = req.body[campo];
   }
 
-  // IVA: solo editable si no hay desglose
+  // IVA
   if (req.body.iva !== undefined) {
-    const ivaActual = Array.isArray(datosActuales.iva) ? datosActuales.iva : [];
-    const tieneIva = ivaActual.some(e => e.base > 0 || e.cuota > 0);
-    if (!tieneIva) {
-      cambios.iva = req.body.iva;
-    } else {
-      rechazados.push('iva');
-    }
+    anteriores.iva = datosActuales.iva ?? null;
+    cambios.iva = req.body.iva;
   }
 
   if (!Object.keys(cambios).length) {
-    return res.status(400).json({ ok: false, error: 'No hay campos editables que modificar', rechazados });
+    return res.status(400).json({ ok: false, error: 'No hay campos que modificar' });
   }
 
   const nuevosDatos = { ...datosActuales, ...cambios };
@@ -997,22 +985,22 @@ router.put('/:id/datos', requireAuth, express.json(), async (req, res) => {
     [JSON.stringify(nuevosDatos), id]
   );
 
-  // Registrar en auditoría
   await registrarEvento({
     evento:    'EDICION_DATOS_FACTURA',
     usuarioId: req.usuario?.id ?? null,
     ip:        req.clientIp,
     userAgent: req.userAgent,
     detalle:   {
-      drive_id:    id,
-      nombre:      archivo.nombre_archivo,
-      proveedor:   archivo.proveedor,
-      campos_editados: Object.keys(cambios),
-      valores_nuevos:  cambios,
+      drive_id:         id,
+      nombre:           archivo.nombre_archivo,
+      proveedor:        archivo.proveedor,
+      campos_editados:  Object.keys(cambios),
+      valores_anteriores: anteriores,
+      valores_nuevos:   cambios,
     },
   }).catch(() => {});
 
-  res.json({ ok: true, data: { datos_extraidos: nuevosDatos, rechazados } });
+  res.json({ ok: true, data: { datos_extraidos: nuevosDatos } });
 });
 
 module.exports = router;
