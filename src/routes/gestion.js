@@ -779,49 +779,41 @@ router.put('/vincular-proveedores', requireAuth, async (req, res) => {
   try {
     const db = getDb();
 
-    // Contar facturas sin proveedor vinculado que tienen CIF emisor
+    // Facturas sin proveedor vinculado (ni por CIF ni por carpeta)
     const sinVinculo = await db.all(`
       SELECT da.id, da.nombre_archivo, da.proveedor,
-             (da.datos_extraidos::jsonb)->>'cif_emisor' AS cif_emisor
+             (da.datos_extraidos::jsonb)->>'cif_emisor'    AS cif_emisor,
+             (da.datos_extraidos::jsonb)->>'nombre_emisor' AS nombre_emisor
       FROM drive_archivos da
       WHERE da.datos_extraidos IS NOT NULL
         AND da.datos_extraidos ~ '^\\s*\\{'
-        AND (da.datos_extraidos::jsonb)->>'cif_emisor' IS NOT NULL
-        AND TRIM((da.datos_extraidos::jsonb)->>'cif_emisor') <> ''
         AND NOT EXISTS (
           SELECT 1 FROM proveedores p
           WHERE p.activo = true AND (
             (p.cif IS NOT NULL AND normalizar_cif(p.cif) = normalizar_cif((da.datos_extraidos::jsonb)->>'cif_emisor'))
-            OR p.nombre_carpeta = da.proveedor
+            OR (p.nombre_carpeta IS NOT NULL AND p.nombre_carpeta = da.proveedor)
           )
         )
     `);
 
-    // Rellenar nombre_carpeta en proveedores que coinciden por CIF
-    const rellenados = await db.query(`
-      UPDATE proveedores p
-      SET nombre_carpeta = sub.proveedor, updated_at = NOW()
-      FROM (
-        SELECT DISTINCT ON (normalizar_cif((da.datos_extraidos::jsonb)->>'cif_emisor'))
-               da.proveedor,
-               normalizar_cif((da.datos_extraidos::jsonb)->>'cif_emisor') AS cif_norm
-        FROM drive_archivos da
-        WHERE da.proveedor IS NOT NULL
-          AND da.datos_extraidos IS NOT NULL AND da.datos_extraidos ~ '^\\s*\\{'
-          AND (da.datos_extraidos::jsonb)->>'cif_emisor' IS NOT NULL
-      ) sub
-      WHERE p.nombre_carpeta IS NULL AND p.cif IS NOT NULL
-        AND normalizar_cif(p.cif) = sub.cif_norm
-    `);
+    // Facturas vinculadas por carpeta (proveedor tiene nombre_carpeta que coincide)
+    const vinculadasPorCarpeta = await db.one(
+      `SELECT COUNT(*) AS n FROM drive_archivos da
+       WHERE EXISTS (
+         SELECT 1 FROM proveedores p
+         WHERE p.activo = true AND p.nombre_carpeta IS NOT NULL AND p.nombre_carpeta = da.proveedor
+       )`
+    );
 
     res.json({
       ok: true,
       data: {
         sin_proveedor: sinVinculo.length,
-        carpetas_rellenadas: rellenados?.rowCount || 0,
-        detalle: sinVinculo.slice(0, 20).map(f => ({
+        vinculadas_por_carpeta: parseInt(vinculadasPorCarpeta.n, 10),
+        detalle: sinVinculo.slice(0, 30).map(f => ({
           nombre: f.nombre_archivo,
           cif: f.cif_emisor,
+          emisor: f.nombre_emisor,
           carpeta: f.proveedor,
         })),
       },

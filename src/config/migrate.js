@@ -143,9 +143,10 @@ const tablas = [
   // Último asiento SAGE por proveedor
   `ALTER TABLE proveedores ADD COLUMN IF NOT EXISTS ultimo_asiento_sage INTEGER`,
 
-  // Indices para acelerar queries
+  // Indices y restricciones
   `CREATE INDEX IF NOT EXISTS idx_proveedores_cif ON proveedores (UPPER(TRIM(cif))) WHERE activo = true AND cif IS NOT NULL`,
   `CREATE INDEX IF NOT EXISTS idx_proveedores_carpeta ON proveedores (nombre_carpeta) WHERE activo = true AND nombre_carpeta IS NOT NULL`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_proveedores_carpeta_unico ON proveedores (nombre_carpeta) WHERE activo = true AND nombre_carpeta IS NOT NULL`,
   `CREATE INDEX IF NOT EXISTS idx_drive_estado_gestion ON drive_archivos (estado_gestion)`,
 
   // Duplicados: columna en historial de sincronizaciones

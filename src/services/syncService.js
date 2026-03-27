@@ -176,25 +176,7 @@ async function ejecutarSync(origen = 'MANUAL') {
         console.error('[Sync] Error CC_ASIGNADA:', e.message);
       }
 
-      // Rellenar nombre_carpeta
-      try {
-        await db.query(`
-          UPDATE proveedores p
-          SET nombre_carpeta = sub.proveedor, updated_at = NOW()
-          FROM (
-            SELECT DISTINCT da.proveedor,
-                   normalizar_cif((da.datos_extraidos::jsonb)->>'cif_emisor') AS cif_norm
-            FROM drive_archivos da
-            WHERE da.proveedor IS NOT NULL
-              AND da.datos_extraidos IS NOT NULL AND da.datos_extraidos ~ '^\\s*\\{'
-              AND (da.datos_extraidos::jsonb)->>'cif_emisor' IS NOT NULL
-          ) sub
-          WHERE p.nombre_carpeta IS NULL AND p.cif IS NOT NULL
-            AND normalizar_cif(p.cif) = sub.cif_norm
-        `);
-      } catch (e) {
-        console.error('[Sync] Error nombre_carpeta:', e.message);
-      }
+      // Vinculacion carpeta-proveedor: se gestiona manualmente desde Proveedores
     }
 
     const countRow = await db.one("SELECT COUNT(*) AS n FROM drive_archivos WHERE estado = 'REVISION_MANUAL'");

@@ -101,38 +101,16 @@ router.get('/selector', async (req, res) => {
   });
 });
 
-// POST /autodetectar - detecta proveedores por CIF, crea los nuevos y devuelve todos sin cuentas
+// POST /autodetectar - devuelve proveedores sin cuentas (ya no crea automaticamente)
 router.post('/autodetectar', async (req, res) => {
   try {
     const db = getDb();
-
-    // Crear proveedores nuevos en una sola query SQL (sin parseo JS)
-    await db.query(`
-      INSERT INTO proveedores (razon_social, cif)
-      SELECT DISTINCT ON (normalizar_cif((da.datos_extraidos::jsonb)->>'cif_emisor'))
-             COALESCE(NULLIF(TRIM((da.datos_extraidos::jsonb)->>'nombre_emisor'), ''), 'Sin nombre'),
-             UPPER(TRIM((da.datos_extraidos::jsonb)->>'cif_emisor'))
-      FROM drive_archivos da
-      WHERE da.datos_extraidos IS NOT NULL
-        AND da.datos_extraidos ~ '^\\s*\\{'
-        AND (da.datos_extraidos::jsonb)->>'cif_emisor' IS NOT NULL
-        AND TRIM((da.datos_extraidos::jsonb)->>'cif_emisor') <> ''
-        AND NOT EXISTS (
-          SELECT 1 FROM proveedores p
-          WHERE p.activo = true
-            AND normalizar_cif(p.cif) = normalizar_cif((da.datos_extraidos::jsonb)->>'cif_emisor')
-        )
-      ON CONFLICT DO NOTHING
-    `);
-
     const sinCuentas = await db.all(
       `SELECT id, razon_social, cif, nombre_carpeta FROM proveedores
        WHERE activo = true AND cuenta_contable_id IS NULL ORDER BY razon_social`
     );
-
     res.json({ ok: true, data: { creados: 0, sinCuentas } });
   } catch (err) {
-    console.error('[proveedores] autodetectar error:', err.message);
     res.status(500).json({ ok: false, error: err.message });
   }
 });
@@ -148,8 +126,12 @@ router.get('/', async (req, res) => {
 router.post('/', requireAdmin, async (req, res) => {
   const { razon_social, nombre_carpeta, cif, cuenta_contable_id, cuenta_gasto_id } = req.body;
   if (!razon_social?.trim()) return res.status(400).json({ ok: false, error: 'razon_social requerida' });
-  if (cif && !validarCIF(cif)) return res.status(400).json({ ok: false, error: 'Formato CIF/NIF inválido' });
+  if (cif && !validarCIF(cif)) return res.status(400).json({ ok: false, error: 'Formato CIF/NIF invalido' });
   const db  = getDb();
+  if (nombre_carpeta?.trim()) {
+    const dup = await db.one('SELECT id FROM proveedores WHERE nombre_carpeta = $1 AND activo = true', [nombre_carpeta.trim()]);
+    if (dup) return res.status(409).json({ ok: false, error: `La carpeta "${nombre_carpeta.trim()}" ya esta asignada a otro proveedor` });
+  }
   const row = await db.one(
     `INSERT INTO proveedores (razon_social, nombre_carpeta, cif, cuenta_contable_id, cuenta_gasto_id)
      VALUES ($1, $2, $3, $4, $5) RETURNING *`,
@@ -170,8 +152,12 @@ router.put('/:id', requireAdmin, async (req, res) => {
   const id = parseInt(req.params.id, 10);
   const { razon_social, nombre_carpeta, cif, cuenta_contable_id, cuenta_gasto_id } = req.body;
   if (!razon_social?.trim()) return res.status(400).json({ ok: false, error: 'razon_social requerida' });
-  if (cif && !validarCIF(cif)) return res.status(400).json({ ok: false, error: 'Formato CIF/NIF inválido' });
+  if (cif && !validarCIF(cif)) return res.status(400).json({ ok: false, error: 'Formato CIF/NIF invalido' });
   const db  = getDb();
+  if (nombre_carpeta?.trim()) {
+    const dup = await db.one('SELECT id FROM proveedores WHERE nombre_carpeta = $1 AND activo = true AND id <> $2', [nombre_carpeta.trim(), id]);
+    if (dup) return res.status(409).json({ ok: false, error: `La carpeta "${nombre_carpeta.trim()}" ya esta asignada a otro proveedor` });
+  }
   const row = await db.one(
     `UPDATE proveedores
      SET razon_social = $1, nombre_carpeta = $2, cif = $3,
@@ -342,28 +328,6 @@ router.post('/importar', requireAdmin, upload.single('archivo'), async (req, res
     }
   }
 
-  // Rellenar nombre_carpeta desde Drive para proveedores sin carpeta pero con CIF coincidente
-  try {
-    await db.query(`
-      UPDATE proveedores p
-      SET nombre_carpeta = sub.proveedor, updated_at = NOW()
-      FROM (
-        SELECT DISTINCT da.proveedor,
-               normalizar_cif((da.datos_extraidos::jsonb)->>'cif_emisor') AS cif_norm
-        FROM drive_archivos da
-        WHERE da.proveedor IS NOT NULL
-          AND da.datos_extraidos IS NOT NULL
-          AND da.datos_extraidos ~ '^\\s*\\{'
-          AND (da.datos_extraidos::jsonb)->>'cif_emisor' IS NOT NULL
-      ) sub
-      WHERE p.nombre_carpeta IS NULL
-        AND p.cif IS NOT NULL
-        AND normalizar_cif(p.cif) = sub.cif_norm
-    `);
-  } catch (e) {
-    console.error('[Proveedores] Error rellenando nombre_carpeta desde Drive:', e.message);
-  }
-
   // Auto-asignar facturas para los proveedores importados
   const provsActualizados = await db.all('SELECT * FROM proveedores WHERE activo = true AND cuenta_gasto_id IS NOT NULL AND cuenta_contable_id IS NOT NULL');
   for (const prov of provsActualizados) {
@@ -399,13 +363,16 @@ router.post('/rapido', requireAuth, async (req, res) => {
   if (cif && !validarCIF(cif)) return res.status(400).json({ ok: false, error: 'Formato CIF/NIF invalido' });
 
   const db = getDb();
-  // Comprobar si ya existe por CIF
   if (cif) {
     const existe = await db.one(
       "SELECT id FROM proveedores WHERE UPPER(TRIM(cif)) = $1 AND activo = true",
       [cif.trim().toUpperCase()]
     );
     if (existe) return res.status(409).json({ ok: false, error: 'Ya existe un proveedor con ese CIF', data: existe });
+  }
+  if (nombre_carpeta?.trim()) {
+    const dup = await db.one('SELECT id FROM proveedores WHERE nombre_carpeta = $1 AND activo = true', [nombre_carpeta.trim()]);
+    if (dup) return res.status(409).json({ ok: false, error: `La carpeta "${nombre_carpeta.trim()}" ya esta asignada a otro proveedor` });
   }
 
   const row = await db.one(
