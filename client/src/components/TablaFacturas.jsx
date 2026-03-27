@@ -553,7 +553,9 @@ function CampoEditable({ label, valor, campo, datosOriginales, onGuardar, tipo =
   if (!editando) {
     const display = tipo === 'number' && valor != null
       ? fmtEuro(valor)
-      : (valor || 'Sin datos');
+      : tipo === 'date' && valor
+        ? fmtFecha(valor)
+        : (valor || 'Sin datos');
     return (
       <button onClick={() => setEditando(true)}
         className={`text-sm transition-colors cursor-pointer ${esVacio ? 'text-red-400 italic hover:text-red-600' : 'font-medium text-gray-900 hover:text-blue-600'} hover:underline`}>
@@ -563,10 +565,11 @@ function CampoEditable({ label, valor, campo, datosOriginales, onGuardar, tipo =
   }
 
   async function guardar() {
-    if (!val.trim()) return;
+    const v = String(val).trim();
+    if (!v && tipo !== 'number') return;
     setGuardando(true);
     try {
-      const enviar = tipo === 'number' ? parseFloat(val) : val.trim();
+      const enviar = tipo === 'number' ? (parseFloat(val) || 0) : String(val).trim();
       await onGuardar({ [campo]: enviar });
       setEditando(false);
     } catch { /* error manejado arriba */ }
@@ -643,7 +646,17 @@ function PanelDetalleFiscal({ f, onDatosActualizados }) {
           <div>
             <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Datos fiscales</p>
             <div className="space-y-3">
-              <div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <p className="text-xs text-gray-400 mb-0.5">N.º factura</p>
+                  <CampoEditable label="Numero factura" valor={d.numero_factura} campo="numero_factura" datosOriginales={d} onGuardar={handleGuardar} />
+                </div>
+                <div>
+                  <p className="text-xs text-gray-400 mb-0.5">Fecha emision</p>
+                  <CampoEditable label="Fecha emision" valor={d.fecha_emision} campo="fecha_emision" datosOriginales={d} onGuardar={handleGuardar} tipo="date" />
+                </div>
+              </div>
+              <div className={`border-t pt-3 ${hayIncidencia ? 'border-red-100' : 'border-blue-100'}`}>
                 <p className="text-xs text-gray-400 mb-0.5">Emisor</p>
                 <CampoEditable label="Nombre emisor" valor={d.nombre_emisor} campo="nombre_emisor" datosOriginales={d} onGuardar={handleGuardar} />
                 <div className="mt-0.5">

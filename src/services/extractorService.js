@@ -207,6 +207,18 @@ function mapearRespuestaGemini(raw) {
 function round2(n) { return Math.round((n || 0) * 100) / 100; }
 
 function normalizarTotales(datos) {
+  // Si total_factura es 0 o vacio, rellenar todos los importes a 0
+  const total = Number(datos.total_factura);
+  if (total === 0 || datos.total_factura == null) {
+    return {
+      ...datos,
+      total_factura: 0,
+      total_sin_iva: 0,
+      total_iva:     0,
+      iva: [{ tipo: 0, base: 0, cuota: 0 }],
+    };
+  }
+
   const iva = Array.isArray(datos.iva) ? datos.iva : [];
   if (iva.length === 0) return datos;
   return {
