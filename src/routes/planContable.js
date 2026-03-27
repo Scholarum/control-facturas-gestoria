@@ -4,6 +4,7 @@ const XLSX      = require('xlsx');
 const router    = express.Router();
 const { getDb } = require('../config/database');
 const { resolveUser, requireAdmin } = require('../middleware/auth');
+const { GoogleGenerativeAI } = require('@google/generative-ai');
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
@@ -91,6 +92,88 @@ router.post('/importar', requireAdmin, upload.single('archivo'), async (req, res
   }
 
   res.json({ ok: true, data: { insertadas, actualizadas, errores } });
+});
+
+// POST /importar-pdf — extraer plan contable de PDF con Gemini
+router.post('/importar-pdf', requireAdmin, upload.single('archivo'), async (req, res) => {
+  if (!req.file) return res.status(400).json({ ok: false, error: 'archivo PDF requerido' });
+  const empresaId = req.query.empresa ? parseInt(req.query.empresa, 10) : null;
+  if (!empresaId) return res.status(400).json({ ok: false, error: 'empresa requerida (?empresa=ID)' });
+
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) return res.status(500).json({ ok: false, error: 'GEMINI_API_KEY no configurada' });
+
+  // Timeout largo para PDFs grandes
+  req.setTimeout(300000);
+  if (res.setTimeout) res.setTimeout(300000);
+
+  try {
+    const genAI = new GoogleGenerativeAI(apiKey);
+    const model = genAI.getGenerativeModel(
+      { model: process.env.GEMINI_MODEL || 'gemini-2.5-flash' },
+      { apiVersion: 'v1' }
+    );
+
+    console.log(`[PlanContable] Enviando PDF a Gemini (${Math.round(req.file.size/1024)}KB)...`);
+
+    const result = await model.generateContent([
+      { inlineData: { mimeType: 'application/pdf', data: req.file.buffer.toString('base64') } },
+      { text: `Analiza este documento de Plan General Contable y extrae TODAS las cuentas con su codigo y descripcion.
+
+Devuelve UNICAMENTE un JSON sin texto adicional, sin markdown:
+{
+  "cuentas": [
+    { "codigo": "40000001", "descripcion": "Nombre de la cuenta" }
+  ]
+}
+
+Reglas:
+- Incluye TODAS las cuentas que aparezcan, tanto principales (3-4 digitos) como subcuentas (5+ digitos).
+- El codigo debe ser exactamente como aparece en el documento (con todos los digitos).
+- La descripcion debe ser el nombre completo de la cuenta.
+- No inventes cuentas que no aparezcan en el documento.
+- Responde SOLO con el JSON.` },
+    ]);
+
+    let texto = result.response.text().trim()
+      .replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/```\s*$/i, '').trim();
+
+    const parsed = JSON.parse(texto);
+    const cuentas = parsed.cuentas || [];
+    console.log(`[PlanContable] Gemini extrajo ${cuentas.length} cuentas`);
+
+    if (!cuentas.length) {
+      return res.status(422).json({ ok: false, error: 'Gemini no encontro cuentas en el PDF' });
+    }
+
+    // Insertar en DB
+    const db = getDb();
+    let insertadas = 0, actualizadas = 0;
+    for (const c of cuentas) {
+      const codigo = String(c.codigo || '').trim();
+      const descripcion = String(c.descripcion || '').trim();
+      if (!codigo) continue;
+      const grupo = codigo.charAt(0);
+      try {
+        const existe = await db.one('SELECT id FROM plan_contable WHERE codigo = $1', [codigo]);
+        if (existe) {
+          await db.query('UPDATE plan_contable SET descripcion = $1, empresa_id = $2, activo = true WHERE id = $3',
+            [descripcion || codigo, empresaId, existe.id]);
+          actualizadas++;
+        } else {
+          await db.query('INSERT INTO plan_contable (codigo, descripcion, grupo, empresa_id) VALUES ($1, $2, $3, $4)',
+            [codigo, descripcion || codigo, grupo, empresaId]);
+          insertadas++;
+        }
+      } catch {}
+    }
+
+    console.log(`[PlanContable] Importadas: ${insertadas} nuevas, ${actualizadas} actualizadas`);
+    res.json({ ok: true, data: { insertadas, actualizadas, total_extraidas: cuentas.length } });
+  } catch (e) {
+    console.error('[PlanContable] Error Gemini:', e.message);
+    res.status(500).json({ ok: false, error: `Error procesando PDF: ${e.message.slice(0, 200)}` });
+  }
 });
 
 // GET /plantilla — descargar plantilla Excel para importacion
