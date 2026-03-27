@@ -534,6 +534,19 @@ async function runMigrations() {
     UPDATE drive_archivos SET empresa_id = (SELECT id FROM empresas WHERE cif = 'B86610821' LIMIT 1)
     WHERE empresa_id IS NULL
   `);
+  // 5. Historiales sin empresa_id → asignar a Scholarum
+  await db.query(`
+    UPDATE lotes_exportacion_sage SET empresa_id = (SELECT id FROM empresas WHERE cif = 'B86610821' LIMIT 1)
+    WHERE empresa_id IS NULL
+  `);
+  await db.query(`
+    UPDATE historial_conciliaciones SET empresa_id = (SELECT id FROM empresas WHERE cif = 'B86610821' LIMIT 1)
+    WHERE empresa_id IS NULL
+  `);
+  await db.query(`
+    UPDATE historial_sincronizaciones SET empresa_id = (SELECT id FROM empresas WHERE cif = 'B86610821' LIMIT 1)
+    WHERE empresa_id IS NULL
+  `);
 
   console.log('Migración PostgreSQL completada.');
 }
