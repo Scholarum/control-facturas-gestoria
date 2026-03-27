@@ -114,16 +114,55 @@ async function descargarPdfTmp(drive, googleId) {
 
 async function llamarGemini(model, pdfPath, prompt) {
   const base64Pdf = fs.readFileSync(pdfPath).toString('base64');
-  const resultado = await model.generateContent([
-    { inlineData: { mimeType: 'application/pdf', data: base64Pdf } },
-    { text: prompt },
-  ]);
-  let texto = resultado.response.text().trim()
+  const sizeKB = Math.round(base64Pdf.length * 0.75 / 1024);
+
+  let resultado;
+  try {
+    resultado = await model.generateContent([
+      { inlineData: { mimeType: 'application/pdf', data: base64Pdf } },
+      { text: prompt },
+    ]);
+  } catch (geminiErr) {
+    // Clasificar el error de Gemini
+    const status = geminiErr.status || geminiErr.httpStatusCode || geminiErr.code;
+    const msg = geminiErr.message || String(geminiErr);
+    if (status === 429 || msg.includes('429') || msg.toLowerCase().includes('quota') || msg.toLowerCase().includes('rate')) {
+      throw new Error(`GEMINI_RATE_LIMIT: Cuota/rate limit excedido (${status}). ${msg.slice(0, 200)}`);
+    }
+    if (status === 403 || msg.toLowerCase().includes('permission') || msg.toLowerCase().includes('api key')) {
+      throw new Error(`GEMINI_AUTH: Problema de autenticacion/permisos (${status}). ${msg.slice(0, 200)}`);
+    }
+    if (status === 500 || status === 503 || msg.toLowerCase().includes('unavailable') || msg.toLowerCase().includes('internal')) {
+      throw new Error(`GEMINI_SERVER: Error del servidor Gemini (${status}). ${msg.slice(0, 200)}`);
+    }
+    if (msg.toLowerCase().includes('too large') || msg.toLowerCase().includes('payload') || msg.toLowerCase().includes('size')) {
+      throw new Error(`GEMINI_SIZE: PDF demasiado grande (${sizeKB}KB). ${msg.slice(0, 200)}`);
+    }
+    throw new Error(`GEMINI_ERROR: ${msg.slice(0, 300)}`);
+  }
+
+  const response = resultado.response;
+  const finishReason = response.candidates?.[0]?.finishReason;
+  if (finishReason && finishReason !== 'STOP') {
+    throw new Error(`GEMINI_BLOCKED: Respuesta bloqueada (finishReason=${finishReason}). Posible contenido no procesable.`);
+  }
+
+  let texto = response.text().trim()
     .replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/```\s*$/i, '').trim();
+
+  if (!texto) {
+    throw new Error('GEMINI_EMPTY: Gemini devolvio respuesta vacia');
+  }
 
   texto = texto.replace(/("[\w]+"\s*:\s*-?\d+),(\d{1,4})(?=\s*[,}\n])/g, '$1.$2');
 
-  const raw = JSON.parse(texto);
+  let raw;
+  try {
+    raw = JSON.parse(texto);
+  } catch (parseErr) {
+    throw new Error(`GEMINI_PARSE: Respuesta no es JSON valido. Inicio: ${texto.slice(0, 100)}`);
+  }
+
   return mapearRespuestaGemini(raw);
 }
 
@@ -196,24 +235,31 @@ async function guardarResultado(id, estado, datos, error) {
 
 async function procesarArchivo(drive, model, archivo, prompt) {
   let tmpPath = null;
+  const t0 = Date.now();
   try {
     tmpPath = await descargarPdfTmp(drive, archivo.google_id);
+    const sizeKB = Math.round(fs.statSync(tmpPath).size / 1024);
     const datos = await llamarGemini(model, tmpPath, prompt);
+    const ms = Date.now() - t0;
 
     const { valido, faltantes } = validarDatos(datos);
     const datosN = normalizarTotales(datos);
 
     if (!valido) {
-      const motivo = `Campos críticos ausentes: ${faltantes.join(', ')}`;
+      const motivo = `Campos criticos ausentes: ${faltantes.join(', ')}`;
+      console.log(`[Gemini] REVISION ${archivo.nombre_archivo} (${sizeKB}KB, ${ms}ms) — ${motivo}`);
       await guardarResultado(archivo.id, 'REVISION_MANUAL', datosN, motivo);
       return { estado: 'REVISION_MANUAL', datos: datosN, error: motivo };
     }
 
+    console.log(`[Gemini] OK ${archivo.nombre_archivo} (${sizeKB}KB, ${ms}ms) — ${datos.numero_factura || '?'}`);
     await guardarResultado(archivo.id, 'PROCESADA', datosN, null);
     return { estado: 'PROCESADA', datos: datosN };
 
   } catch (err) {
+    const ms = Date.now() - t0;
     const motivo = err.message.slice(0, 300);
+    console.error(`[Gemini] ERROR ${archivo.nombre_archivo} (${ms}ms) — ${motivo}`);
     await guardarResultado(archivo.id, 'REVISION_MANUAL', null, motivo);
     return { estado: 'REVISION_MANUAL', error: motivo };
   } finally {
@@ -251,9 +297,12 @@ async function ejecutarExtraccion(ids, onProgress = () => {}) {
   const drive  = await buildDriveClient();
   const model  = buildGeminiModel();
 
-  // Procesar en lotes con concurrencia limitada (3 en paralelo para no saturar Gemini)
+  console.log(`[Extraccion] Iniciando ${total} facturas con modelo ${process.env.GEMINI_MODEL || 'gemini-2.5-flash'}`);
+  const tInicio = Date.now();
+
   const CONCURRENCY = parseInt(process.env.GEMINI_CONCURRENCY, 10) || 3;
   let done = 0;
+  let erroresConsecutivos = 0;
 
   for (let i = 0; i < archivos.length; i += CONCURRENCY) {
     const lote = archivos.slice(i, i + CONCURRENCY);
@@ -264,27 +313,46 @@ async function ejecutarExtraccion(ids, onProgress = () => {}) {
       })
     );
 
+    let loteErrors = 0;
     for (let j = 0; j < resultados.length; j++) {
       done++;
       const r = resultados[j];
       const archivo = lote[j];
       if (r.status === 'fulfilled') {
-        if (r.value.estado === 'PROCESADA') resumen.procesada++;
-        else resumen.revision++;
+        if (r.value.estado === 'PROCESADA') { resumen.procesada++; erroresConsecutivos = 0; }
+        else { resumen.revision++; }
         onProgress({ tipo: 'resultado', done, total, id: archivo.id, nombre: archivo.nombre_archivo, proveedor: archivo.proveedor, ...r.value });
       } else {
         resumen.error = (resumen.error || 0) + 1;
-        console.error(`[Extraccion] Error en ${archivo.nombre_archivo}:`, r.reason?.message);
-        onProgress({ tipo: 'resultado', done, total, id: archivo.id, nombre: archivo.nombre_archivo, estado: 'REVISION_MANUAL', error: r.reason?.message });
+        loteErrors++;
+        erroresConsecutivos++;
+        const errMsg = r.reason?.message || 'Error desconocido';
+        console.error(`[Extraccion] ERROR ${archivo.nombre_archivo}: ${errMsg}`);
+        onProgress({ tipo: 'resultado', done, total, id: archivo.id, nombre: archivo.nombre_archivo, estado: 'REVISION_MANUAL', error: errMsg });
       }
     }
 
-    // Pequeña pausa entre lotes para respetar rate limits de Gemini
-    if (i + CONCURRENCY < archivos.length) {
+    // Log de progreso cada 10 lotes
+    if (done % (CONCURRENCY * 10) < CONCURRENCY) {
+      const elapsed = ((Date.now() - tInicio) / 1000).toFixed(0);
+      console.log(`[Extraccion] Progreso: ${done}/${total} (${resumen.procesada} OK, ${resumen.revision} revision, ${resumen.error || 0} error) — ${elapsed}s`);
+    }
+
+    // Si hay muchos errores consecutivos (rate limit), esperar mas tiempo
+    if (erroresConsecutivos >= 5) {
+      console.warn(`[Extraccion] ${erroresConsecutivos} errores consecutivos — posible rate limit. Esperando 10s...`);
+      await new Promise(resolve => setTimeout(resolve, 10000));
+      erroresConsecutivos = 0; // reset para dar otra oportunidad
+    } else if (loteErrors > 0) {
+      // Esperar mas si hubo errores en el lote
+      await new Promise(resolve => setTimeout(resolve, 2000));
+    } else if (i + CONCURRENCY < archivos.length) {
       await new Promise(resolve => setTimeout(resolve, 500));
     }
   }
 
+  const tTotal = ((Date.now() - tInicio) / 1000).toFixed(1);
+  console.log(`[Extraccion] COMPLETADA en ${tTotal}s — ${resumen.procesada} OK, ${resumen.revision} revision, ${resumen.error || 0} error de ${total} total`);
   onProgress({ tipo: 'fin', resumen, total });
   return resumen;
 }
