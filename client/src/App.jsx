@@ -185,9 +185,8 @@ function AppInner() {
     setSincronizando(true); setSyncMsg(null);
     try {
       const result = await triggerSyncManual();
-      setSyncMsg({ ok: true, texto: `Sincronización completada: ${result.facturas_nuevas} facturas nuevas` });
-      // Recargar lista de facturas
-      const nuevas = await fetchFacturas();
+      setSyncMsg({ ok: true, texto: `Sync: ${result.facturas_nuevas} nuevas` });
+      const nuevas = await fetchFacturas(empresaActiva?.id);
       setTodasFacturas(nuevas);
     } catch (e) {
       setSyncMsg({ ok: false, texto: e.message });
@@ -292,20 +291,45 @@ function AppInner() {
   return (
     <div className="min-h-screen bg-gray-50">
 
-      {/* Barra de empresa */}
-      {empresas.length > 1 && (
+      {/* Barra de empresa + sync global */}
+      {empresas.length > 0 && (
         <div className="bg-slate-800 text-white py-1.5 px-6 flex items-center gap-3 sticky top-0 z-50">
-          <span className="text-xs text-slate-400">Empresa:</span>
-          {empresas.map(e => (
-            <button key={e.id} onClick={() => cambiarEmpresa(e)}
-              className={`px-3 py-0.5 rounded text-xs font-medium transition-colors ${
-                empresaActiva?.id === e.id
-                  ? 'bg-white text-slate-800'
-                  : 'text-slate-300 hover:text-white hover:bg-slate-700'
-              }`}>
-              {e.nombre}
-            </button>
-          ))}
+          {empresas.length > 1 && (
+            <>
+              <span className="text-xs text-slate-400">Empresa:</span>
+              {empresas.map(e => (
+                <button key={e.id} onClick={() => cambiarEmpresa(e)}
+                  className={`px-3 py-0.5 rounded text-xs font-medium transition-colors ${
+                    empresaActiva?.id === e.id
+                      ? 'bg-white text-slate-800'
+                      : 'text-slate-300 hover:text-white hover:bg-slate-700'
+                  }`}>
+                  {e.nombre}
+                </button>
+              ))}
+            </>
+          )}
+          {empresas.length === 1 && (
+            <span className="text-xs text-slate-300">{empresas[0].nombre}</span>
+          )}
+          <div className="ml-auto flex items-center gap-2">
+            {esAdmin && (
+              <button onClick={handleSyncManual} disabled={sincronizando}
+                className="flex items-center gap-1.5 px-3 py-0.5 rounded text-xs font-medium text-slate-300 hover:text-white hover:bg-slate-700 transition-colors disabled:opacity-50">
+                {sincronizando ? (
+                  <svg className="h-3 w-3 animate-spin" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/></svg>
+                ) : (
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+                )}
+                {sincronizando ? 'Sincronizando...' : 'Sincronizar Drive'}
+              </button>
+            )}
+            {syncMsg && (
+              <span className={`text-xs font-medium ${syncMsg.ok ? 'text-emerald-400' : 'text-red-400'}`}>
+                {syncMsg.ok ? '✓' : '✗'} {syncMsg.texto}
+              </span>
+            )}
+          </div>
         </div>
       )}
 
@@ -325,7 +349,7 @@ function AppInner() {
       )}
 
       {/* Header */}
-      <header className={`bg-white border-b border-gray-200 sticky z-40 shadow-sm`} style={{ top: (empresas.length > 1 ? 34 : 0) + (estaEmulando ? 34 : 0) }}>
+      <header className={`bg-white border-b border-gray-200 sticky z-40 shadow-sm`} style={{ top: (empresas.length > 0 ? 34 : 0) + (estaEmulando ? 34 : 0) }}>
         <div className="max-w-screen-xl mx-auto px-6 h-14 flex items-center gap-4">
 
           {/* Logo */}
@@ -533,27 +557,11 @@ function AppInner() {
               <StatCard label="Contabilizadas" value={stats.contabilizadas} color="text-emerald-600" />
             </div>
 
-            {/* Botones de administración */}
+            {/* Botones de administración vinculados a empresa */}
             {!esV1 && (esAdmin || puedeEditar('aplicar_cuentas')) && (
               <div className="flex items-center gap-3 flex-wrap">
-                {esAdmin && (
-                  <button
-                    onClick={handleSyncManual}
-                    disabled={sincronizando}
-                    className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 border border-gray-200 rounded-lg shadow-sm transition-colors disabled:opacity-60"
-                  >
-                    {sincronizando ? (
-                      <svg className="h-4 w-4 animate-spin text-blue-500" viewBox="0 0 24 24" fill="none">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
-                      </svg>
-                    ) : (
-                      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                      </svg>
-                    )}
-                    {sincronizando ? 'Sincronizando...' : 'Sincronizar con Drive'}
-                  </button>
+                {empresaActiva && (
+                  <span className="text-xs text-gray-400 flex-shrink-0">{empresaActiva.nombre}:</span>
                 )}
                 {puedeEditar('aplicar_cuentas') && (
                   <>
@@ -592,11 +600,6 @@ function AppInner() {
                       {aplicandoCuentas ? 'Aplicando...' : 'Aplicar cuentas de proveedor'}
                     </button>
                   </>
-                )}
-                {syncMsg && (
-                  <span className={`text-sm font-medium ${syncMsg.ok ? 'text-emerald-600' : 'text-red-600'}`}>
-                    {syncMsg.ok ? '✓' : '✗'} {syncMsg.texto}
-                  </span>
                 )}
               </div>
             )}
