@@ -228,9 +228,11 @@ async function ejecutarExtraccion(ids, onProgress = () => {}) {
 
   let archivos;
   if (ids && ids.length) {
-    archivos = (
-      await Promise.all(ids.map(id => db.one('SELECT * FROM drive_archivos WHERE id = $1', [id])))
-    ).filter(Boolean);
+    // Cargar en una sola query en vez de una por ID
+    archivos = await db.all(
+      'SELECT * FROM drive_archivos WHERE id = ANY($1::int[]) ORDER BY id',
+      [ids]
+    );
   } else {
     archivos = await db.all(
       "SELECT * FROM drive_archivos WHERE estado IN ('SINCRONIZADA','REVISION_MANUAL','PROCESADA') ORDER BY id"
@@ -249,16 +251,38 @@ async function ejecutarExtraccion(ids, onProgress = () => {}) {
   const drive  = await buildDriveClient();
   const model  = buildGeminiModel();
 
-  for (let i = 0; i < archivos.length; i++) {
-    const archivo = archivos[i];
-    onProgress({ tipo: 'inicio', done: i, total, id: archivo.id, nombre: archivo.nombre_archivo, proveedor: archivo.proveedor });
+  // Procesar en lotes con concurrencia limitada (3 en paralelo para no saturar Gemini)
+  const CONCURRENCY = parseInt(process.env.GEMINI_CONCURRENCY, 10) || 3;
+  let done = 0;
 
-    const result = await procesarArchivo(drive, model, archivo, prompt);
+  for (let i = 0; i < archivos.length; i += CONCURRENCY) {
+    const lote = archivos.slice(i, i + CONCURRENCY);
+    const resultados = await Promise.allSettled(
+      lote.map(async (archivo) => {
+        onProgress({ tipo: 'inicio', done, total, id: archivo.id, nombre: archivo.nombre_archivo, proveedor: archivo.proveedor });
+        return procesarArchivo(drive, model, archivo, prompt);
+      })
+    );
 
-    if (result.estado === 'PROCESADA') resumen.procesada++;
-    else resumen.revision++;
+    for (let j = 0; j < resultados.length; j++) {
+      done++;
+      const r = resultados[j];
+      const archivo = lote[j];
+      if (r.status === 'fulfilled') {
+        if (r.value.estado === 'PROCESADA') resumen.procesada++;
+        else resumen.revision++;
+        onProgress({ tipo: 'resultado', done, total, id: archivo.id, nombre: archivo.nombre_archivo, proveedor: archivo.proveedor, ...r.value });
+      } else {
+        resumen.error = (resumen.error || 0) + 1;
+        console.error(`[Extraccion] Error en ${archivo.nombre_archivo}:`, r.reason?.message);
+        onProgress({ tipo: 'resultado', done, total, id: archivo.id, nombre: archivo.nombre_archivo, estado: 'REVISION_MANUAL', error: r.reason?.message });
+      }
+    }
 
-    onProgress({ tipo: 'resultado', done: i + 1, total, id: archivo.id, nombre: archivo.nombre_archivo, proveedor: archivo.proveedor, ...result });
+    // Pequeña pausa entre lotes para respetar rate limits de Gemini
+    if (i + CONCURRENCY < archivos.length) {
+      await new Promise(resolve => setTimeout(resolve, 500));
+    }
   }
 
   onProgress({ tipo: 'fin', resumen, total });

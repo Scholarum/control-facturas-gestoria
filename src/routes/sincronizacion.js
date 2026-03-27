@@ -26,11 +26,14 @@ router.get('/historial', requireAdmin, async (req, res) => {
 // ─── POST /api/sincronizacion/manual ─────────────────────────────────────────
 
 router.post('/manual', requireAdmin, async (req, res) => {
+  // Timeout de 10 minutos para sincronizaciones grandes
+  req.setTimeout(600000);
+  res.setTimeout(600000);
   try {
     const result = await ejecutarSync('MANUAL');
     res.json({ ok: true, data: result });
   } catch (err) {
-    res.status(500).json({ ok: false, error: `Error de sincronización: ${err.message}` });
+    if (!res.headersSent) res.status(500).json({ ok: false, error: `Error de sincronizacion: ${err.message}` });
   }
 });
 
