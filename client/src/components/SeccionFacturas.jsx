@@ -29,6 +29,15 @@ function FiltrosSeccion({ filtros, onChange, proveedores, totalFacturas, totalFi
         <input type="date" value={filtros.fechaHasta} onChange={e => set('fechaHasta', e.target.value)} className={inputCls} />
       </div>
       <div className="flex flex-col gap-1">
+        <label className="text-xs font-medium text-gray-500">Extraccion</label>
+        <select value={filtros.estadoExtraccion || ''} onChange={e => set('estadoExtraccion', e.target.value)} className={inputCls}>
+          <option value="">Todos</option>
+          <option value="SINCRONIZADA">Sin extraer</option>
+          <option value="PROCESADA">Procesada</option>
+          <option value="REVISION_MANUAL">Revision manual</option>
+        </select>
+      </div>
+      <div className="flex flex-col gap-1">
         <label className="text-xs font-medium text-gray-500">Datos</label>
         <select value={filtros.soloIncidencias || ''} onChange={e => set('soloIncidencias', e.target.value)}
           className={`${inputCls} min-w-[130px] ${filtros.soloIncidencias === 'si' ? 'text-red-600 font-medium' : filtros.soloIncidencias === 'no' ? 'text-emerald-600 font-medium' : ''}`}>
@@ -47,7 +56,7 @@ function FiltrosSeccion({ filtros, onChange, proveedores, totalFacturas, totalFi
         </select>
       </div>
       {hayFiltros && (
-        <button onClick={() => onChange({ proveedor: '', fechaDesde: '', fechaHasta: '', soloIncidencias: '', soloSinProveedor: '' })}
+        <button onClick={() => onChange({ proveedor: '', fechaDesde: '', fechaHasta: '', soloIncidencias: '', soloSinProveedor: '', estadoExtraccion: '' })}
           className="self-end px-3 py-1.5 text-sm text-gray-500 hover:text-gray-800 hover:bg-gray-100 rounded-lg transition-colors">
           Limpiar
         </button>
@@ -176,7 +185,7 @@ export default function SeccionFacturas({
   modoGestoria = 'v2',
 }) {
   const esV1 = modoGestoria === 'v1';
-  const [filtros,       setFiltros]       = useState({ proveedor: '', fechaDesde: '', fechaHasta: '', soloIncidencias: '', soloSinProveedor: '' });
+  const [filtros,       setFiltros]       = useState({ proveedor: '', fechaDesde: '', fechaHasta: '', soloIncidencias: '', soloSinProveedor: '', estadoExtraccion: '' });
   const [seleccionados, setSeleccionados] = useState(new Set());
   const [descargando,        setDescargando]        = useState(false);
   const [contabilizando,     setContabilizando]     = useState(false);
@@ -195,6 +204,7 @@ export default function SeccionFacturas({
     if (filtros.proveedor  && f.proveedor !== filtros.proveedor) return false;
     if (filtros.fechaDesde && d?.fecha_emision && d.fecha_emision < filtros.fechaDesde) return false;
     if (filtros.fechaHasta && d?.fecha_emision && d.fecha_emision > filtros.fechaHasta) return false;
+    if (filtros.estadoExtraccion && f.estado !== filtros.estadoExtraccion) return false;
     if (filtros.soloIncidencias === 'si' && !tieneIncidencia(f)) return false;
     if (filtros.soloIncidencias === 'no' && tieneIncidencia(f)) return false;
     if (filtros.soloSinProveedor === 'si' && !tieneIncidenciaProveedor(f)) return false;

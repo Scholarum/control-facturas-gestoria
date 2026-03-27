@@ -6,6 +6,7 @@ import {
   fetchHistorialNotificaciones, fetchEmailTemplate, saveEmailTemplate,
   fetchFacturas, fetchDiagnosticoNotificacion, fetchEstadoMensaje,
 } from '../api.js';
+import { tieneIncidencia } from '../components/TablaFacturas.jsx';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -749,6 +750,7 @@ function PanelReanalizar({ onFacturasActualizadas }) {
   const [cargando,         setCargando]         = useState(true);
   const [filtroEstado,     setFiltroEstado]     = useState('');
   const [filtroGestion,    setFiltroGestion]    = useState('');
+  const [filtroDatos,      setFiltroDatos]      = useState('');
   const [filtroProveedor,  setFiltroProveedor]  = useState('');
   const [busqueda,         setBusqueda]         = useState('');
   const [fechaDesde,       setFechaDesde]       = useState('');
@@ -775,6 +777,8 @@ function PanelReanalizar({ onFacturasActualizadas }) {
   const filtradas = facturas.filter(f => {
     if (filtroEstado    && f.estado    !== filtroEstado)                              return false;
     if (filtroGestion   && (f.estado_gestion || 'PENDIENTE') !== filtroGestion)       return false;
+    if (filtroDatos === 'si' && !tieneIncidencia(f))                                  return false;
+    if (filtroDatos === 'no' && tieneIncidencia(f))                                   return false;
     if (filtroProveedor && f.proveedor !== filtroProveedor)                           return false;
     if (busqueda        && !f.nombre_archivo?.toLowerCase().includes(busqueda.toLowerCase())) return false;
     if (fechaDesde || fechaHasta) {
@@ -873,6 +877,15 @@ function PanelReanalizar({ onFacturasActualizadas }) {
             <option value="DESCARGADA">Descargada</option>
             <option value="CC_ASIGNADA">Cta. Gasto</option>
             <option value="CONTABILIZADA">Contabilizada</option>
+          </select>
+        </div>
+        <div className="flex flex-col gap-1">
+          <label className="text-xs font-medium text-gray-500">Datos</label>
+          <select value={filtroDatos} onChange={e => setFiltroDatos(e.target.value)}
+            className={`${inputCls} ${filtroDatos === 'si' ? 'text-red-600 font-medium' : filtroDatos === 'no' ? 'text-emerald-600 font-medium' : ''}`}>
+            <option value="">Todos</option>
+            <option value="si">Incompletos</option>
+            <option value="no">Completos</option>
           </select>
         </div>
         <div className="flex flex-col gap-1">
