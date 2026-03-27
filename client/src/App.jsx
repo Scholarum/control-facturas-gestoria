@@ -291,6 +291,23 @@ function AppInner() {
   return (
     <div className="min-h-screen bg-gray-50">
 
+      {/* Barra de empresa */}
+      {empresas.length > 1 && (
+        <div className="bg-slate-800 text-white py-1.5 px-6 flex items-center gap-3 sticky top-0 z-50">
+          <span className="text-xs text-slate-400">Empresa:</span>
+          {empresas.map(e => (
+            <button key={e.id} onClick={() => cambiarEmpresa(e)}
+              className={`px-3 py-0.5 rounded text-xs font-medium transition-colors ${
+                empresaActiva?.id === e.id
+                  ? 'bg-white text-slate-800'
+                  : 'text-slate-300 hover:text-white hover:bg-slate-700'
+              }`}>
+              {e.nombre}
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* Barra de emulacion */}
       {estaEmulando && (
         <div className="bg-purple-600 text-white text-center py-1.5 text-xs font-medium sticky top-0 z-50 flex items-center justify-center gap-3">
@@ -307,7 +324,7 @@ function AppInner() {
       )}
 
       {/* Header */}
-      <header className={`bg-white border-b border-gray-200 sticky ${estaEmulando ? 'top-[34px]' : 'top-0'} z-40 shadow-sm`}>
+      <header className={`bg-white border-b border-gray-200 sticky z-40 shadow-sm`} style={{ top: (empresas.length > 1 ? 34 : 0) + (estaEmulando ? 34 : 0) }}>
         <div className="max-w-screen-xl mx-auto px-6 h-14 flex items-center gap-4">
 
           {/* Logo */}
@@ -315,22 +332,6 @@ function AppInner() {
             <span className="text-xl">🧾</span>
             <span className="font-semibold text-gray-900 text-sm hidden sm:block">Control de Facturas</span>
           </div>
-
-          {/* Selector de empresa */}
-          {empresas.length > 1 && (
-            <div className="flex items-center gap-1.5 ml-4">
-              {empresas.map(e => (
-                <button key={e.id} onClick={() => cambiarEmpresa(e)}
-                  className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
-                    empresaActiva?.id === e.id
-                      ? 'bg-blue-600 text-white shadow-sm'
-                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                  }`}>
-                  {e.nombre.split(' ')[0]}
-                </button>
-              ))}
-            </div>
-          )}
 
           {/* Pestañas principales */}
           <nav className="flex gap-1 flex-1">

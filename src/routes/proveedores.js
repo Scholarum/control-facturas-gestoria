@@ -64,16 +64,34 @@ async function autoAsignarFacturasProveedor(db, proveedor) {
   }
 }
 
-const SELECT_FULL = `
-  SELECT p.*,
-         pc.codigo      AS cuenta_contable_codigo,
-         pc.descripcion AS cuenta_contable_desc,
-         pg.codigo      AS cuenta_gasto_codigo,
-         pg.descripcion AS cuenta_gasto_desc
-  FROM proveedores p
-  LEFT JOIN plan_contable pc ON pc.id = p.cuenta_contable_id
-  LEFT JOIN plan_contable pg ON pg.id = p.cuenta_gasto_id
-`;
+function selectProveedores(empresaId) {
+  if (empresaId) {
+    return `
+      SELECT p.*,
+             pe.cuenta_contable_id, pe.cuenta_gasto_id, pe.ultimo_asiento_sage,
+             pc.codigo      AS cuenta_contable_codigo,
+             pc.descripcion AS cuenta_contable_desc,
+             pg.codigo      AS cuenta_gasto_codigo,
+             pg.descripcion AS cuenta_gasto_desc
+      FROM proveedores p
+      LEFT JOIN proveedor_empresa pe ON pe.proveedor_id = p.id AND pe.empresa_id = ${parseInt(empresaId, 10)}
+      LEFT JOIN plan_contable pc ON pc.id = pe.cuenta_contable_id
+      LEFT JOIN plan_contable pg ON pg.id = pe.cuenta_gasto_id
+    `;
+  }
+  return `
+    SELECT p.*,
+           pc.codigo      AS cuenta_contable_codigo,
+           pc.descripcion AS cuenta_contable_desc,
+           pg.codigo      AS cuenta_gasto_codigo,
+           pg.descripcion AS cuenta_gasto_desc
+    FROM proveedores p
+    LEFT JOIN plan_contable pc ON pc.id = p.cuenta_contable_id
+    LEFT JOIN plan_contable pg ON pg.id = p.cuenta_gasto_id
+  `;
+}
+// Mantener compatibilidad
+const SELECT_FULL = selectProveedores(null);
 
 router.use(resolveUser);
 
@@ -115,10 +133,12 @@ router.post('/autodetectar', async (req, res) => {
   }
 });
 
-// GET / - listar todos los proveedores registrados
+// GET / - listar proveedores (con cuentas de la empresa si se pasa ?empresa=)
 router.get('/', async (req, res) => {
-  const db   = getDb();
-  const rows = await db.all(`${SELECT_FULL} WHERE p.activo = true ORDER BY p.razon_social`);
+  const db = getDb();
+  const empresaId = req.query.empresa ? parseInt(req.query.empresa, 10) : null;
+  const sql = selectProveedores(empresaId);
+  const rows = await db.all(`${sql} WHERE p.activo = true ORDER BY p.razon_social`);
   res.json({ ok: true, data: rows.map(r => ({ ...r, label: labelProveedor(r) })) });
 });
 
@@ -337,22 +357,43 @@ router.post('/importar', requireAdmin, upload.single('archivo'), async (req, res
   res.json({ ok: true, data: { insertados, actualizados, cuentasCreadas, errores } });
 });
 
-// ─── PUT /:id/cuenta-contable — asignar cuenta contable (admin + gestoría) ──
+// ─── PUT /:id/cuentas-empresa — asignar cuentas para una empresa (admin + gestoria) ──
 
-router.put('/:id/cuenta-contable', requireAuth, async (req, res) => {
-  const id = parseInt(req.params.id, 10);
-  const { cuenta_contable_id } = req.body;
+router.put('/:id/cuentas-empresa', requireAuth, express.json(), async (req, res) => {
+  const proveedorId = parseInt(req.params.id, 10);
+  const { empresa_id, cuenta_contable_id, cuenta_gasto_id } = req.body;
+  if (!empresa_id) return res.status(400).json({ ok: false, error: 'empresa_id requerido' });
+
+  const db = getDb();
+  await db.query(
+    `INSERT INTO proveedor_empresa (proveedor_id, empresa_id, cuenta_contable_id, cuenta_gasto_id)
+     VALUES ($1, $2, $3, $4)
+     ON CONFLICT (proveedor_id, empresa_id) DO UPDATE SET
+       cuenta_contable_id = COALESCE(EXCLUDED.cuenta_contable_id, proveedor_empresa.cuenta_contable_id),
+       cuenta_gasto_id    = COALESCE(EXCLUDED.cuenta_gasto_id, proveedor_empresa.cuenta_gasto_id)`,
+    [proveedorId, parseInt(empresa_id, 10), cuenta_contable_id || null, cuenta_gasto_id || null]
+  );
+  res.json({ ok: true });
+});
+
+// ─── PUT /:id/cuenta-contable — legacy, redirige a cuentas-empresa ──
+
+router.put('/:id/cuenta-contable', requireAuth, express.json(), async (req, res) => {
+  const proveedorId = parseInt(req.params.id, 10);
+  const { cuenta_contable_id, empresa_id } = req.body;
   if (!cuenta_contable_id) return res.status(400).json({ ok: false, error: 'cuenta_contable_id requerida' });
 
-  const db  = getDb();
-  const row = await db.one(
-    `UPDATE proveedores SET cuenta_contable_id = $1, updated_at = NOW()
-     WHERE id = $2 AND activo = true RETURNING *`,
-    [parseInt(cuenta_contable_id, 10), id]
+  const db = getDb();
+  const empId = empresa_id || (await db.one('SELECT id FROM empresas WHERE activo = true ORDER BY id LIMIT 1'))?.id;
+  if (!empId) return res.status(400).json({ ok: false, error: 'No hay empresas configuradas' });
+
+  await db.query(
+    `INSERT INTO proveedor_empresa (proveedor_id, empresa_id, cuenta_contable_id)
+     VALUES ($1, $2, $3)
+     ON CONFLICT (proveedor_id, empresa_id) DO UPDATE SET cuenta_contable_id = EXCLUDED.cuenta_contable_id`,
+    [proveedorId, empId, parseInt(cuenta_contable_id, 10)]
   );
-  if (!row) return res.status(404).json({ ok: false, error: 'Proveedor no encontrado' });
-  await autoAsignarFacturasProveedor(db, row);
-  res.json({ ok: true, data: row });
+  res.json({ ok: true });
 });
 
 // ─── POST /rapido — crear proveedor al vuelo (admin + gestoría) ─────────────

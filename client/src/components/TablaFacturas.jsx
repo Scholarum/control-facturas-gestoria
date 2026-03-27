@@ -975,7 +975,7 @@ export default function TablaFacturas({
                 );
 
                 // Sub-fila siempre visible: CC + Vista previa
-                const ccPreviewRow = planContable.length > 0 && (
+                const ccPreviewRow = (
                   <FilaCcPreview
                     key={`cc-${f.id}`}
                     f={f}

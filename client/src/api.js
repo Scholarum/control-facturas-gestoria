@@ -203,6 +203,16 @@ export async function editarDatosFactura(id, campos) {
   return json.data;
 }
 
+export async function asignarCuentasEmpresa(proveedorId, empresaId, cuentaContableId, cuentaGastoId) {
+  const res = await fetch(`${API_BASE}/api/proveedores/${proveedorId}/cuentas-empresa`, {
+    method: 'PUT',
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify({ empresa_id: empresaId, cuenta_contable_id: cuentaContableId, cuenta_gasto_id: cuentaGastoId }),
+  });
+  const json = await res.json();
+  if (!json.ok) throw new Error(json.error || 'Error al asignar cuentas');
+}
+
 export async function asignarCuentaContableProveedor(proveedorId, cuentaContableId) {
   const res = await fetch(`${API_BASE}/api/proveedores/${proveedorId}/cuenta-contable`, {
     method: 'PUT',
@@ -597,8 +607,9 @@ export async function autodetectarProveedores() {
   return json.data; // { creados, sinCuentas: [{id, razon_social, cif, nombre_carpeta}] }
 }
 
-export async function fetchProveedoresCrud() {
-  const res = await fetch(`${API_BASE}/api/proveedores`, { headers: authHeaders() });
+export async function fetchProveedoresCrud(empresaId) {
+  const q = empresaId ? `?empresa=${empresaId}` : '';
+  const res = await fetch(`${API_BASE}/api/proveedores${q}`, { headers: authHeaders() });
   if (!res.ok) throw new Error('Error al cargar proveedores');
   const { data } = await res.json();
   return data;
