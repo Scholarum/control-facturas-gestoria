@@ -271,11 +271,13 @@ export default function Conciliacion({ proveedores }) {
   const [cargandoHistorial, setCargandoHistorial] = useState(true);
 
   useEffect(() => {
-    fetchHistorialConciliaciones(empresaActiva?.id)
+    if (!empresaActiva) return;
+    setCargandoHistorial(true);
+    fetchHistorialConciliaciones(empresaActiva.id)
       .then(setHistorial)
       .catch(() => {})
       .finally(() => setCargandoHistorial(false));
-  }, []);
+  }, [empresaActiva]);
 
   function refrescarHistorial() {
     fetchHistorialConciliaciones(empresaActiva?.id).then(setHistorial).catch(() => {});

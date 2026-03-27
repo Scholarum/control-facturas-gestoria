@@ -86,6 +86,7 @@ router.post('/google', async (req, res) => {
 router.get('/me', resolveUser, requireAuth, async (req, res) => {
   try {
     const { password_hash: _, ...user } = req.usuario;
+    const db       = getDb();
     const permisos = await getPermisos(user.rol);
     const config   = await getSistemaConfig();
     const empresas = await db.all('SELECT id, nombre, cif FROM empresas WHERE activo = true ORDER BY nombre');
