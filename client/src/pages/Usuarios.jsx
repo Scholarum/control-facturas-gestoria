@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
-import { fetchUsuarios, crearUsuario, editarUsuario, cambiarPassword, desactivarUsuario } from '../api.js';
+import { fetchUsuarios, crearUsuario, editarUsuario, cambiarPassword, desactivarUsuario, asignarEmpresasUsuario } from '../api.js';
 import { fetchRoles, crearRol, editarRol, eliminarRol } from '../api.js';
+import { useAuth } from '../context/AuthContext.jsx';
 
 // ─── Constantes ───────────────────────────────────────────────────────────────
 
@@ -291,6 +292,7 @@ function ModalRol({ rol, onClose, onSaved }) {
 // ─── Tab Usuarios ─────────────────────────────────────────────────────────────
 
 function TabUsuarios({ roles }) {
+  const { empresas: todasEmpresas } = useAuth();
   const [usuarios,     setUsuarios]     = useState([]);
   const [loading,      setLoading]      = useState(true);
   const [modal,        setModal]        = useState(null);
@@ -304,6 +306,15 @@ function TabUsuarios({ roles }) {
   function handleSaved(saved, editando) {
     setUsuarios(prev => editando ? prev.map(u => u.id === saved.id ? saved : u) : [...prev, saved]);
     setModal(null);
+  }
+
+  async function handleToggleEmpresa(usuario, empresaId) {
+    const actuales = (usuario.empresas || []).map(e => e.id);
+    const nuevas = actuales.includes(empresaId) ? actuales.filter(id => id !== empresaId) : [...actuales, empresaId];
+    try {
+      await asignarEmpresasUsuario(usuario.id, nuevas);
+      setUsuarios(prev => prev.map(u => u.id === usuario.id ? { ...u, empresas: todasEmpresas.filter(e => nuevas.includes(e.id)) } : u));
+    } catch (err) { setError(err.message); }
   }
 
   async function handleDesactivar(u) {
@@ -371,7 +382,7 @@ function TabUsuarios({ roles }) {
           <table className="w-full text-sm">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
-                {['Nombre', 'Email', 'Rol', 'Estado', 'Acciones'].map(h => (
+                {['Nombre', 'Email', 'Rol', 'Empresas', 'Estado', 'Acciones'].map(h => (
                   <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">{h}</th>
                 ))}
               </tr>
@@ -384,6 +395,23 @@ function TabUsuarios({ roles }) {
                   <td className="px-4 py-3 font-medium text-gray-900">{u.nombre}</td>
                   <td className="px-4 py-3 text-gray-500 text-xs font-mono">{u.email}</td>
                   <td className="px-4 py-3"><RolBadge rol={u.rol} roles={roles} /></td>
+                  <td className="px-4 py-3">
+                    <div className="flex flex-wrap gap-1">
+                      {u.rol === 'ADMIN' ? (
+                        <span className="text-[10px] text-gray-400 italic">Todas</span>
+                      ) : todasEmpresas.map(emp => {
+                        const asignada = (u.empresas || []).some(e => e.id === emp.id);
+                        return (
+                          <button key={emp.id} onClick={() => handleToggleEmpresa(u, emp.id)}
+                            className={`px-2 py-0.5 rounded text-[10px] font-medium transition-colors ${
+                              asignada ? 'bg-blue-100 text-blue-700 ring-1 ring-blue-200' : 'bg-gray-50 text-gray-400 ring-1 ring-gray-200 hover:bg-gray-100'
+                            }`}>
+                            {emp.nombre.split(' ')[0]}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </td>
                   <td className="px-4 py-3">
                     <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset ${u.activo ? 'bg-emerald-50 text-emerald-700 ring-emerald-200' : 'bg-gray-100 text-gray-500 ring-gray-200'}`}>
                       {u.activo ? 'Activo' : 'Inactivo'}

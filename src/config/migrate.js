@@ -142,6 +142,11 @@ const tablas = [
     ultimo_asiento_sage INTEGER,
     UNIQUE(proveedor_id, empresa_id)
   )`,
+  `CREATE TABLE IF NOT EXISTS usuario_empresa (
+    usuario_id  INTEGER NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+    empresa_id  INTEGER NOT NULL REFERENCES empresas(id) ON DELETE CASCADE,
+    PRIMARY KEY (usuario_id, empresa_id)
+  )`,
   `ALTER TABLE drive_archivos ADD COLUMN IF NOT EXISTS empresa_id INTEGER REFERENCES empresas(id)`,
   `ALTER TABLE plan_contable ADD COLUMN IF NOT EXISTS empresa_id INTEGER REFERENCES empresas(id)`,
   `ALTER TABLE lotes_exportacion_sage ADD COLUMN IF NOT EXISTS empresa_id INTEGER REFERENCES empresas(id)`,
@@ -560,6 +565,14 @@ async function runMigrations() {
     UPDATE historial_conciliaciones SET empresa_id = (SELECT id FROM empresas WHERE cif = 'B86610821' LIMIT 1)
     WHERE empresa_id IS NULL
   `);
+  // 6. Asignar usuarios ADMIN a todas las empresas
+  await db.query(`
+    INSERT INTO usuario_empresa (usuario_id, empresa_id)
+    SELECT u.id, e.id FROM usuarios u CROSS JOIN empresas e
+    WHERE u.activo = 1 AND e.activo = true
+    ON CONFLICT DO NOTHING
+  `);
+
   // historial_sincronizaciones es global (no se filtra por empresa)
 
   console.log('Migración PostgreSQL completada.');

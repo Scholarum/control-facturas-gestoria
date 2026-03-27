@@ -89,6 +89,16 @@ export async function cambiarPassword(id, password) {
   if (!json.ok) throw new Error(json.error || 'Error al cambiar contraseña');
 }
 
+export async function asignarEmpresasUsuario(userId, empresaIds) {
+  const res = await fetch(`${API_BASE}/api/usuarios/${userId}/empresas`, {
+    method: 'PUT',
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify({ empresa_ids: empresaIds }),
+  });
+  const json = await res.json();
+  if (!json.ok) throw new Error(json.error || 'Error al asignar empresas');
+}
+
 export async function desactivarUsuario(id) {
   const res = await fetch(`${API_BASE}/api/usuarios/${id}`, {
     method: 'DELETE',

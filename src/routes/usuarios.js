@@ -19,7 +19,15 @@ router.get('/', requireAdmin, async (req, res) => {
   const usuarios = await db.all(
     'SELECT id, nombre, email, rol, activo, created_at FROM usuarios ORDER BY id'
   );
-  res.json({ ok: true, data: usuarios });
+  // Cargar empresas asignadas a cada usuario
+  const ue = await db.all('SELECT ue.usuario_id, e.id AS empresa_id, e.nombre FROM usuario_empresa ue JOIN empresas e ON e.id = ue.empresa_id WHERE e.activo = true');
+  const ueMap = {};
+  for (const r of ue) {
+    if (!ueMap[r.usuario_id]) ueMap[r.usuario_id] = [];
+    ueMap[r.usuario_id].push({ id: r.empresa_id, nombre: r.nombre });
+  }
+  const data = usuarios.map(u => ({ ...u, empresas: ueMap[u.id] || [] }));
+  res.json({ ok: true, data });
 });
 
 // ─── POST /api/usuarios ───────────────────────────────────────────────────────
@@ -149,6 +157,39 @@ router.delete('/:id', requireAdmin, async (req, res) => {
     return res.status(400).json({ ok: false, error: 'Este usuario esta protegido y no se puede desactivar' });
   }
   await db.query("UPDATE usuarios SET activo = 0 WHERE id = $1", [id]);
+  res.json({ ok: true });
+});
+
+// ─── GET /api/usuarios/:id/empresas — empresas asignadas al usuario ──────────
+
+router.get('/:id/empresas', requireAdmin, async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const db = getDb();
+  const rows = await db.all(
+    `SELECT e.id, e.nombre, e.cif FROM empresas e
+     JOIN usuario_empresa ue ON ue.empresa_id = e.id
+     WHERE ue.usuario_id = $1 AND e.activo = true ORDER BY e.nombre`,
+    [id]
+  );
+  res.json({ ok: true, data: rows });
+});
+
+// ─── PUT /api/usuarios/:id/empresas — asignar empresas al usuario ───────────
+
+router.put('/:id/empresas', requireAdmin, express.json(), async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const { empresa_ids } = req.body; // array de IDs
+  if (!Array.isArray(empresa_ids)) return res.status(400).json({ ok: false, error: 'empresa_ids debe ser un array' });
+
+  const db = getDb();
+  // Borrar asignaciones actuales y recrear
+  await db.query('DELETE FROM usuario_empresa WHERE usuario_id = $1', [id]);
+  for (const empId of empresa_ids) {
+    await db.query(
+      'INSERT INTO usuario_empresa (usuario_id, empresa_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+      [id, parseInt(empId, 10)]
+    );
+  }
   res.json({ ok: true });
 });
 
