@@ -562,6 +562,15 @@ export async function eliminarRol(id) {
   if (!json.ok) throw new Error(json.error || 'Error al eliminar rol');
 }
 
+export async function vincularProveedores() {
+  const res = await fetch(`${API_BASE}/api/drive/vincular-proveedores`, {
+    method: 'PUT', headers: authHeaders(),
+  });
+  const json = await res.json();
+  if (!json.ok) throw new Error(json.error || 'Error al vincular proveedores');
+  return json.data;
+}
+
 export async function aplicarCuentasProveedor() {
   const res = await fetch(`${API_BASE}/api/drive/aplicar-cuentas-proveedor`, {
     method: 'PUT',

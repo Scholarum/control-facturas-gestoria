@@ -292,13 +292,15 @@ async function runMigrations() {
     await db.query(sql);
   }
 
-  // Función para normalizar CIF (quita prefijo de país de 2 letras)
+  // Función para normalizar CIF: quita caracteres no alfanuméricos (guiones, puntos, espacios)
+  // y luego quita prefijo de país de 2 letras si lo tiene
   await db.query(`
     CREATE OR REPLACE FUNCTION normalizar_cif(cif TEXT)
     RETURNS TEXT LANGUAGE sql IMMUTABLE AS $$
       SELECT CASE
-        WHEN cif ~ '^[A-Za-z]{2}[A-Za-z0-9]' THEN UPPER(SUBSTRING(cif FROM 3))
-        ELSE UPPER(cif)
+        WHEN REGEXP_REPLACE(UPPER(TRIM(cif)), '[^A-Z0-9]', '', 'g') ~ '^[A-Z]{2}[A-Z0-9]'
+        THEN SUBSTRING(REGEXP_REPLACE(UPPER(TRIM(cif)), '[^A-Z0-9]', '', 'g') FROM 3)
+        ELSE REGEXP_REPLACE(UPPER(TRIM(cif)), '[^A-Z0-9]', '', 'g')
       END
     $$
   `);

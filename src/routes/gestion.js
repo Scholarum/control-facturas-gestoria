@@ -773,6 +773,64 @@ router.get('/sage-historial/:id/descargar', requireAuth, async (req, res) => {
 });
 
 
+// ─── PUT /api/drive/vincular-proveedores — re-vincular facturas con proveedores por CIF ──
+
+router.put('/vincular-proveedores', requireAuth, async (req, res) => {
+  try {
+    const db = getDb();
+
+    // Contar facturas sin proveedor vinculado que tienen CIF emisor
+    const sinVinculo = await db.all(`
+      SELECT da.id, da.nombre_archivo, da.proveedor,
+             (da.datos_extraidos::jsonb)->>'cif_emisor' AS cif_emisor
+      FROM drive_archivos da
+      WHERE da.datos_extraidos IS NOT NULL
+        AND da.datos_extraidos ~ '^\\s*\\{'
+        AND (da.datos_extraidos::jsonb)->>'cif_emisor' IS NOT NULL
+        AND TRIM((da.datos_extraidos::jsonb)->>'cif_emisor') <> ''
+        AND NOT EXISTS (
+          SELECT 1 FROM proveedores p
+          WHERE p.activo = true AND (
+            (p.cif IS NOT NULL AND normalizar_cif(p.cif) = normalizar_cif((da.datos_extraidos::jsonb)->>'cif_emisor'))
+            OR p.nombre_carpeta = da.proveedor
+          )
+        )
+    `);
+
+    // Rellenar nombre_carpeta en proveedores que coinciden por CIF
+    const rellenados = await db.query(`
+      UPDATE proveedores p
+      SET nombre_carpeta = sub.proveedor, updated_at = NOW()
+      FROM (
+        SELECT DISTINCT ON (normalizar_cif((da.datos_extraidos::jsonb)->>'cif_emisor'))
+               da.proveedor,
+               normalizar_cif((da.datos_extraidos::jsonb)->>'cif_emisor') AS cif_norm
+        FROM drive_archivos da
+        WHERE da.proveedor IS NOT NULL
+          AND da.datos_extraidos IS NOT NULL AND da.datos_extraidos ~ '^\\s*\\{'
+          AND (da.datos_extraidos::jsonb)->>'cif_emisor' IS NOT NULL
+      ) sub
+      WHERE p.nombre_carpeta IS NULL AND p.cif IS NOT NULL
+        AND normalizar_cif(p.cif) = sub.cif_norm
+    `);
+
+    res.json({
+      ok: true,
+      data: {
+        sin_proveedor: sinVinculo.length,
+        carpetas_rellenadas: rellenados?.rowCount || 0,
+        detalle: sinVinculo.slice(0, 20).map(f => ({
+          nombre: f.nombre_archivo,
+          cif: f.cif_emisor,
+          carpeta: f.proveedor,
+        })),
+      },
+    });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
 // ─── PUT /api/drive/aplicar-cuentas-proveedor ────────────────────────────────
 
 router.put('/aplicar-cuentas-proveedor', requireAuth, async (req, res) => {

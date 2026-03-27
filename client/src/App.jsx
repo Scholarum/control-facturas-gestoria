@@ -9,7 +9,7 @@ import Configuracion  from './pages/Configuracion.jsx';
 import Proveedores    from './pages/Proveedores.jsx';
 import SeccionFacturas from './components/SeccionFacturas.jsx';
 import HistorialA3    from './pages/HistorialA3.jsx';
-import { fetchFacturas, fetchProveedores, exportarExcel, triggerSyncManual, fetchPlanContable, asignarCuentaGasto, asignarCGMasivo, autodetectarProveedores, aplicarCuentasProveedor, fetchRoles } from './api.js';
+import { fetchFacturas, fetchProveedores, exportarExcel, triggerSyncManual, fetchPlanContable, asignarCuentaGasto, asignarCGMasivo, autodetectarProveedores, aplicarCuentasProveedor, vincularProveedores, fetchRoles } from './api.js';
 
 // ─── Stats ────────────────────────────────────────────────────────────────────
 
@@ -36,6 +36,7 @@ function AppInner() {
   const [exportandoTotal, setExportandoTotal] = useState(false);
   const [sincronizando,      setSincronizando]      = useState(false);
   const [aplicandoCuentas,   setAplicandoCuentas]   = useState(false);
+  const [vinculandoProvs,   setVinculandoProvs]   = useState(false);
   const [syncMsg,         setSyncMsg]         = useState(null); // { ok, texto }
   const [planContable,    setPlanContable]    = useState([]);
   const [alertaProveedores, setAlertaProveedores] = useState([]); // proveedores sin cuentas
@@ -194,6 +195,22 @@ function AppInner() {
       setSincronizando(false);
       setTimeout(() => setSyncMsg(null), 5000);
     }
+  }
+
+  async function handleVincularProveedores() {
+    setVinculandoProvs(true); setError('');
+    try {
+      const result = await vincularProveedores();
+      const nuevas = await fetchFacturas();
+      setTodasFacturas(nuevas);
+      let texto = `${result.carpetas_rellenadas} carpeta(s) vinculada(s)`;
+      if (result.sin_proveedor > 0) {
+        texto += ` · ${result.sin_proveedor} factura(s) sin proveedor en el sistema`;
+      }
+      setSyncMsg({ ok: true, texto });
+      setTimeout(() => setSyncMsg(null), 8000);
+    } catch (e) { setError(e.message); }
+    finally { setVinculandoProvs(false); }
   }
 
   async function handleAplicarCuentasProveedor() {
@@ -518,23 +535,42 @@ function AppInner() {
                   </button>
                 )}
                 {puedeEditar('aplicar_cuentas') && (
-                  <button
-                    onClick={handleAplicarCuentasProveedor}
-                    disabled={aplicandoCuentas || sincronizando}
-                    className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-purple-700 bg-purple-50 hover:bg-purple-100 border border-purple-200 rounded-lg shadow-sm transition-colors disabled:opacity-60"
-                  >
-                    {aplicandoCuentas ? (
-                      <svg className="h-4 w-4 animate-spin text-purple-500" viewBox="0 0 24 24" fill="none">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
-                      </svg>
-                    ) : (
-                      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
-                      </svg>
-                    )}
-                    {aplicandoCuentas ? 'Aplicando...' : 'Aplicar cuentas de proveedor'}
-                  </button>
+                  <>
+                    <button
+                      onClick={handleVincularProveedores}
+                      disabled={vinculandoProvs || sincronizando}
+                      className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg shadow-sm transition-colors disabled:opacity-60"
+                    >
+                      {vinculandoProvs ? (
+                        <svg className="h-4 w-4 animate-spin text-blue-500" viewBox="0 0 24 24" fill="none">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
+                        </svg>
+                      ) : (
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"/>
+                        </svg>
+                      )}
+                      {vinculandoProvs ? 'Vinculando...' : 'Vincular proveedores'}
+                    </button>
+                    <button
+                      onClick={handleAplicarCuentasProveedor}
+                      disabled={aplicandoCuentas || sincronizando}
+                      className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-purple-700 bg-purple-50 hover:bg-purple-100 border border-purple-200 rounded-lg shadow-sm transition-colors disabled:opacity-60"
+                    >
+                      {aplicandoCuentas ? (
+                        <svg className="h-4 w-4 animate-spin text-purple-500" viewBox="0 0 24 24" fill="none">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
+                        </svg>
+                      ) : (
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
+                        </svg>
+                      )}
+                      {aplicandoCuentas ? 'Aplicando...' : 'Aplicar cuentas de proveedor'}
+                    </button>
+                  </>
                 )}
                 {syncMsg && (
                   <span className={`text-sm font-medium ${syncMsg.ok ? 'text-emerald-600' : 'text-red-600'}`}>
