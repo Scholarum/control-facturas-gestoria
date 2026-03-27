@@ -3,6 +3,8 @@ const router  = express.Router();
 const { getDb } = require('../config/database');
 const { resolveUser, requireAdmin, requireAuth } = require('../middleware/auth');
 
+router.use(resolveUser);
+
 // GET / — listar empresas con conteos
 router.get('/', requireAuth, async (req, res) => {
   const db = getDb();
