@@ -529,10 +529,27 @@ async function runMigrations() {
       AND da.datos_extraidos IS NOT NULL AND da.datos_extraidos ~ '^\\s*\\{'
       AND normalizar_cif((da.datos_extraidos::jsonb)->>'cif_receptor') = normalizar_cif(e.cif)
   `);
-  // 4. Facturas sin CIF receptor → asignar a Scholarum por defecto
+  // 4. Facturas sin empresa: crear empresas al vuelo por CIF receptor
   await db.query(`
-    UPDATE drive_archivos SET empresa_id = (SELECT id FROM empresas WHERE cif = 'B86610821' LIMIT 1)
-    WHERE empresa_id IS NULL
+    INSERT INTO empresas (nombre, cif)
+    SELECT DISTINCT
+      COALESCE(NULLIF(TRIM((da.datos_extraidos::jsonb)->>'nombre_receptor'), ''), 'Empresa ' || UPPER(TRIM((da.datos_extraidos::jsonb)->>'cif_receptor'))),
+      UPPER(TRIM((da.datos_extraidos::jsonb)->>'cif_receptor'))
+    FROM drive_archivos da
+    WHERE da.empresa_id IS NULL
+      AND da.datos_extraidos IS NOT NULL AND da.datos_extraidos ~ '^\\s*\\{'
+      AND (da.datos_extraidos::jsonb)->>'cif_receptor' IS NOT NULL
+      AND TRIM((da.datos_extraidos::jsonb)->>'cif_receptor') <> ''
+      AND NOT EXISTS (SELECT 1 FROM empresas e WHERE normalizar_cif(e.cif) = normalizar_cif((da.datos_extraidos::jsonb)->>'cif_receptor'))
+    ON CONFLICT (cif) DO NOTHING
+  `);
+  // Reasignar facturas a las empresas recien creadas
+  await db.query(`
+    UPDATE drive_archivos da SET empresa_id = e.id
+    FROM empresas e
+    WHERE da.empresa_id IS NULL
+      AND da.datos_extraidos IS NOT NULL AND da.datos_extraidos ~ '^\\s*\\{'
+      AND normalizar_cif((da.datos_extraidos::jsonb)->>'cif_receptor') = normalizar_cif(e.cif)
   `);
   // 5. Historiales sin empresa_id → asignar a Scholarum
   await db.query(`
