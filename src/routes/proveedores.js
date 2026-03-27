@@ -7,13 +7,28 @@ const { resolveUser, requireAdmin, requireAuth } = require('../middleware/auth')
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
 
-// Validación básica CIF/NIF/NIE español
+// Validacion de CIF/NIF/NIE español + VAT numbers europeos e internacionales
 function validarCIF(cif) {
   if (!cif) return true;
-  const c = cif.trim().toUpperCase().replace(/[\s.\-]/g, '');
-  if (/^\d{8}[A-Z]$/.test(c))                              return true; // NIF
-  if (/^[ABCDEFGHJNPQRSUVW]\d{7}[0-9A-J]$/.test(c))       return true; // CIF empresa
-  if (/^[XYZ]\d{7}[A-Z]$/.test(c))                         return true; // NIE
+  const c = cif.trim().toUpperCase().replace(/[\s.\-/]/g, '');
+  if (c.length < 5) return false; // demasiado corto para ser valido
+
+  // España: NIF, CIF, NIE
+  if (/^\d{8}[A-Z]$/.test(c))                              return true;
+  if (/^[ABCDEFGHJNPQRSUVW]\d{7}[0-9A-J]$/.test(c))       return true;
+  if (/^[XYZ]\d{7}[A-Z]$/.test(c))                         return true;
+
+  // VAT europeo con prefijo de pais (2 letras + alfanumerico)
+  // AT: ATU12345678              BE: BE0123456789
+  // DE: DE123456789              FR: FRXX123456789
+  // GB: GB123456789              IT: IT12345678901
+  // NL: NL123456789B01           PT: PT123456789
+  // Otros: prefijo 2 letras + 5-15 caracteres alfanumericos
+  if (/^[A-Z]{2}[A-Z0-9]{5,15}$/.test(c)) return true;
+
+  // Sin prefijo de pais: alfanumerico de 5-15 caracteres (CIF extranjero limpio)
+  if (/^[A-Z0-9]{5,15}$/.test(c)) return true;
+
   return false;
 }
 
