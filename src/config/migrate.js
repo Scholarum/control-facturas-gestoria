@@ -543,10 +543,7 @@ async function runMigrations() {
     UPDATE historial_conciliaciones SET empresa_id = (SELECT id FROM empresas WHERE cif = 'B86610821' LIMIT 1)
     WHERE empresa_id IS NULL
   `);
-  await db.query(`
-    UPDATE historial_sincronizaciones SET empresa_id = (SELECT id FROM empresas WHERE cif = 'B86610821' LIMIT 1)
-    WHERE empresa_id IS NULL
-  `);
+  // historial_sincronizaciones es global (no se filtra por empresa)
 
   console.log('Migración PostgreSQL completada.');
 }
