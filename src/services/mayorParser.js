@@ -92,8 +92,8 @@ function detectarCabeceraProveedor(fila) {
 // ─── Identificación de factura (columna F empieza por F/) ───────────────────
 
 function esFacturaRecibida(fila) {
-  const doc = String(fila[COL.DOCUMENTO] || '').trim().toUpperCase();
-  return doc.startsWith('F/') || doc.startsWith('F ');
+  const doc = String(fila[COL.DOCUMENTO] || '').trim();
+  return doc.length > 0;
 }
 
 // ─── Detectar fila de cabecera para saber dónde empiezan los datos ──────────
