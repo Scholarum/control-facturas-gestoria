@@ -213,11 +213,11 @@ export async function asignarCuentasEmpresa(proveedorId, empresaId, cuentaContab
   if (!json.ok) throw new Error(json.error || 'Error al asignar cuentas');
 }
 
-export async function asignarCuentaContableProveedor(proveedorId, cuentaContableId) {
+export async function asignarCuentaContableProveedor(proveedorId, cuentaContableId, empresaId) {
   const res = await fetch(`${API_BASE}/api/proveedores/${proveedorId}/cuenta-contable`, {
     method: 'PUT',
     headers: authHeaders({ 'Content-Type': 'application/json' }),
-    body: JSON.stringify({ cuenta_contable_id: cuentaContableId }),
+    body: JSON.stringify({ cuenta_contable_id: cuentaContableId, empresa_id: empresaId }),
   });
   const json = await res.json();
   if (!json.ok) throw new Error(json.error || 'Error al asignar cuenta contable');
@@ -672,10 +672,11 @@ export async function descargarPlantillaProveedores() {
   URL.revokeObjectURL(url);
 }
 
-export async function importarProveedoresExcel(file) {
+export async function importarProveedoresExcel(file, empresaId) {
   const fd = new FormData();
   fd.append('archivo', file);
-  const res = await fetch(`${API_BASE}/api/proveedores/importar`, {
+  const q = empresaId ? `?empresa=${empresaId}` : '';
+  const res = await fetch(`${API_BASE}/api/proveedores/importar${q}`, {
     method:  'POST',
     headers: authHeaders(),
     body:    fd,

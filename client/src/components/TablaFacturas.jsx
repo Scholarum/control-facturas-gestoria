@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { BadgeGestion, BadgeExtraccion } from './Badge.jsx';
 import { fetchPreviewFactura, editarDatosFactura, asignarCuentaContableProveedor, crearProveedorRapido, crearCuentaContable, eliminarCuentaContable } from '../api.js';
+import { useAuth } from '../context/AuthContext.jsx';
 
 // Campos obligatorios para considerar una factura sin incidencia
 const CAMPOS_OBLIGATORIOS = [
@@ -258,6 +259,7 @@ function SelectorSubcuenta({ cuentaBase, planContable, onCreada, onSeleccionada,
 
 function FilaCcPreview({ f, planContable, onAsignarCG, selected, esPar = true, onProveedorActualizado, modoGestoria = 'v2' }) {
   const esV1 = modoGestoria === 'v1';
+  const { empresaActiva } = useAuth();
   const cuentasGasto = planContable.filter(c => c.grupo !== '4');
   const cuentas4     = planContable.filter(c => c.grupo === '4');
   const [cgId,          setCgId]          = useState(String(f.cg_efectiva_id || ''));
@@ -285,7 +287,7 @@ function FilaCcPreview({ f, planContable, onAsignarCG, selected, esPar = true, o
     if (!ccProvId || !f.proveedor_id) return;
     setGuardandoCC(true); setCcProvError('');
     try {
-      await asignarCuentaContableProveedor(f.proveedor_id, parseInt(ccProvId, 10));
+      await asignarCuentaContableProveedor(f.proveedor_id, parseInt(ccProvId, 10), empresaActiva?.id);
       if (onProveedorActualizado) onProveedorActualizado();
     } catch (e) { setCcProvError(e.message); }
     finally { setGuardandoCC(false); }
@@ -300,6 +302,7 @@ function FilaCcPreview({ f, planContable, onAsignarCG, selected, esPar = true, o
         cif:          provForm.cif.trim() || null,
         nombre_carpeta: provForm.nombre_carpeta.trim() || f.proveedor || null,
         cuenta_contable_id: provForm.cuenta_contable_id ? parseInt(provForm.cuenta_contable_id, 10) : null,
+        empresa_id: empresaActiva?.id || null,
       });
       setModalProv(false);
       if (onProveedorActualizado) onProveedorActualizado();

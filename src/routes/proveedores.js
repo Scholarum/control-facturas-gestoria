@@ -144,7 +144,7 @@ router.get('/', async (req, res) => {
 
 // POST / - crear proveedor
 router.post('/', requireAdmin, async (req, res) => {
-  const { razon_social, nombre_carpeta, cif, cuenta_contable_id, cuenta_gasto_id } = req.body;
+  const { razon_social, nombre_carpeta, cif, cuenta_contable_id, cuenta_gasto_id, empresa_id } = req.body;
   if (!razon_social?.trim()) return res.status(400).json({ ok: false, error: 'razon_social requerida' });
   if (cif && !validarCIF(cif)) return res.status(400).json({ ok: false, error: 'Formato CIF/NIF invalido' });
   const db  = getDb();
@@ -153,24 +153,28 @@ router.post('/', requireAdmin, async (req, res) => {
     if (dup) return res.status(409).json({ ok: false, error: `La carpeta "${nombre_carpeta.trim()}" ya esta asignada a otro proveedor` });
   }
   const row = await db.one(
-    `INSERT INTO proveedores (razon_social, nombre_carpeta, cif, cuenta_contable_id, cuenta_gasto_id)
-     VALUES ($1, $2, $3, $4, $5) RETURNING *`,
-    [
-      razon_social.trim(),
-      nombre_carpeta?.trim() || null,
-      cif ? cif.trim().toUpperCase() : null,
-      cuenta_contable_id || null,
-      cuenta_gasto_id    || null,
-    ]
+    `INSERT INTO proveedores (razon_social, nombre_carpeta, cif)
+     VALUES ($1, $2, $3) RETURNING *`,
+    [razon_social.trim(), nombre_carpeta?.trim() || null, cif ? cif.trim().toUpperCase() : null]
   );
-  await autoAsignarFacturasProveedor(db, row);
+  // Guardar cuentas en proveedor_empresa si se pasan
+  const empId = empresa_id || (await db.one('SELECT id FROM empresas WHERE activo = true ORDER BY id LIMIT 1'))?.id;
+  if (empId && (cuenta_contable_id || cuenta_gasto_id)) {
+    await db.query(
+      `INSERT INTO proveedor_empresa (proveedor_id, empresa_id, cuenta_contable_id, cuenta_gasto_id)
+       VALUES ($1, $2, $3, $4) ON CONFLICT (proveedor_id, empresa_id) DO UPDATE SET
+         cuenta_contable_id = COALESCE(EXCLUDED.cuenta_contable_id, proveedor_empresa.cuenta_contable_id),
+         cuenta_gasto_id = COALESCE(EXCLUDED.cuenta_gasto_id, proveedor_empresa.cuenta_gasto_id)`,
+      [row.id, empId, cuenta_contable_id || null, cuenta_gasto_id || null]
+    );
+  }
   res.json({ ok: true, data: { ...row, label: labelProveedor(row) } });
 });
 
 // PUT /:id - actualizar proveedor
 router.put('/:id', requireAdmin, async (req, res) => {
   const id = parseInt(req.params.id, 10);
-  const { razon_social, nombre_carpeta, cif, cuenta_contable_id, cuenta_gasto_id } = req.body;
+  const { razon_social, nombre_carpeta, cif, cuenta_contable_id, cuenta_gasto_id, empresa_id } = req.body;
   if (!razon_social?.trim()) return res.status(400).json({ ok: false, error: 'razon_social requerida' });
   if (cif && !validarCIF(cif)) return res.status(400).json({ ok: false, error: 'Formato CIF/NIF invalido' });
   const db  = getDb();
@@ -179,20 +183,22 @@ router.put('/:id', requireAdmin, async (req, res) => {
     if (dup) return res.status(409).json({ ok: false, error: `La carpeta "${nombre_carpeta.trim()}" ya esta asignada a otro proveedor` });
   }
   const row = await db.one(
-    `UPDATE proveedores
-     SET razon_social = $1, nombre_carpeta = $2, cif = $3,
-         cuenta_contable_id = $4, cuenta_gasto_id = $5, updated_at = NOW()
-     WHERE id = $6 AND activo = true RETURNING *`,
-    [
-      razon_social.trim(),
-      nombre_carpeta?.trim() || null,
-      cif ? cif.trim().toUpperCase() : null,
-      cuenta_contable_id || null,
-      cuenta_gasto_id    || null,
-      id,
-    ]
+    `UPDATE proveedores SET razon_social = $1, nombre_carpeta = $2, cif = $3, updated_at = NOW()
+     WHERE id = $4 AND activo = true RETURNING *`,
+    [razon_social.trim(), nombre_carpeta?.trim() || null, cif ? cif.trim().toUpperCase() : null, id]
   );
   if (!row) return res.status(404).json({ ok: false, error: 'Proveedor no encontrado' });
+  // Guardar cuentas en proveedor_empresa
+  const empId = empresa_id || (await db.one('SELECT id FROM empresas WHERE activo = true ORDER BY id LIMIT 1'))?.id;
+  if (empId && (cuenta_contable_id || cuenta_gasto_id)) {
+    await db.query(
+      `INSERT INTO proveedor_empresa (proveedor_id, empresa_id, cuenta_contable_id, cuenta_gasto_id)
+       VALUES ($1, $2, $3, $4) ON CONFLICT (proveedor_id, empresa_id) DO UPDATE SET
+         cuenta_contable_id = COALESCE(EXCLUDED.cuenta_contable_id, proveedor_empresa.cuenta_contable_id),
+         cuenta_gasto_id = COALESCE(EXCLUDED.cuenta_gasto_id, proveedor_empresa.cuenta_gasto_id)`,
+      [id, empId, cuenta_contable_id || null, cuenta_gasto_id || null]
+    );
+  }
   await autoAsignarFacturasProveedor(db, row);
   res.json({ ok: true, data: { ...row, label: labelProveedor(row) } });
 });
@@ -329,29 +335,35 @@ router.post('/importar', requireAdmin, upload.single('archivo'), async (req, res
       ? await db.one('SELECT id FROM proveedores WHERE cif = $1', [cif])
       : await db.one('SELECT id FROM proveedores WHERE razon_social = $1', [razon_social]);
 
+    let provId;
     if (existing) {
       await db.query(
         `UPDATE proveedores SET razon_social=$1, nombre_carpeta=COALESCE($2, nombre_carpeta), cif=$3,
-         cuenta_contable_id=COALESCE($4, cuenta_contable_id), cuenta_gasto_id=COALESCE($5, cuenta_gasto_id),
-         activo=true, updated_at=NOW()
-         WHERE id=$6`,
-        [razon_social, nombre_carpeta, cif, cuenta_contable_id, cuenta_gasto_id, existing.id]
+         activo=true, updated_at=NOW() WHERE id=$4`,
+        [razon_social, nombre_carpeta, cif, existing.id]
       );
+      provId = existing.id;
       actualizados++;
     } else {
-      await db.query(
-        `INSERT INTO proveedores (razon_social, nombre_carpeta, cif, cuenta_contable_id, cuenta_gasto_id)
-         VALUES ($1,$2,$3,$4,$5)`,
-        [razon_social, nombre_carpeta, cif, cuenta_contable_id, cuenta_gasto_id]
+      const newRow = await db.one(
+        `INSERT INTO proveedores (razon_social, nombre_carpeta, cif) VALUES ($1,$2,$3) RETURNING id`,
+        [razon_social, nombre_carpeta, cif]
       );
+      provId = newRow.id;
       insertados++;
     }
-  }
 
-  // Auto-asignar facturas para los proveedores importados
-  const provsActualizados = await db.all('SELECT * FROM proveedores WHERE activo = true AND cuenta_gasto_id IS NOT NULL AND cuenta_contable_id IS NOT NULL');
-  for (const prov of provsActualizados) {
-    await autoAsignarFacturasProveedor(db, prov);
+    // Guardar cuentas en proveedor_empresa para la empresa del query param
+    const empId = req.query.empresa ? parseInt(req.query.empresa, 10) : (await db.one('SELECT id FROM empresas WHERE activo = true ORDER BY id LIMIT 1'))?.id;
+    if (empId && (cuenta_contable_id || cuenta_gasto_id)) {
+      await db.query(
+        `INSERT INTO proveedor_empresa (proveedor_id, empresa_id, cuenta_contable_id, cuenta_gasto_id)
+         VALUES ($1, $2, $3, $4) ON CONFLICT (proveedor_id, empresa_id) DO UPDATE SET
+           cuenta_contable_id = COALESCE(EXCLUDED.cuenta_contable_id, proveedor_empresa.cuenta_contable_id),
+           cuenta_gasto_id = COALESCE(EXCLUDED.cuenta_gasto_id, proveedor_empresa.cuenta_gasto_id)`,
+        [provId, empId, cuenta_contable_id || null, cuenta_gasto_id || null]
+      );
+    }
   }
 
   res.json({ ok: true, data: { insertados, actualizados, cuentasCreadas, errores } });
@@ -399,7 +411,7 @@ router.put('/:id/cuenta-contable', requireAuth, express.json(), async (req, res)
 // ─── POST /rapido — crear proveedor al vuelo (admin + gestoría) ─────────────
 
 router.post('/rapido', requireAuth, async (req, res) => {
-  const { razon_social, cif, nombre_carpeta, cuenta_contable_id, cuenta_gasto_id } = req.body;
+  const { razon_social, cif, nombre_carpeta, cuenta_contable_id, cuenta_gasto_id, empresa_id } = req.body;
   if (!razon_social?.trim()) return res.status(400).json({ ok: false, error: 'razon_social requerida' });
   if (cif && !validarCIF(cif)) return res.status(400).json({ ok: false, error: 'Formato CIF/NIF invalido' });
 
@@ -417,17 +429,21 @@ router.post('/rapido', requireAuth, async (req, res) => {
   }
 
   const row = await db.one(
-    `INSERT INTO proveedores (razon_social, nombre_carpeta, cif, cuenta_contable_id, cuenta_gasto_id)
-     VALUES ($1, $2, $3, $4, $5) RETURNING *`,
-    [
-      razon_social.trim(),
-      nombre_carpeta?.trim() || null,
-      cif ? cif.trim().toUpperCase() : null,
-      cuenta_contable_id || null,
-      cuenta_gasto_id    || null,
-    ]
+    `INSERT INTO proveedores (razon_social, nombre_carpeta, cif)
+     VALUES ($1, $2, $3) RETURNING *`,
+    [razon_social.trim(), nombre_carpeta?.trim() || null, cif ? cif.trim().toUpperCase() : null]
   );
-  await autoAsignarFacturasProveedor(db, row);
+  // Guardar cuentas en proveedor_empresa
+  const empId = empresa_id || (await db.one('SELECT id FROM empresas WHERE activo = true ORDER BY id LIMIT 1'))?.id;
+  if (empId && (cuenta_contable_id || cuenta_gasto_id)) {
+    await db.query(
+      `INSERT INTO proveedor_empresa (proveedor_id, empresa_id, cuenta_contable_id, cuenta_gasto_id)
+       VALUES ($1, $2, $3, $4) ON CONFLICT (proveedor_id, empresa_id) DO UPDATE SET
+         cuenta_contable_id = COALESCE(EXCLUDED.cuenta_contable_id, proveedor_empresa.cuenta_contable_id),
+         cuenta_gasto_id = COALESCE(EXCLUDED.cuenta_gasto_id, proveedor_empresa.cuenta_gasto_id)`,
+      [row.id, empId, cuenta_contable_id || null, cuenta_gasto_id || null]
+    );
+  }
   res.json({ ok: true, data: row });
 });
 

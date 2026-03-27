@@ -528,6 +528,7 @@ export default function Proveedores() {
         cif:                form.cif.trim() || null,
         cuenta_contable_id: form.cuenta_contable_id ? parseInt(form.cuenta_contable_id) : null,
         cuenta_gasto_id:    form.cuenta_gasto_id    ? parseInt(form.cuenta_gasto_id)    : null,
+        empresa_id:         empresaActiva?.id || null,
       };
       if (modal === 'nuevo') {
         const nuevo = await crearProveedor(datos);
@@ -567,7 +568,7 @@ export default function Proveedores() {
   async function importar(archivo) {
     setImportando(true);
     try {
-      const res = await importarProveedoresExcel(archivo);
+      const res = await importarProveedoresExcel(archivo, empresaActiva?.id);
       const actualizados = await fetchProveedoresCrud();
       setProveedores(actualizados);
       return res;
