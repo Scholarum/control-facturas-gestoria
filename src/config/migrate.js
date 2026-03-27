@@ -498,13 +498,19 @@ async function runMigrations() {
 
   // ─── Seed empresas ──────────────────────────────────────────────────────────
   const empresasSeed = [
-    { nombre: 'Scholarum Digital SL', cif: 'B86610821' },
-    { nombre: 'Laredo Tech SL',      cif: 'B19822352' },
+    { nombre: 'Scholarum Digital SL', cif: 'B86610821', direccion: 'C/ Alcala 518, 28027 Madrid', telefono: '911 231 089', email: 'admin@scholarum.es', web: 'https://scholarum.es' },
+    { nombre: 'Laredo Tech SL',      cif: 'B19822352', direccion: 'C/ Alcala 518, 28027 Madrid', telefono: '911 231 089', email: 'admin@laredotech.com', web: 'https://laredotech.com' },
   ];
   for (const e of empresasSeed) {
     await db.query(
-      'INSERT INTO empresas (nombre, cif) VALUES ($1, $2) ON CONFLICT (cif) DO NOTHING',
-      [e.nombre, e.cif]
+      `INSERT INTO empresas (nombre, cif, direccion, telefono, email, web)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       ON CONFLICT (cif) DO UPDATE SET
+         direccion = COALESCE(EXCLUDED.direccion, empresas.direccion),
+         telefono  = COALESCE(EXCLUDED.telefono, empresas.telefono),
+         email     = COALESCE(EXCLUDED.email, empresas.email),
+         web       = COALESCE(EXCLUDED.web, empresas.web)`,
+      [e.nombre, e.cif, e.direccion, e.telefono, e.email, e.web]
     );
   }
 
