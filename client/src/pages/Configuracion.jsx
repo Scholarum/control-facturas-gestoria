@@ -745,14 +745,15 @@ const ESTADO_COLOR = {
 };
 
 function PanelReanalizar({ onFacturasActualizadas }) {
-  const [facturas,        setFacturas]        = useState([]);
-  const [cargando,        setCargando]        = useState(true);
-  const [filtroEstado,    setFiltroEstado]    = useState('');
-  const [filtroProveedor, setFiltroProveedor] = useState('');
-  const [busqueda,        setBusqueda]        = useState('');
-  const [fechaDesde,      setFechaDesde]      = useState('');
-  const [fechaHasta,      setFechaHasta]      = useState('');
-  const [seleccionados,   setSeleccionados]   = useState(new Set());
+  const [facturas,         setFacturas]         = useState([]);
+  const [cargando,         setCargando]         = useState(true);
+  const [filtroEstado,     setFiltroEstado]     = useState('');
+  const [filtroGestion,    setFiltroGestion]    = useState('');
+  const [filtroProveedor,  setFiltroProveedor]  = useState('');
+  const [busqueda,         setBusqueda]         = useState('');
+  const [fechaDesde,       setFechaDesde]       = useState('');
+  const [fechaHasta,       setFechaHasta]       = useState('');
+  const [seleccionados,    setSeleccionados]    = useState(new Set());
   const [ejecutando,      setEjecutando]      = useState(false);
   const [progreso,        setProgreso]        = useState(null);
   const logRef = useRef(null);
@@ -773,6 +774,7 @@ function PanelReanalizar({ onFacturasActualizadas }) {
 
   const filtradas = facturas.filter(f => {
     if (filtroEstado    && f.estado    !== filtroEstado)                              return false;
+    if (filtroGestion   && (f.estado_gestion || 'PENDIENTE') !== filtroGestion)       return false;
     if (filtroProveedor && f.proveedor !== filtroProveedor)                           return false;
     if (busqueda        && !f.nombre_archivo?.toLowerCase().includes(busqueda.toLowerCase())) return false;
     if (fechaDesde || fechaHasta) {
@@ -855,12 +857,22 @@ function PanelReanalizar({ onFacturasActualizadas }) {
       {/* ── Filtros ── */}
       <div className="px-5 py-3 border-b border-gray-100 flex flex-wrap gap-3 items-end">
         <div className="flex flex-col gap-1">
-          <label className="text-xs font-medium text-gray-500">Estado</label>
+          <label className="text-xs font-medium text-gray-500">Extraccion</label>
           <select value={filtroEstado} onChange={e => setFiltroEstado(e.target.value)} className={inputCls}>
             <option value="">Todos</option>
-            <option value="PENDIENTE">Pendiente</option>
+            <option value="SINCRONIZADA">Sin extraer</option>
             <option value="PROCESADA">Procesada</option>
-            <option value="REVISION_MANUAL">Revisión manual</option>
+            <option value="REVISION_MANUAL">Revision manual</option>
+          </select>
+        </div>
+        <div className="flex flex-col gap-1">
+          <label className="text-xs font-medium text-gray-500">Estado gestion</label>
+          <select value={filtroGestion} onChange={e => setFiltroGestion(e.target.value)} className={inputCls}>
+            <option value="">Todos</option>
+            <option value="PENDIENTE">Pendiente</option>
+            <option value="DESCARGADA">Descargada</option>
+            <option value="CC_ASIGNADA">Cta. Gasto</option>
+            <option value="CONTABILIZADA">Contabilizada</option>
           </select>
         </div>
         <div className="flex flex-col gap-1">
