@@ -271,14 +271,14 @@ export default function Conciliacion({ proveedores }) {
   const [cargandoHistorial, setCargandoHistorial] = useState(true);
 
   useEffect(() => {
-    fetchHistorialConciliaciones()
+    fetchHistorialConciliaciones(empresaActiva?.id)
       .then(setHistorial)
       .catch(() => {})
       .finally(() => setCargandoHistorial(false));
   }, []);
 
   function refrescarHistorial() {
-    fetchHistorialConciliaciones().then(setHistorial).catch(() => {});
+    fetchHistorialConciliaciones(empresaActiva?.id).then(setHistorial).catch(() => {});
   }
 
   // Paso 1: parsear archivo

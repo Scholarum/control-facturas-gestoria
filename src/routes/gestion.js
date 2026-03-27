@@ -360,7 +360,8 @@ router.put('/:id/cg', express.json(), async (req, res) => {
 
   const db = getDb();
   const archivo = await db.one(`
-    SELECT da.estado_gestion, da.datos_extraidos, p.id AS proveedor_id, cc.codigo AS cta_proveedor_codigo
+    SELECT da.estado_gestion, da.datos_extraidos, da.empresa_id,
+           p.id AS proveedor_id, pec.codigo AS cta_proveedor_codigo
     FROM drive_archivos da
     LEFT JOIN LATERAL (
       SELECT p2.* FROM proveedores p2
@@ -373,7 +374,8 @@ router.put('/:id/cg', express.json(), async (req, res) => {
                AND normalizar_cif((da.datos_extraidos::jsonb)->>'cif_emisor') = normalizar_cif(p2.cif)) DESC NULLS LAST
       LIMIT 1
     ) p ON true
-    LEFT JOIN plan_contable cc ON cc.id = p.cuenta_contable_id
+    LEFT JOIN proveedor_empresa pe ON pe.proveedor_id = p.id AND pe.empresa_id = da.empresa_id
+    LEFT JOIN plan_contable pec ON pec.id = pe.cuenta_contable_id
     WHERE da.id = $1`, [id]);
   if (!archivo) return res.status(404).json({ ok: false, error: 'Archivo no encontrado' });
   if (archivo.estado_gestion === 'CONTABILIZADA')
@@ -688,9 +690,9 @@ router.post('/exportar-sage', requireAuth, express.json(), async (req, res) => {
 
   // Guardar lote en historial (ambos contenidos)
   const loteRow = await db.one(
-    `INSERT INTO lotes_exportacion_sage (nombre_fichero, num_facturas, asiento_inicio, asiento_fin, contenido_csv, contenido_txt, usuario_id, usuario_nombre)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
-    [nombreFichero, facturasConDatos.length, asientoMin, asientoMax, contenidoCSV, contenidoTXT, usuarioId, usuarioNombre]
+    `INSERT INTO lotes_exportacion_sage (nombre_fichero, num_facturas, asiento_inicio, asiento_fin, contenido_csv, contenido_txt, usuario_id, usuario_nombre, empresa_id)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id`,
+    [nombreFichero, facturasConDatos.length, asientoMin, asientoMax, contenidoCSV, contenidoTXT, usuarioId, usuarioNombre, facturasConDatos[0]?.empresa_id || null]
   );
 
   // Marcar facturas como exportadas
@@ -731,7 +733,9 @@ router.post('/exportar-sage', requireAuth, express.json(), async (req, res) => {
 
 router.get('/sage-historial', requireAuth, async (req, res) => {
   const db = getDb();
-  const rows = await db.all('SELECT id, fecha, nombre_fichero, num_facturas, asiento_inicio, asiento_fin, usuario_nombre FROM lotes_exportacion_sage ORDER BY id DESC LIMIT 100');
+  const empresaId = req.query.empresa ? parseInt(req.query.empresa, 10) : null;
+  const filtro = empresaId ? `WHERE empresa_id = ${empresaId}` : '';
+  const rows = await db.all(`SELECT id, fecha, nombre_fichero, num_facturas, asiento_inicio, asiento_fin, usuario_nombre FROM lotes_exportacion_sage ${filtro} ORDER BY id DESC LIMIT 100`);
   res.json({ ok: true, data: rows });
 });
 

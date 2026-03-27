@@ -382,8 +382,9 @@ export async function testNotificacion() {
   return json.data;
 }
 
-export async function fetchHistorialConciliaciones() {
-  const res = await fetch(`${API_BASE}/api/conciliacion/historial`, { headers: authHeaders() });
+export async function fetchHistorialConciliaciones(empresaId) {
+  const q = empresaId ? `?empresa=${empresaId}` : '';
+  const res = await fetch(`${API_BASE}/api/conciliacion/historial${q}`, { headers: authHeaders() });
   if (!res.ok) throw new Error('Error al cargar historial de conciliaciones');
   const { data } = await res.json();
   return data;
@@ -743,8 +744,9 @@ export async function exportarSage(ids, asientosPorProveedor, contabilizar = fal
   return json.data;
 }
 
-export async function fetchHistorialSage() {
-  const res = await fetch(`${API_BASE}/api/drive/sage-historial`, { headers: authHeaders() });
+export async function fetchHistorialSage(empresaId) {
+  const q = empresaId ? `?empresa=${empresaId}` : '';
+  const res = await fetch(`${API_BASE}/api/drive/sage-historial${q}`, { headers: authHeaders() });
   if (!res.ok) throw new Error('Error al cargar historial SAGE');
   const { data } = await res.json();
   return data;

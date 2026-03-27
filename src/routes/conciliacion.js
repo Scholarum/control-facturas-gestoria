@@ -145,11 +145,13 @@ router.post('/', resolveUser, upload.single('archivo'), async (req, res) => {
 
 router.get('/historial', resolveUser, async (req, res) => {
   const db   = getDb();
+  const empresaId = req.query.empresa ? parseInt(req.query.empresa, 10) : null;
+  const filtroEmp = empresaId ? `WHERE empresa_id = ${empresaId}` : '';
   const rows = await db.all(
     `SELECT id, creado_en, proveedor, fecha_desde, fecha_hasta,
             total, ok, pendientes_sage, error_importe, conciliadas_manual,
             usuario_nombre, version, alcance, num_proveedores
-     FROM historial_conciliaciones
+     FROM historial_conciliaciones ${filtroEmp}
      ORDER BY creado_en DESC
      LIMIT 100`
   );
@@ -394,8 +396,8 @@ router.post('/v2/ejecutar', resolveUser, express.json({ limit: '5mb' }), async (
 
     const row = await db.one(
       `INSERT INTO historial_conciliaciones
-         (proveedor, total, ok, pendientes_sage, error_importe, conciliadas_manual, resultado_json, usuario_id, usuario_nombre, version, alcance, num_proveedores)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'v2', $10, $11)
+         (proveedor, total, ok, pendientes_sage, error_importe, conciliadas_manual, resultado_json, usuario_id, usuario_nombre, version, alcance, num_proveedores, empresa_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'v2', $10, $11, $12)
        RETURNING id`,
       [
         provNombres.substring(0, 200),
@@ -409,6 +411,7 @@ router.post('/v2/ejecutar', resolveUser, express.json({ limit: '5mb' }), async (
         usuarioNombre,
         alcance || null,
         proveedores.length,
+        empresa_id || null,
       ]
     );
     conciliacionId = row.id;

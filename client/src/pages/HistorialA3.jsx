@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
+import { useAuth } from '../context/AuthContext.jsx';
 import { fetchHistorialSage, reDescargarSage, fetchFacturasSageLote } from '../api.js';
 
 function fmtFecha(iso) {
@@ -22,6 +23,7 @@ function IconoDescarga() {
 const inputCls = 'rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm text-gray-800 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500';
 
 export default function HistorialA3() {
+  const { empresaActiva } = useAuth();
   const [lotes,       setLotes]       = useState([]);
   const [loading,     setLoading]     = useState(true);
   const [error,       setError]       = useState(null);
@@ -35,11 +37,13 @@ export default function HistorialA3() {
   const hayFiltros = Object.values(filtros).some(Boolean);
 
   useEffect(() => {
-    fetchHistorialSage()
+    if (!empresaActiva) return;
+    setLoading(true);
+    fetchHistorialSage(empresaActiva.id)
       .then(setLotes)
       .catch(e => setError(e.message))
       .finally(() => setLoading(false));
-  }, []);
+  }, [empresaActiva]);
 
   const usuariosUnicos = useMemo(() => [...new Set(lotes.map(l => l.usuario_nombre).filter(Boolean))].sort(), [lotes]);
 
