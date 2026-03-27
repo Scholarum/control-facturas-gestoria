@@ -146,6 +146,17 @@ const tablas = [
   // Indices y restricciones
   `CREATE INDEX IF NOT EXISTS idx_proveedores_cif ON proveedores (UPPER(TRIM(cif))) WHERE activo = true AND cif IS NOT NULL`,
   `CREATE INDEX IF NOT EXISTS idx_proveedores_carpeta ON proveedores (nombre_carpeta) WHERE activo = true AND nombre_carpeta IS NOT NULL`,
+  // Limpiar duplicados de nombre_carpeta antes de crear indice unico:
+  // desactiva los proveedores duplicados quedandose con el de menor id
+  `UPDATE proveedores SET activo = false, updated_at = NOW()
+   WHERE id IN (
+     SELECT p2.id FROM proveedores p2
+     WHERE p2.activo = true AND p2.nombre_carpeta IS NOT NULL
+       AND EXISTS (
+         SELECT 1 FROM proveedores p1
+         WHERE p1.activo = true AND p1.nombre_carpeta = p2.nombre_carpeta AND p1.id < p2.id
+       )
+   )`,
   `CREATE UNIQUE INDEX IF NOT EXISTS idx_proveedores_carpeta_unico ON proveedores (nombre_carpeta) WHERE activo = true AND nombre_carpeta IS NOT NULL`,
   `CREATE INDEX IF NOT EXISTS idx_drive_estado_gestion ON drive_archivos (estado_gestion)`,
 
