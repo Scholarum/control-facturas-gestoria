@@ -279,14 +279,15 @@ function AppInner() {
 
   const tabs = [
     { id: 'facturas',     label: 'Facturas',              visible: puedeVer('facturas')     },
+    { id: 'proveedores',  label: 'Proveedores',           visible: puedeVer('proveedores')  },
     { id: 'conciliacion', label: 'Conciliacion de Mayor', visible: puedeVer('conciliacion') },
     { id: 'historial_a3', label: 'Historial SAGE',        visible: puedeVer('facturas') && !esV1 },
     { id: 'historial',    label: 'Historial',             visible: puedeVer('historial')    },
   ].filter(t => t.visible);
 
-  const ADMIN_TABS = ['usuarios', 'proveedores', 'empresas', 'configuracion'];
+  const ADMIN_TABS = ['usuarios', 'empresas', 'configuracion'];
   const tabAdminActivo  = ADMIN_TABS.includes(tab);
-  const hayMenuAdmin    = puedeVer('usuarios') || puedeVer('proveedores') || puedeVer('configuracion');
+  const hayMenuAdmin    = puedeVer('usuarios') || puedeVer('configuracion');
 
   const subTabs = [
     { id: 'pendientes',     label: 'Pendientes',     count: stats.pendientes,     color: 'text-amber-600',   bg: 'bg-amber-600'   },
@@ -398,7 +399,6 @@ function AppInner() {
               {adminMenuOpen && (
                 <div className="absolute right-0 top-full mt-1.5 w-48 bg-white border border-gray-200 rounded-xl shadow-lg py-1 z-50">
                   {[
-                    { id: 'proveedores',   icon: '🏢', label: 'Proveedores',    visible: puedeVer('proveedores')   },
                     { id: 'empresas',      icon: '🏛️', label: 'Empresas',       visible: puedeVer('configuracion') },
                     { id: 'usuarios',      icon: '👥', label: 'Usuarios',       visible: puedeVer('usuarios')      },
                     { id: 'configuracion', icon: '⚙️',  label: 'Configuracion', visible: puedeVer('configuracion') },
@@ -543,7 +543,6 @@ function AppInner() {
         {/* ── Pestaña Configuración ── */}
         {tab === 'configuracion' && puedeVer('configuracion') && (
           <Configuracion
-            todasFacturas={todasFacturas}
             onFacturasActualizadas={handleFacturaActualizada}
           />
         )}

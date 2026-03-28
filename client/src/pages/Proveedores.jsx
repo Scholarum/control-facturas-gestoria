@@ -1,595 +1,26 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext.jsx';
 import {
   fetchProveedoresCrud, fetchPlanContable,
   crearProveedor, editarProveedor, eliminarProveedor,
-  descargarExcelProveedores, importarProveedoresExcel, descargarPlantillaProveedores,
-  crearCuentaContable, eliminarCuentaContable,
-  asignarCuentasEmpresa,
+  descargarExcelProveedores, importarProveedoresExcel,
 } from '../api.js';
+import BuscadorAvanzado from '../components/proveedores/BuscadorAvanzado.jsx';
+import FilaProveedorEditable from '../components/proveedores/FilaProveedorEditable.jsx';
+import ModalProveedor from '../components/proveedores/ModalProveedor.jsx';
+import ModalImportar from '../components/proveedores/ModalImportar.jsx';
 
 const FORM_VACIO = {
   razon_social: '', nombre_carpeta: '', cif: '',
   cuenta_contable_id: '', cuenta_gasto_id: '',
 };
 
-// ─── Combobox de cuentas del Plan Contable ────────────────────────────────────
-
-function ComboboxCuenta({ cuentas, value, onChange, placeholder }) {
-  const [q,       setQ]       = useState('');
-  const [abierto, setAbierto] = useState(false);
-  const ref = useRef(null);
-
-  const seleccionada = cuentas.find(c => String(c.id) === String(value));
-  const filtradas = q.trim()
-    ? cuentas.filter(c =>
-        c.codigo.startsWith(q.trim()) ||
-        c.descripcion.toLowerCase().includes(q.toLowerCase())
-      )
-    : cuentas;
-
-  useEffect(() => {
-    function onClick(e) {
-      if (ref.current && !ref.current.contains(e.target)) setAbierto(false);
-    }
-    document.addEventListener('mousedown', onClick);
-    return () => document.removeEventListener('mousedown', onClick);
-  }, []);
-
-  function handleFocus() { setQ(''); setAbierto(true); }
-
-  function handleSelect(cuenta) {
-    onChange(String(cuenta.id));
-    setQ('');
-    setAbierto(false);
-  }
-
-  const displayValue = seleccionada
-    ? `${seleccionada.codigo} — ${seleccionada.descripcion}`
-    : '';
-
-  return (
-    <div ref={ref} className="relative">
-      <input
-        value={abierto ? q : displayValue}
-        onChange={e => setQ(e.target.value)}
-        onFocus={handleFocus}
-        placeholder={placeholder || '— Sin asignar —'}
-        className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 pr-7"
-        autoComplete="off"
-      />
-      {value && (
-        <button
-          type="button"
-          onMouseDown={e => { e.preventDefault(); onChange(''); setQ(''); }}
-          className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-300 hover:text-gray-500 text-base leading-none"
-        >✕</button>
-      )}
-      {abierto && (
-        <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
-          {filtradas.length === 0 ? (
-            <p className="px-3 py-2 text-xs text-gray-400">Sin resultados</p>
-          ) : filtradas.map(c => (
-            <button
-              key={c.id}
-              type="button"
-              onMouseDown={e => { e.preventDefault(); handleSelect(c); }}
-              className={`w-full text-left px-3 py-2 text-sm hover:bg-blue-50 flex items-center gap-2 ${String(c.id) === String(value) ? 'bg-blue-50' : ''}`}
-            >
-              <span className="font-mono font-semibold text-gray-900 min-w-[6rem] flex-shrink-0">{c.codigo}</span>
-              <span className="text-gray-500 text-xs truncate">{c.descripcion}</span>
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ─── Selector de subcuenta (código base + sufijo de 5 dígitos) ────────────────
-
-function SelectorSubcuenta({ cuentaBase, planContable, onCreada, onSeleccionada, onEliminada, razonSocial }) {
-  const [sufijo,   setSufijo]       = useState('');
-  const [creando,  setCreando]      = useState(false);
-  const [eliminando, setEliminando] = useState(false);
-  const [errorSub, setErrorSub]     = useState('');
-
-  if (!cuentaBase) return null;
-
-  const esSubcuenta = cuentaBase.codigo.length > 4;
-  const codigoCompleto = cuentaBase.codigo + sufijo;
-  const yaExiste = sufijo && planContable.find(c => c.codigo === codigoCompleto);
-
-  async function handleCrear() {
-    if (!sufijo || sufijo.length !== 5) return;
-    if (yaExiste) { onSeleccionada(yaExiste); setSufijo(''); return; }
-    setCreando(true); setErrorSub('');
-    try {
-      const nueva = await crearCuentaContable({
-        codigo:      codigoCompleto,
-        descripcion: razonSocial || codigoCompleto,
-        grupo:       cuentaBase.codigo.charAt(0),
-      });
-      onCreada(nueva);
-      onSeleccionada(nueva);
-      setSufijo('');
-    } catch (e) {
-      setErrorSub(e.message);
-    } finally {
-      setCreando(false);
-    }
-  }
-
-  async function handleEliminar() {
-    if (!confirm(`Eliminar subcuenta ${cuentaBase.codigo}?`)) return;
-    setEliminando(true); setErrorSub('');
-    try {
-      await eliminarCuentaContable(cuentaBase.id);
-      if (onEliminada) onEliminada();
-    } catch (e) { setErrorSub(e.message); }
-    finally { setEliminando(false); }
-  }
-
-  return (
-    <div className="mt-2 space-y-1">
-      <div className="flex items-center gap-2">
-        {esSubcuenta ? (
-          <>
-            <span className="font-mono text-xs font-semibold text-gray-700 bg-gray-100 px-2 py-1 rounded">{cuentaBase.codigo}</span>
-            <span className="text-xs text-gray-400">({cuentaBase.descripcion})</span>
-            <button type="button" onClick={handleEliminar} disabled={eliminando}
-              className="px-2 py-1 text-xs font-medium text-red-600 bg-red-50 border border-red-200 rounded-lg hover:bg-red-100 disabled:opacity-50">
-              {eliminando ? '...' : 'Eliminar subcuenta'}
-            </button>
-          </>
-        ) : (
-          <>
-            <span className="text-xs text-gray-400">Subcuenta:</span>
-            <span className="font-mono text-xs font-semibold text-gray-700 bg-gray-100 px-2 py-1 rounded">{cuentaBase.codigo}</span>
-            <span className="text-gray-300 text-xs">+</span>
-            <input type="text" inputMode="numeric" maxLength={5} value={sufijo}
-              onChange={e => { setSufijo(e.target.value.replace(/\D/g, '')); setErrorSub(''); }}
-              onKeyDown={e => e.key === 'Enter' && sufijo.length === 5 && handleCrear()}
-              placeholder="00001"
-              className="w-20 rounded-lg border border-gray-200 px-2 py-1.5 text-sm font-mono text-center focus:outline-none focus:ring-2 focus:ring-blue-500" />
-            {sufijo.length === 5 && (
-              <span className="font-mono text-xs font-bold text-blue-700 bg-blue-50 px-2 py-1 rounded">{codigoCompleto}</span>
-            )}
-            <button type="button" onClick={handleCrear} disabled={sufijo.length !== 5 || creando}
-              className="px-3 py-1.5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg disabled:opacity-40 transition-colors">
-              {creando ? '...' : yaExiste ? 'Seleccionar' : 'Crear y asignar'}
-            </button>
-          </>
-        )}
-      </div>
-      {errorSub && <p className="text-xs text-red-500">{errorSub}</p>}
-    </div>
-  );
-}
-
-// ─── Modal Edición / Creación ─────────────────────────────────────────────────
-
-function ModalProveedor({ form, setForm, planContable, guardando, onGuardar, onCerrar, esEdicion, errorModal, onCuentaCreada }) {
-  const cuentas4 = planContable.filter(c => c.grupo === '4');
-  const cuentasImputables = planContable.filter(c => c.grupo !== '4');
-
-  function set(k, v) { setForm(prev => ({ ...prev, [k]: v })); }
-
-  const cuentaBaseCC = planContable.find(c => String(c.id) === String(form.cuenta_contable_id));
-  const cuentaBaseCG = planContable.find(c => String(c.id) === String(form.cuenta_gasto_id));
-
-  return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg">
-        <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
-          <h3 className="font-semibold text-gray-900">{esEdicion ? 'Editar proveedor' : 'Nuevo proveedor'}</h3>
-          <button onClick={onCerrar} className="text-gray-400 hover:text-gray-600 text-xl leading-none">✕</button>
-        </div>
-        <div className="px-6 py-5 space-y-4">
-          {errorModal && (
-            <div className="rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-700">{errorModal}</div>
-          )}
-          <div className="grid grid-cols-2 gap-4">
-            <div className="col-span-2">
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Razón Social <span className="text-red-500">*</span>
-              </label>
-              <input value={form.razon_social} onChange={e => set('razon_social', e.target.value)}
-                className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                placeholder="FACTOR LIBRE S.L." />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Nombre Carpeta Drive</label>
-              <input value={form.nombre_carpeta} onChange={e => set('nombre_carpeta', e.target.value)}
-                className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                placeholder="Factor Libre SL" />
-              <p className="text-xs text-gray-400 mt-0.5">Nombre exacto de la carpeta en Drive</p>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">CIF / NIF</label>
-              <input value={form.cif} onChange={e => set('cif', e.target.value.toUpperCase())}
-                className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                placeholder="B12345678" />
-            </div>
-            <div className="col-span-2">
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Cuenta Contable <span className="text-xs font-normal text-gray-400">(Grupo 4 — Proveedores)</span>
-              </label>
-              <ComboboxCuenta
-                cuentas={cuentas4}
-                value={form.cuenta_contable_id}
-                onChange={v => set('cuenta_contable_id', v)}
-                placeholder="Escribe código o descripción..."
-              />
-              <SelectorSubcuenta
-                cuentaBase={cuentaBaseCC}
-                planContable={planContable}
-                razonSocial={form.razon_social}
-                onCreada={onCuentaCreada}
-                onSeleccionada={c => set('cuenta_contable_id', String(c.id))}
-                onEliminada={() => { set('cuenta_contable_id', ''); onCuentaCreada(null); }}
-              />
-            </div>
-            <div className="col-span-2">
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Cuenta de Gasto <span className="text-xs font-normal text-gray-400">(Activos grupo 2 / Gastos grupo 6)</span>
-              </label>
-              <ComboboxCuenta
-                cuentas={cuentasImputables}
-                value={form.cuenta_gasto_id}
-                onChange={v => set('cuenta_gasto_id', v)}
-                placeholder="Escribe código o descripción..."
-              />
-              <SelectorSubcuenta
-                cuentaBase={cuentaBaseCG}
-                planContable={planContable}
-                razonSocial={form.razon_social}
-                onCreada={onCuentaCreada}
-                onSeleccionada={c => set('cuenta_gasto_id', String(c.id))}
-                onEliminada={() => { set('cuenta_gasto_id', ''); onCuentaCreada(null); }}
-              />
-            </div>
-          </div>
-        </div>
-        <div className="px-6 py-4 border-t border-gray-100 flex justify-end gap-3">
-          <button onClick={onCerrar}
-            className="px-4 py-2 text-sm font-medium text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
-            Cancelar
-          </button>
-          <button onClick={onGuardar} disabled={!form.razon_social.trim() || guardando}
-            className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors disabled:opacity-50">
-            {guardando ? 'Guardando...' : esEdicion ? 'Guardar cambios' : 'Crear proveedor'}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ─── Modal Importar Excel ─────────────────────────────────────────────────────
-
-function ModalImportar({ onImportar, onCerrar, importando }) {
-  const [archivo,    setArchivo]    = useState(null);
-  const [resultado,  setResultado]  = useState(null);
-  const [errorLocal, setErrorLocal] = useState('');
-  const inputRef = useRef(null);
-
-  async function handleImportar() {
-    if (!archivo) return;
-    setErrorLocal('');
-    try {
-      const res = await onImportar(archivo);
-      setResultado(res);
-    } catch (e) {
-      setErrorLocal(e.message);
-    }
-  }
-
-  return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
-        <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
-          <h3 className="font-semibold text-gray-900">Importar proveedores desde Excel</h3>
-          <button onClick={onCerrar} className="text-gray-400 hover:text-gray-600 text-xl leading-none">✕</button>
-        </div>
-        <div className="px-6 py-5 space-y-4">
-          {!resultado ? (
-            <>
-              <div className="text-sm text-gray-600 space-y-1.5">
-                <p>
-                  Columnas obligatorias: <span className="font-semibold">Razon Social</span>, <span className="font-semibold">CIF</span>, <span className="font-semibold">Cuenta Contable</span>
-                </p>
-                <p className="text-xs text-gray-400">
-                  Opcionales: Nombre Carpeta, Cuenta Gasto
-                </p>
-                <p className="text-xs text-gray-400">
-                  Las cuentas contables que no existan se crean automaticamente.
-                </p>
-                <button type="button" onClick={() => descargarPlantillaProveedores().catch(() => {})}
-                  className="inline-flex items-center gap-1.5 text-xs font-medium text-blue-600 hover:text-blue-800 hover:underline">
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
-                    <path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clipRule="evenodd" />
-                  </svg>
-                  Descargar plantilla de ejemplo
-                </button>
-              </div>
-              <label className={`flex items-center gap-3 cursor-pointer rounded-lg border-2 border-dashed px-4 py-4 transition-colors ${
-                archivo ? 'border-blue-300 bg-blue-50' : 'border-gray-300 hover:border-blue-400 hover:bg-gray-50'
-              }`}>
-                {archivo ? (
-                  <>
-                    <svg className="h-8 w-8 text-blue-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
-                    </svg>
-                    <div>
-                      <p className="text-sm font-medium text-blue-700">{archivo.name}</p>
-                      <p className="text-xs text-blue-500">{(archivo.size / 1024).toFixed(1)} KB · Clic para cambiar</p>
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    <svg className="h-8 w-8 text-gray-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/>
-                    </svg>
-                    <div>
-                      <p className="text-sm font-medium text-gray-700">Arrastra o haz clic para seleccionar</p>
-                      <p className="text-xs text-gray-400 mt-0.5">Excel (.xlsx, .xls)</p>
-                    </div>
-                  </>
-                )}
-                <input ref={inputRef} type="file" accept=".xlsx,.xls" className="hidden"
-                  onChange={e => setArchivo(e.target.files[0] || null)} />
-              </label>
-              {errorLocal && (
-                <div className="rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-700">{errorLocal}</div>
-              )}
-              <div className="flex justify-end gap-3">
-                <button onClick={onCerrar}
-                  className="px-4 py-2 text-sm font-medium text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50">
-                  Cancelar
-                </button>
-                <button onClick={handleImportar} disabled={!archivo || importando}
-                  className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg disabled:opacity-50 transition-colors">
-                  {importando ? 'Importando...' : 'Importar'}
-                </button>
-              </div>
-            </>
-          ) : (
-            <>
-              <div className="rounded-lg bg-emerald-50 border border-emerald-200 px-4 py-3 space-y-1">
-                <p className="text-sm font-semibold text-emerald-800">Importación completada</p>
-                <p className="text-sm text-emerald-700">
-                  <span className="font-semibold">{resultado.insertados}</span> nuevos ·{' '}
-                  <span className="font-semibold">{resultado.actualizados}</span> actualizados
-                  {resultado.cuentasCreadas > 0 && (
-                    <> · <span className="font-semibold">{resultado.cuentasCreadas}</span> cuentas creadas</>
-                  )}
-                </p>
-              </div>
-              {resultado.errores?.length > 0 && (
-                <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-3">
-                  <p className="text-sm font-semibold text-red-700 mb-2">{resultado.errores.length} errores</p>
-                  <ul className="text-xs text-red-600 space-y-0.5 max-h-32 overflow-y-auto">
-                    {resultado.errores.map((e, i) => (
-                      <li key={i}>Fila {e.fila}: {e.error}</li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-              <div className="flex justify-end">
-                <button onClick={onCerrar}
-                  className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg">
-                  Cerrar
-                </button>
-              </div>
-            </>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ─── Buscador avanzado ────────────────────────────────────────────────────────
-
-function BuscadorAvanzado({ filtros, onChange }) {
-  function set(k, v) { onChange({ ...filtros, [k]: v }); }
-  const hayFiltros = Object.values(filtros).some(v => v.trim());
-
-  return (
-    <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <div>
-          <label className="block text-xs font-medium text-gray-500 mb-1">Razón Social</label>
-          <input
-            value={filtros.razonSocial}
-            onChange={e => set('razonSocial', e.target.value)}
-            placeholder="Buscar..."
-            className="w-full rounded-lg border border-gray-200 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-          />
-        </div>
-        <div>
-          <label className="block text-xs font-medium text-gray-500 mb-1">CIF / NIF</label>
-          <input
-            value={filtros.cif}
-            onChange={e => set('cif', e.target.value.toUpperCase())}
-            placeholder="B12345678"
-            className="w-full rounded-lg border border-gray-200 px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
-          />
-        </div>
-        <div>
-          <label className="block text-xs font-medium text-gray-500 mb-1">Cuenta Contable</label>
-          <input
-            value={filtros.cuentaContable}
-            onChange={e => set('cuentaContable', e.target.value)}
-            placeholder="400, proveedor..."
-            className="w-full rounded-lg border border-gray-200 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-          />
-        </div>
-        <div>
-          <label className="block text-xs font-medium text-gray-500 mb-1">Cuenta de Gasto</label>
-          <input
-            value={filtros.cuentaGasto}
-            onChange={e => set('cuentaGasto', e.target.value)}
-            placeholder="62, servicios..."
-            className="w-full rounded-lg border border-gray-200 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-          />
-        </div>
-      </div>
-      {hayFiltros && (
-        <div className="mt-2 flex items-center gap-2">
-          <span className="text-xs text-gray-400">Filtros activos</span>
-          <button
-            onClick={() => onChange({ razonSocial: '', cif: '', cuentaContable: '', cuentaGasto: '' })}
-            className="text-xs text-blue-600 hover:underline"
-          >
-            Limpiar filtros
-          </button>
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ─── Página principal ─────────────────────────────────────────────────────────
-
-// ─── Fila editable inline ────────────────────────────────────────────────────
-
-function CeldaTexto({ valor, onGuardar, placeholder, mono, className = '' }) {
-  const [editando, setEditando] = useState(false);
-  const [val, setVal] = useState(valor || '');
-  const [guardando, setGuardando] = useState(false);
-
-  useEffect(() => { setVal(valor || ''); }, [valor]);
-
-  async function confirmar() {
-    if (val.trim() === (valor || '').trim()) { setEditando(false); return; }
-    setGuardando(true);
-    try {
-      await onGuardar(val.trim());
-      setEditando(false);
-    } catch {} finally { setGuardando(false); }
-  }
-
-  if (!editando) {
-    return (
-      <td className={`px-3 py-2 cursor-pointer hover:bg-blue-50/50 ${className}`} onClick={() => setEditando(true)}>
-        <span className={`text-xs ${mono ? 'font-mono' : ''} ${valor ? 'text-gray-800' : 'text-gray-300'}`}>
-          {valor || '—'}
-        </span>
-      </td>
-    );
-  }
-
-  return (
-    <td className={`px-1 py-1 ${className}`}>
-      <input value={val} onChange={e => setVal(e.target.value)} placeholder={placeholder}
-        autoFocus onBlur={confirmar} onKeyDown={e => { if (e.key === 'Enter') confirmar(); if (e.key === 'Escape') { setVal(valor || ''); setEditando(false); } }}
-        disabled={guardando}
-        className={`w-full rounded border border-blue-300 px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-blue-400 ${mono ? 'font-mono' : ''} ${guardando ? 'opacity-50' : ''}`} />
-    </td>
-  );
-}
-
-function CeldaCuenta({ valor, valorDesc, cuentas, onGuardar, grupo, className = '' }) {
-  const [editando, setEditando] = useState(false);
-  const [q, setQ] = useState('');
-  const [guardando, setGuardando] = useState(false);
-  const ref = useRef(null);
-
-  const filtradas = q.trim()
-    ? cuentas.filter(c => c.codigo.startsWith(q) || c.descripcion.toLowerCase().includes(q.toLowerCase()))
-    : cuentas.filter(c => grupo ? c.grupo === grupo || c.codigo.length > 4 : true).slice(0, 30);
-
-  useEffect(() => {
-    if (!editando) return;
-    function onClick(e) { if (ref.current && !ref.current.contains(e.target)) setEditando(false); }
-    document.addEventListener('mousedown', onClick);
-    return () => document.removeEventListener('mousedown', onClick);
-  }, [editando]);
-
-  async function seleccionar(cuenta) {
-    setGuardando(true);
-    try {
-      await onGuardar(cuenta.id);
-      setEditando(false); setQ('');
-    } catch {} finally { setGuardando(false); }
-  }
-
-  if (!editando) {
-    return (
-      <td className={`px-3 py-2 cursor-pointer hover:bg-blue-50/50 ${className}`} onClick={() => setEditando(true)}>
-        {valor ? (
-          <span className="text-xs"><span className="font-mono font-semibold text-gray-800">{valor}</span> <span className="text-gray-400">{valorDesc}</span></span>
-        ) : <span className="text-xs text-gray-300">—</span>}
-      </td>
-    );
-  }
-
-  return (
-    <td className={`px-1 py-1 relative ${className}`}>
-      <div ref={ref}>
-        <input value={q} onChange={e => setQ(e.target.value)} placeholder="Buscar cuenta..."
-          autoFocus className="w-full rounded border border-blue-300 px-2 py-1 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-blue-400" />
-        <div className="absolute z-50 top-full left-0 w-64 mt-0.5 bg-white border border-gray-200 rounded-lg shadow-xl max-h-40 overflow-y-auto">
-          {filtradas.length === 0 ? (
-            <p className="px-3 py-2 text-xs text-gray-400">Sin resultados</p>
-          ) : filtradas.map(c => (
-            <button key={c.id} type="button" onMouseDown={e => { e.preventDefault(); seleccionar(c); }}
-              className="w-full text-left px-3 py-1.5 text-xs hover:bg-blue-50 flex items-center gap-2">
-              <span className="font-mono font-semibold text-gray-900 min-w-[5rem]">{c.codigo}</span>
-              <span className="text-gray-500 truncate">{c.descripcion}</span>
-            </button>
-          ))}
-        </div>
-      </div>
-    </td>
-  );
-}
-
-function FilaProveedorEditable({ proveedor: p, planContable, empresaId, onGuardado, onEliminar }) {
-  const [error, setError] = useState('');
-  const cuentas4 = planContable.filter(c => c.grupo === '4');
-  const cuentasGasto = planContable.filter(c => c.grupo !== '4');
-
-  async function guardarCampo(campo, valor) {
-    setError('');
-    try {
-      await editarProveedor(p.id, { razon_social: p.razon_social, nombre_carpeta: p.nombre_carpeta, cif: p.cif, empresa_id: empresaId, [campo]: valor });
-      await onGuardado();
-    } catch (e) { setError(e.message); throw e; }
-  }
-
-  async function guardarCuenta(tipo, cuentaId) {
-    setError('');
-    try {
-      await asignarCuentasEmpresa(p.id, empresaId, tipo === 'contable' ? cuentaId : null, tipo === 'gasto' ? cuentaId : null);
-      await onGuardado();
-    } catch (e) { setError(e.message); throw e; }
-  }
-
-  return (
-    <tr className={`hover:bg-gray-50 transition-colors ${error ? 'bg-red-50/30' : ''}`} title={error || undefined}>
-      <CeldaTexto valor={p.razon_social} placeholder="Razon social" onGuardar={v => guardarCampo('razon_social', v)} className="font-medium" />
-      <CeldaTexto valor={p.nombre_carpeta} placeholder="Carpeta Drive" onGuardar={v => guardarCampo('nombre_carpeta', v || null)} mono />
-      <CeldaTexto valor={p.cif} placeholder="CIF/VAT" onGuardar={v => guardarCampo('cif', v || null)} mono />
-      <CeldaCuenta valor={p.cuenta_contable_codigo} valorDesc={p.cuenta_contable_desc} cuentas={cuentas4} grupo="4" onGuardar={id => guardarCuenta('contable', id)} />
-      <CeldaCuenta valor={p.cuenta_gasto_codigo} valorDesc={p.cuenta_gasto_desc} cuentas={cuentasGasto} onGuardar={id => guardarCuenta('gasto', id)} />
-      <td className="px-3 py-2 text-right">
-        <button onClick={onEliminar} className="text-xs font-medium text-red-500 hover:text-red-700 hover:underline">Eliminar</button>
-      </td>
-    </tr>
-  );
-}
-
-// ─── Página principal ───────────────────────────────────────────────────────
-
 export default function Proveedores() {
   const { empresaActiva } = useAuth();
   const [proveedores,   setProveedores]   = useState([]);
   const [planContable,  setPlanContable]  = useState([]);
   const [loading,       setLoading]       = useState(true);
-  const [modal,         setModal]         = useState(null); // null | 'nuevo' | { proveedor }
+  const [modal,         setModal]         = useState(null);
   const [modalImportar, setModalImportar] = useState(false);
   const [form,          setForm]          = useState(FORM_VACIO);
   const [guardando,     setGuardando]     = useState(false);
@@ -609,7 +40,6 @@ export default function Proveedores() {
       .finally(() => setLoading(false));
   }, [empresaActiva]);
 
-  // Filtrado en tiempo real
   const proveedoresFiltrados = proveedores.filter(p => {
     const { razonSocial, cif, cuentaContable, cuentaGasto } = filtros;
     if (razonSocial && !p.razon_social?.toLowerCase().includes(razonSocial.toLowerCase())) return false;
@@ -627,16 +57,9 @@ export default function Proveedores() {
     return true;
   });
 
-  function mostrarExito(msg) {
-    setExito(msg);
-    setTimeout(() => setExito(''), 4000);
-  }
+  function mostrarExito(msg) { setExito(msg); setTimeout(() => setExito(''), 4000); }
 
-  function abrirNuevo() {
-    setForm(FORM_VACIO);
-    setModal('nuevo');
-    setErrorModal('');
-  }
+  function abrirNuevo() { setForm(FORM_VACIO); setModal('nuevo'); setErrorModal(''); }
 
   function abrirEditar(p) {
     setForm({
@@ -651,8 +74,7 @@ export default function Proveedores() {
   }
 
   async function guardar() {
-    setGuardando(true);
-    setErrorModal('');
+    setGuardando(true); setErrorModal('');
     try {
       const datos = {
         razon_social:       form.razon_social.trim(),
@@ -672,11 +94,8 @@ export default function Proveedores() {
         mostrarExito('Proveedor actualizado correctamente');
       }
       setModal(null);
-    } catch (e) {
-      setErrorModal(e.message);
-    } finally {
-      setGuardando(false);
-    }
+    } catch (e) { setErrorModal(e.message); }
+    finally { setGuardando(false); }
   }
 
   async function eliminar(p) {
@@ -685,9 +104,7 @@ export default function Proveedores() {
       await eliminarProveedor(p.id);
       setProveedores(prev => prev.filter(x => x.id !== p.id));
       mostrarExito('Proveedor eliminado');
-    } catch (e) {
-      setError(e.message);
-    }
+    } catch (e) { setError(e.message); }
   }
 
   async function exportar() {
@@ -701,12 +118,9 @@ export default function Proveedores() {
     setImportando(true);
     try {
       const res = await importarProveedoresExcel(archivo, empresaActiva?.id);
-      const actualizados = await fetchProveedoresCrud();
-      setProveedores(actualizados);
+      setProveedores(await fetchProveedoresCrud(empresaActiva?.id));
       return res;
-    } finally {
-      setImportando(false);
-    }
+    } finally { setImportando(false); }
   }
 
   if (loading) return (
@@ -720,7 +134,6 @@ export default function Proveedores() {
 
   return (
     <div className="space-y-4">
-
       {/* Cabecera */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <h2 className="text-base font-semibold text-gray-900">Proveedores</h2>
@@ -757,7 +170,6 @@ export default function Proveedores() {
         <div className="rounded-lg bg-emerald-50 border border-emerald-200 px-4 py-3 text-sm text-emerald-700">{exito}</div>
       )}
 
-      {/* Buscador avanzado */}
       <BuscadorAvanzado filtros={filtros} onChange={setFiltros} />
 
       {/* Tabla */}
@@ -774,14 +186,14 @@ export default function Proveedores() {
           <div className="py-16 text-center text-sm text-gray-400">
             {proveedores.length === 0
               ? <><p>No hay proveedores registrados.</p><p className="mt-1">Crea el primero o importa desde Excel.</p></>
-              : <p>Ningún proveedor coincide con los filtros aplicados.</p>}
+              : <p>Ningun proveedor coincide con los filtros aplicados.</p>}
           </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="bg-gray-50 border-b border-gray-200">
                 <tr>
-                  {['Razón Social', 'Nombre Carpeta', 'CIF', 'Cta. Contable', 'Cta. Gasto', ''].map(h => (
+                  {['Razon Social', 'Nombre Carpeta', 'CIF', 'Cta. Contable', 'Cta. Gasto', ''].map(h => (
                     <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
@@ -806,27 +218,18 @@ export default function Proveedores() {
       {/* Modales */}
       {modal && (
         <ModalProveedor
-          form={form}
-          setForm={setForm}
-          planContable={planContable}
-          guardando={guardando}
-          onGuardar={guardar}
+          form={form} setForm={setForm} planContable={planContable}
+          guardando={guardando} onGuardar={guardar}
           onCerrar={() => { setModal(null); setErrorModal(''); }}
-          esEdicion={modal !== 'nuevo'}
-          errorModal={errorModal}
+          esEdicion={modal !== 'nuevo'} errorModal={errorModal}
           onCuentaCreada={nueva => {
             if (nueva) setPlanContable(prev => [...prev, nueva].sort((a, b) => a.codigo.localeCompare(b.codigo)));
-            else fetchPlanContable().then(setPlanContable).catch(() => {});
+            else fetchPlanContable(empresaActiva?.id).then(setPlanContable).catch(() => {});
           }}
         />
       )}
-
       {modalImportar && (
-        <ModalImportar
-          onImportar={importar}
-          onCerrar={() => setModalImportar(false)}
-          importando={importando}
-        />
+        <ModalImportar onImportar={importar} onCerrar={() => setModalImportar(false)} importando={importando} />
       )}
     </div>
   );
