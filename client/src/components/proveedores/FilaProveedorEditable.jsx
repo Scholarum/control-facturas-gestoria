@@ -45,14 +45,13 @@ export function CeldaCuenta({ valor, valorDesc, cuentas, onGuardar, onCuentaCrea
   const [editando, setEditando] = useState(false);
   const [q, setQ] = useState('');
   const [guardando, setGuardando] = useState(false);
-  // Cuenta pendiente de confirmar (seleccionada pero no guardada)
-  const [pendiente, setPendiente] = useState(null); // { id, codigo, descripcion }
-  // Crear subcuenta
+  const [pendiente, setPendiente] = useState(null);
   const [cuentaBase, setCuentaBase] = useState(null);
   const [sufijo, setSufijo] = useState('');
   const [creando, setCreando] = useState(false);
   const [errorSub, setErrorSub] = useState('');
   const ref = useRef(null);
+  const ignorarCierreRef = useRef(false);
 
   const filtradas = q.trim()
     ? cuentas.filter(c => c.codigo.startsWith(q) || c.descripcion.toLowerCase().includes(q.toLowerCase()))
@@ -60,7 +59,10 @@ export function CeldaCuenta({ valor, valorDesc, cuentas, onGuardar, onCuentaCrea
 
   useEffect(() => {
     if (!editando) return;
-    function onClick(e) { if (ref.current && !ref.current.contains(e.target)) cerrar(); }
+    function onClick(e) {
+      if (ignorarCierreRef.current) { ignorarCierreRef.current = false; return; }
+      if (ref.current && !ref.current.contains(e.target)) cerrar();
+    }
     document.addEventListener('mousedown', onClick);
     return () => document.removeEventListener('mousedown', onClick);
   }, [editando]);
@@ -71,11 +73,11 @@ export function CeldaCuenta({ valor, valorDesc, cuentas, onGuardar, onCuentaCrea
   }
 
   function seleccionar(cuenta) {
+    ignorarCierreRef.current = true;
     if (cuenta.codigo.length <= 3) {
       setCuentaBase(cuenta); setSufijo(''); setErrorSub(''); setPendiente(null);
       return;
     }
-    // Subcuenta existente → marcar como pendiente (no guardar aun)
     setPendiente({ id: cuenta.id, codigo: cuenta.codigo, descripcion: cuenta.descripcion });
     setCuentaBase(null); setQ('');
   }
