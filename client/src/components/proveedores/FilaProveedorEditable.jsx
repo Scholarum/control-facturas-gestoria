@@ -54,7 +54,7 @@ export function CeldaCuenta({ valor, valorDesc, cuentas, onGuardar, onCuentaCrea
 
   const filtradas = q.trim()
     ? cuentas.filter(c => c.codigo.startsWith(q) || c.descripcion.toLowerCase().includes(q.toLowerCase()))
-    : cuentas.filter(c => grupo ? c.grupo === grupo || c.codigo.length > 4 : true).slice(0, 30);
+    : cuentas.filter(c => grupo ? c.grupo === grupo || c.codigo.length > 3 : true).slice(0, 30);
 
   useEffect(() => {
     if (!editando) return;
@@ -68,13 +68,13 @@ export function CeldaCuenta({ valor, valorDesc, cuentas, onGuardar, onCuentaCrea
   }
 
   async function seleccionar(cuenta) {
-    // Si es cuenta base (<=4 digitos), ofrecer crear subcuenta
-    if (cuenta.codigo.length <= 4) {
+    // Si es cuenta base (3 digitos), ofrecer crear subcuenta (3+5=8 digitos)
+    if (cuenta.codigo.length <= 3) {
       setCuentaBase(cuenta);
       setSufijo(''); setErrorSub('');
       return;
     }
-    // Si es subcuenta, asignar directamente
+    // Si es subcuenta (>3 digitos), asignar directamente
     setGuardando(true);
     try {
       await onGuardar(cuenta.id);
@@ -170,7 +170,7 @@ export function CeldaCuenta({ valor, valorDesc, cuentas, onGuardar, onCuentaCrea
                   className="w-full text-left px-3 py-1.5 text-xs hover:bg-blue-50 flex items-center gap-2">
                   <span className="font-mono font-semibold text-gray-900 min-w-[5rem]">{c.codigo}</span>
                   <span className="text-gray-500 truncate flex-1">{c.descripcion}</span>
-                  {c.codigo.length <= 4 && (
+                  {c.codigo.length <= 3 && (
                     <span className="text-[9px] text-blue-500 bg-blue-50 px-1.5 py-0.5 rounded-full font-medium flex-shrink-0">+ sub</span>
                   )}
                 </button>

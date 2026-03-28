@@ -9,7 +9,7 @@ export default function SelectorSubcuenta({ cuentaBase, planContable, onCreada, 
 
   if (!cuentaBase) return null;
 
-  const esSubcuenta = cuentaBase.codigo.length > 4;
+  const esSubcuenta = cuentaBase.codigo.length > 3;
   const codigoCompleto = cuentaBase.codigo + sufijo;
   const yaExiste = sufijo && planContable.find(c => c.codigo === codigoCompleto);
 

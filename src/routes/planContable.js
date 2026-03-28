@@ -205,7 +205,7 @@ router.delete('/:id', requireAdmin, async (req, res) => {
     if (!cuenta) return res.status(404).json({ ok: false, error: 'Cuenta no encontrada' });
 
     // Solo permitir eliminar subcuentas (codigo > 4 dígitos)
-    if (cuenta.codigo.length <= 4) {
+    if (cuenta.codigo.length <= 3) {
       return res.status(400).json({ ok: false, error: 'No se pueden eliminar cuentas principales del plan contable' });
     }
 

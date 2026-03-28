@@ -187,8 +187,8 @@ function SelectorSubcuenta({ cuentaBase, planContable, onCreada, onSeleccionada,
 
   if (!cuentaBase) return null;
 
-  // Si la cuenta base ya es una subcuenta (>4 dígitos), ofrecer eliminar
-  const esSubcuenta = cuentaBase.codigo.length > 4;
+  // Si la cuenta base ya es una subcuenta (>3 dígitos), ofrecer eliminar
+  const esSubcuenta = cuentaBase.codigo.length > 3;
 
   const codigoCompleto = cuentaBase.codigo + sufijo;
   const yaExiste = sufijo && planContable.find(c => c.codigo === codigoCompleto);
