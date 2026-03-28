@@ -799,6 +799,55 @@ export async function reDescargarA3(id, nombreFichero) {
   URL.revokeObjectURL(url);
 }
 
+// ─── Drive: carpetas y subida universal ───────────────────────────────────────
+
+export async function fetchCarpetasDrive() {
+  const res = await fetch(`${API_BASE}/api/drive/carpetas`, { headers: authHeaders() });
+  if (!res.ok) throw new Error('Error al cargar carpetas de Drive');
+  const { data } = await res.json();
+  return data;
+}
+
+export async function crearCarpetaDrive(nombre) {
+  const res = await fetch(`${API_BASE}/api/drive/carpetas`, {
+    method:  'POST',
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
+    body:    JSON.stringify({ nombre }),
+  });
+  const json = await res.json();
+  if (!res.ok) throw new Error(json.error || 'Error al crear carpeta');
+  return json.data;
+}
+
+export async function subirFacturasUniversal(carpetaId, archivos, onProgress) {
+  const formData = new FormData();
+  formData.append('carpeta_id', carpetaId);
+  for (const file of archivos) {
+    formData.append('archivos', file);
+  }
+
+  const xhr = new XMLHttpRequest();
+  return new Promise((resolve, reject) => {
+    xhr.upload.addEventListener('progress', (e) => {
+      if (e.lengthComputable && onProgress) {
+        onProgress(Math.round((e.loaded / e.total) * 100));
+      }
+    });
+    xhr.addEventListener('load', () => {
+      try {
+        const json = JSON.parse(xhr.responseText);
+        if (xhr.status >= 400) reject(new Error(json.error || 'Error en la subida'));
+        else resolve(json.data);
+      } catch { reject(new Error('Respuesta invalida del servidor')); }
+    });
+    xhr.addEventListener('error', () => reject(new Error('Error de red')));
+    xhr.open('POST', `${API_BASE}/api/drive/upload-universal`);
+    const token = getStoredToken();
+    if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+    xhr.send(formData);
+  });
+}
+
 export async function reextraer(ids, onProgress) {
   const res = await fetch(`${API_BASE}/api/configuracion/reextraer`, {
     method:  'POST',

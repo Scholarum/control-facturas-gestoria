@@ -6,15 +6,17 @@ import PanelReanalizar from '../components/configuracion/PanelReanalizar.jsx';
 import PanelNotificaciones from '../components/configuracion/PanelNotificaciones.jsx';
 import PanelEmailTemplate from '../components/configuracion/PanelEmailTemplate.jsx';
 import PanelHistorialNotificaciones from '../components/configuracion/PanelHistorialNotificaciones.jsx';
+import DriveManager from '../components/configuracion/DriveManager.jsx';
 import { Spinner } from '../components/configuracion/helpers.jsx';
 
 const TABS = [
-  { id: 'sync',  label: 'Sincronizacion de facturas' },
+  { id: 'drive', label: 'Drive y Subida' },
+  { id: 'sync',  label: 'Sincronizacion' },
   { id: 'notif', label: 'Notificaciones' },
 ];
 
 export default function Configuracion({ onFacturasActualizadas }) {
-  const [activeTab,     setActiveTab]     = useState('sync');
+  const [activeTab,     setActiveTab]     = useState('drive');
   const [prompt,        setPrompt]        = useState('');
   const [promptOrig,    setPromptOrig]    = useState('');
   const [loadingPrompt, setLoadingPrompt] = useState(true);
@@ -125,6 +127,9 @@ export default function Configuracion({ onFacturasActualizadas }) {
           </div>
         </div>
       )}
+
+      {/* Pestana: Drive y Subida */}
+      {activeTab === 'drive' && <DriveManager />}
 
       {/* Pestana: Sincronizacion */}
       {activeTab === 'sync' && (

@@ -3,12 +3,16 @@ const JSZip   = require('jszip');
 const XLSX    = require('xlsx');
 const router  = express.Router();
 
+const multer  = require('multer');
 const { getDb }                     = require('../config/database');
 const { registrarEvento, EVENTOS }  = require('../services/auditService');
-const { buildDriveClient }          = require('../services/driveService');
+const { buildDriveClient, listarCarpetasRaiz, contarArchivosCarpeta, crearCarpeta, subirArchivo, obtenerCarpeta } = require('../services/driveService');
+const { ejecutarExtraccion }        = require('../services/extractorService');
 const { resolveUser, requireAdmin, requireAuth } = require('../middleware/auth');
 const { getSistemaConfig }          = require('../services/sistemaConfigService');
 const { generarFicheroSage }       = require('../services/sageExporter');
+
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
 
 function parsearArchivo(a) {
   const datos = a.datos_extraidos ? JSON.parse(a.datos_extraidos) : null;
@@ -1009,6 +1013,203 @@ router.put('/:id/datos', requireAuth, express.json(), async (req, res) => {
   }).catch(() => {});
 
   res.json({ ok: true, data: { datos_extraidos: nuevosDatos } });
+});
+
+// ─── GET /api/drive/carpetas — listar carpetas de proveedores en Drive ───────
+
+router.get('/carpetas', requireAdmin, async (req, res) => {
+  try {
+    const drive = await buildDriveClient();
+    const carpetas = await listarCarpetasRaiz(drive);
+
+    // Contar archivos en cada carpeta (paralelo con límite)
+    const BATCH = 5;
+    const resultado = [];
+    for (let i = 0; i < carpetas.length; i += BATCH) {
+      const lote = carpetas.slice(i, i + BATCH);
+      const conConteos = await Promise.all(
+        lote.map(async c => {
+          const count = await contarArchivosCarpeta(drive, c.id);
+          return { ...c, archivos: count };
+        })
+      );
+      resultado.push(...conConteos);
+    }
+
+    res.json({ ok: true, data: resultado });
+  } catch (err) {
+    console.error('[Drive] Error listando carpetas:', err.message);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// ─── POST /api/drive/carpetas — crear nueva carpeta de proveedor ─────────────
+
+router.post('/carpetas', requireAdmin, async (req, res) => {
+  try {
+    const { nombre } = req.body;
+    if (!nombre?.trim()) {
+      return res.status(400).json({ ok: false, error: 'El nombre de la carpeta es obligatorio' });
+    }
+
+    const drive = await buildDriveClient();
+
+    // Verificar que no exista ya una carpeta con ese nombre
+    const existentes = await listarCarpetasRaiz(drive);
+    const yaExiste = existentes.find(c => c.name.toLowerCase() === nombre.trim().toLowerCase());
+    if (yaExiste) {
+      return res.status(409).json({ ok: false, error: `Ya existe una carpeta "${yaExiste.name}"` });
+    }
+
+    const carpeta = await crearCarpeta(drive, nombre.trim());
+    res.json({ ok: true, data: { ...carpeta, archivos: 0 } });
+  } catch (err) {
+    console.error('[Drive] Error creando carpeta:', err.message);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// ─── POST /api/drive/upload-universal — subida ciega de facturas ─────────────
+
+router.post('/upload-universal', requireAuth, upload.array('archivos', 20), async (req, res) => {
+  const { carpeta_id } = req.body;
+  if (!carpeta_id) {
+    return res.status(400).json({ ok: false, error: 'carpeta_id es obligatorio' });
+  }
+  if (!req.files?.length) {
+    return res.status(400).json({ ok: false, error: 'No se han enviado archivos' });
+  }
+
+  const db = getDb();
+
+  try {
+    const drive = await buildDriveClient();
+
+    // Verificar que la carpeta existe y obtener su nombre (= proveedor)
+    const carpetaInfo = await obtenerCarpeta(drive, carpeta_id);
+    const nombreProveedor = carpetaInfo.name;
+
+    const resultados = [];
+
+    for (const file of req.files) {
+      try {
+        // 1. Subir a Drive
+        const driveFile = await subirArchivo(drive, carpeta_id, file.originalname, file.buffer, file.mimetype);
+
+        // 2. Insertar en drive_archivos como SINCRONIZADA
+        const row = await db.one(
+          `INSERT INTO drive_archivos (google_id, nombre_archivo, ruta_completa, proveedor, fecha_subida, estado)
+           VALUES ($1, $2, $3, $4, $5, 'SINCRONIZADA')
+           ON CONFLICT (google_id) DO UPDATE SET
+             nombre_archivo = EXCLUDED.nombre_archivo,
+             ruta_completa  = EXCLUDED.ruta_completa,
+             proveedor      = EXCLUDED.proveedor,
+             ultima_sync    = NOW()
+           RETURNING id`,
+          [driveFile.id, file.originalname, `${nombreProveedor}/${file.originalname}`, nombreProveedor, driveFile.createdTime || new Date().toISOString()]
+        );
+
+        resultados.push({ nombre: file.originalname, id: row.id, google_id: driveFile.id, ok: true });
+      } catch (e) {
+        console.error(`[Upload] Error subiendo ${file.originalname}:`, e.message);
+        resultados.push({ nombre: file.originalname, ok: false, error: e.message });
+      }
+    }
+
+    const idsSubidos = resultados.filter(r => r.ok).map(r => r.id);
+
+    // 3. Lanzar extracción con Gemini en background (no bloquear respuesta)
+    if (idsSubidos.length > 0) {
+      setImmediate(async () => {
+        try {
+          console.log(`[Upload] Extrayendo ${idsSubidos.length} facturas con Gemini...`);
+          await ejecutarExtraccion(idsSubidos);
+
+          // 4. Asignar empresa_id por CIF receptor
+          await db.query(`
+            UPDATE drive_archivos da SET empresa_id = e.id
+            FROM empresas e
+            WHERE da.id = ANY($1::int[])
+              AND da.empresa_id IS NULL
+              AND da.datos_extraidos IS NOT NULL AND da.datos_extraidos ~ '^\\s*\\{'
+              AND normalizar_cif((da.datos_extraidos::jsonb)->>'cif_receptor') = normalizar_cif(e.cif)
+          `, [idsSubidos]);
+
+          // 5. Crear empresas nuevas si CIF receptor no registrado
+          const sinEmpresa = await db.all(`
+            SELECT DISTINCT
+              UPPER(TRIM((da.datos_extraidos::jsonb)->>'cif_receptor')) AS cif,
+              (da.datos_extraidos::jsonb)->>'nombre_receptor' AS nombre
+            FROM drive_archivos da
+            WHERE da.id = ANY($1::int[])
+              AND da.empresa_id IS NULL
+              AND da.datos_extraidos IS NOT NULL AND da.datos_extraidos ~ '^\\s*\\{'
+              AND (da.datos_extraidos::jsonb)->>'cif_receptor' IS NOT NULL
+              AND TRIM((da.datos_extraidos::jsonb)->>'cif_receptor') <> ''
+          `, [idsSubidos]);
+
+          for (const { cif, nombre } of sinEmpresa) {
+            if (!cif) continue;
+            try {
+              await db.query(
+                `INSERT INTO empresas (nombre, cif) VALUES ($1, $2) ON CONFLICT (cif) DO NOTHING`,
+                [nombre?.trim() || cif, cif]
+              );
+            } catch {}
+          }
+
+          if (sinEmpresa.length > 0) {
+            await db.query(`
+              UPDATE drive_archivos da SET empresa_id = e.id
+              FROM empresas e
+              WHERE da.id = ANY($1::int[])
+                AND da.empresa_id IS NULL
+                AND da.datos_extraidos IS NOT NULL AND da.datos_extraidos ~ '^\\s*\\{'
+                AND normalizar_cif((da.datos_extraidos::jsonb)->>'cif_receptor') = normalizar_cif(e.cif)
+            `, [idsSubidos]);
+          }
+
+          // 6. Auto-transición a CC_ASIGNADA si proveedor tiene cuentas
+          await db.query(`
+            UPDATE drive_archivos da
+            SET estado_gestion = 'CC_ASIGNADA',
+                cuenta_gasto_id = pe.cuenta_gasto_id
+            FROM proveedores p
+            JOIN proveedor_empresa pe ON pe.proveedor_id = p.id AND pe.empresa_id = da.empresa_id
+            WHERE da.id = ANY($1::int[])
+              AND da.estado = 'PROCESADA'
+              AND da.estado_gestion = 'PENDIENTE'
+              AND pe.cuenta_gasto_id IS NOT NULL
+              AND pe.cuenta_contable_id IS NOT NULL
+              AND (
+                (p.cif IS NOT NULL AND da.datos_extraidos ~ '^\\s*\\{'
+                 AND normalizar_cif((da.datos_extraidos::jsonb)->>'cif_emisor') = normalizar_cif(p.cif))
+                OR p.nombre_carpeta = da.proveedor
+              )
+          `, [idsSubidos]);
+
+          console.log(`[Upload] Procesamiento completado para ${idsSubidos.length} facturas`);
+        } catch (e) {
+          console.error('[Upload] Error en procesamiento post-subida:', e.message);
+        }
+      });
+    }
+
+    res.json({
+      ok: true,
+      data: {
+        subidos:  resultados.filter(r => r.ok).length,
+        errores:  resultados.filter(r => !r.ok).length,
+        archivos: resultados,
+        mensaje:  idsSubidos.length > 0
+          ? 'Facturas recibidas. El sistema esta identificando al receptor y clasificando los documentos...'
+          : 'No se pudo subir ningun archivo',
+      },
+    });
+  } catch (err) {
+    console.error('[Upload] Error general:', err.message);
+    res.status(500).json({ ok: false, error: err.message });
+  }
 });
 
 module.exports = router;

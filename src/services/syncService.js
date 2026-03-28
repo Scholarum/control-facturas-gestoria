@@ -1,8 +1,6 @@
 const { getDb }              = require('../config/database');
-const { buildDriveClient }   = require('./driveService');
+const { buildDriveClient, ROOT_FOLDER_ID } = require('./driveService');
 const { ejecutarExtraccion } = require('./extractorService');
-
-const ROOT_FOLDER_ID = process.env.DRIVE_ROOT_FOLDER_ID || '1bJjT-9q4jca4vkhmGNGKyHj7mmFlLjr9';
 
 // ─── Escaneo recursivo de Drive (con concurrencia limitada) ─────────────────
 
