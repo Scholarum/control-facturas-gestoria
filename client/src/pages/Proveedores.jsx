@@ -41,32 +41,40 @@ export default function Proveedores() {
   }, [empresaActiva]);
 
   const proveedoresFiltrados = proveedores.filter(p => {
-    const { razonSocial, cif, cifPresencia, carpeta, carpetaPresencia,
-            cuentaContable, cuentaContablePresencia, cuentaGasto, cuentaGastoPresencia } = filtros;
-    if (razonSocial && !p.razon_social?.toLowerCase().includes(razonSocial.toLowerCase())) return false;
-    // CIF: presencia + texto
-    if (cifPresencia === 'con' && !p.cif) return false;
-    if (cifPresencia === 'sin' && p.cif)  return false;
-    if (cif && !p.cif?.toLowerCase().includes(cif.toLowerCase())) return false;
-    // Carpeta Drive: presencia + texto
-    if (carpetaPresencia === 'con' && !p.nombre_carpeta) return false;
-    if (carpetaPresencia === 'sin' && p.nombre_carpeta)  return false;
-    if (carpeta && !p.nombre_carpeta?.toLowerCase().includes(carpeta.toLowerCase())) return false;
-    // Cuenta Contable: presencia + texto
-    if (cuentaContablePresencia === 'con' && !p.cuenta_contable_codigo) return false;
-    if (cuentaContablePresencia === 'sin' && p.cuenta_contable_codigo)  return false;
-    if (cuentaContable) {
-      const hay = (p.cuenta_contable_codigo || '').includes(cuentaContable) ||
-                  (p.cuenta_contable_desc   || '').toLowerCase().includes(cuentaContable.toLowerCase());
-      if (!hay) return false;
+    const f = filtros;
+    const tiene = v => !!(v && v.trim());
+    if (f.razonSocial && !p.razon_social?.toLowerCase().includes(f.razonSocial.toLowerCase())) return false;
+    // CIF
+    if (f.cifPresencia === 'con' && !tiene(p.cif)) return false;
+    if (f.cifPresencia === 'sin' && tiene(p.cif))  return false;
+    if (f.cif && !p.cif?.toLowerCase().includes(f.cif.toLowerCase())) return false;
+    // Carpeta Drive
+    if (f.carpetaPresencia === 'con' && !tiene(p.nombre_carpeta)) return false;
+    if (f.carpetaPresencia === 'sin' && tiene(p.nombre_carpeta))  return false;
+    if (f.carpeta && !p.nombre_carpeta?.toLowerCase().includes(f.carpeta.toLowerCase())) return false;
+    // Cuenta Contable
+    if (f.cuentaContablePresencia === 'con' && !tiene(p.cuenta_contable_codigo)) return false;
+    if (f.cuentaContablePresencia === 'sin' && tiene(p.cuenta_contable_codigo))  return false;
+    if (f.cuentaContable) {
+      if (f.cuentaContableExacto) {
+        if (p.cuenta_contable_codigo !== f.cuentaContable) return false;
+      } else {
+        const hay = (p.cuenta_contable_codigo || '').includes(f.cuentaContable) ||
+                    (p.cuenta_contable_desc   || '').toLowerCase().includes(f.cuentaContable.toLowerCase());
+        if (!hay) return false;
+      }
     }
-    // Cuenta de Gasto: presencia + texto
-    if (cuentaGastoPresencia === 'con' && !p.cuenta_gasto_codigo) return false;
-    if (cuentaGastoPresencia === 'sin' && p.cuenta_gasto_codigo)  return false;
-    if (cuentaGasto) {
-      const hay = (p.cuenta_gasto_codigo || '').includes(cuentaGasto) ||
-                  (p.cuenta_gasto_desc   || '').toLowerCase().includes(cuentaGasto.toLowerCase());
-      if (!hay) return false;
+    // Cuenta de Gasto
+    if (f.cuentaGastoPresencia === 'con' && !tiene(p.cuenta_gasto_codigo)) return false;
+    if (f.cuentaGastoPresencia === 'sin' && tiene(p.cuenta_gasto_codigo))  return false;
+    if (f.cuentaGasto) {
+      if (f.cuentaGastoExacto) {
+        if (p.cuenta_gasto_codigo !== f.cuentaGasto) return false;
+      } else {
+        const hay = (p.cuenta_gasto_codigo || '').includes(f.cuentaGasto) ||
+                    (p.cuenta_gasto_desc   || '').toLowerCase().includes(f.cuentaGasto.toLowerCase());
+        if (!hay) return false;
+      }
     }
     return true;
   });

@@ -39,13 +39,15 @@ export function CeldaTexto({ valor, onGuardar, placeholder, mono, className = ''
   );
 }
 
-// ─── Celda de cuenta editable inline (con creacion de subcuentas) ───────────
+// ─── Celda de cuenta con confirmacion explicita ─────────────────────────────
 
 export function CeldaCuenta({ valor, valorDesc, cuentas, onGuardar, onCuentaCreada, grupo, razonSocial, className = '' }) {
   const [editando, setEditando] = useState(false);
   const [q, setQ] = useState('');
   const [guardando, setGuardando] = useState(false);
-  // Estado para crear subcuenta
+  // Cuenta pendiente de confirmar (seleccionada pero no guardada)
+  const [pendiente, setPendiente] = useState(null); // { id, codigo, descripcion }
+  // Crear subcuenta
   const [cuentaBase, setCuentaBase] = useState(null);
   const [sufijo, setSufijo] = useState('');
   const [creando, setCreando] = useState(false);
@@ -58,26 +60,31 @@ export function CeldaCuenta({ valor, valorDesc, cuentas, onGuardar, onCuentaCrea
 
   useEffect(() => {
     if (!editando) return;
-    function onClick(e) { if (ref.current && !ref.current.contains(e.target)) setEditando(false); }
+    function onClick(e) { if (ref.current && !ref.current.contains(e.target)) cerrar(); }
     document.addEventListener('mousedown', onClick);
     return () => document.removeEventListener('mousedown', onClick);
   }, [editando]);
 
   function cerrar() {
-    setEditando(false); setQ(''); setCuentaBase(null); setSufijo(''); setErrorSub('');
+    setEditando(false); setQ(''); setCuentaBase(null); setSufijo('');
+    setErrorSub(''); setPendiente(null);
   }
 
-  async function seleccionar(cuenta) {
-    // Si es cuenta base (3 digitos), ofrecer crear subcuenta (3+5=8 digitos)
+  function seleccionar(cuenta) {
     if (cuenta.codigo.length <= 3) {
-      setCuentaBase(cuenta);
-      setSufijo(''); setErrorSub('');
+      setCuentaBase(cuenta); setSufijo(''); setErrorSub(''); setPendiente(null);
       return;
     }
-    // Si es subcuenta (>3 digitos), asignar directamente
+    // Subcuenta existente → marcar como pendiente (no guardar aun)
+    setPendiente({ id: cuenta.id, codigo: cuenta.codigo, descripcion: cuenta.descripcion });
+    setCuentaBase(null); setQ('');
+  }
+
+  async function confirmarGuardado() {
+    if (!pendiente) return;
     setGuardando(true);
     try {
-      await onGuardar(cuenta.id);
+      await onGuardar(pendiente.id);
       cerrar();
     } catch {} finally { setGuardando(false); }
   }
@@ -88,28 +95,21 @@ export function CeldaCuenta({ valor, valorDesc, cuentas, onGuardar, onCuentaCrea
     const yaExiste = cuentas.find(c => c.codigo === codigoCompleto);
 
     if (yaExiste) {
-      // Ya existe, asignar directamente
-      setGuardando(true);
-      try {
-        await onGuardar(yaExiste.id);
-        cerrar();
-      } catch {} finally { setGuardando(false); }
+      setPendiente({ id: yaExiste.id, codigo: yaExiste.codigo, descripcion: yaExiste.descripcion });
+      setCuentaBase(null);
       return;
     }
 
     setCreando(true); setErrorSub('');
     try {
       const nueva = await crearCuentaContable({
-        codigo:      codigoCompleto,
+        codigo: codigoCompleto,
         descripcion: razonSocial || codigoCompleto,
-        grupo:       cuentaBase.codigo.charAt(0),
+        grupo: cuentaBase.codigo.charAt(0),
       });
       if (onCuentaCreada) onCuentaCreada(nueva);
-      setGuardando(true);
-      try {
-        await onGuardar(nueva.id);
-        cerrar();
-      } catch {} finally { setGuardando(false); }
+      setPendiente({ id: nueva.id, codigo: nueva.codigo, descripcion: nueva.descripcion });
+      setCuentaBase(null);
     } catch (e) {
       setErrorSub(e.message);
     } finally {
@@ -130,8 +130,20 @@ export function CeldaCuenta({ valor, valorDesc, cuentas, onGuardar, onCuentaCrea
   return (
     <td className={`px-1 py-1 relative ${className}`}>
       <div ref={ref}>
-        {/* Modo crear subcuenta */}
-        {cuentaBase ? (
+        {/* Modo: cuenta pendiente de confirmar */}
+        {pendiente ? (
+          <div className="flex items-center gap-1">
+            <span className="font-mono text-xs font-semibold text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded truncate">
+              {pendiente.codigo}
+            </span>
+            <span className="text-xs text-gray-400 truncate flex-1">{pendiente.descripcion}</span>
+            <button onMouseDown={e => { e.preventDefault(); confirmarGuardado(); }} disabled={guardando}
+              title="Guardar" className="text-emerald-600 hover:text-emerald-700 font-bold text-sm px-1 disabled:opacity-50">✓</button>
+            <button onMouseDown={e => { e.preventDefault(); cerrar(); }}
+              title="Cancelar" className="text-gray-400 hover:text-red-500 text-sm px-1">✕</button>
+          </div>
+        ) : cuentaBase ? (
+          /* Modo: crear subcuenta */
           <div className="space-y-1.5">
             <div className="flex items-center gap-1">
               <button onMouseDown={e => { e.preventDefault(); setCuentaBase(null); setSufijo(''); setErrorSub(''); }}
@@ -149,16 +161,16 @@ export function CeldaCuenta({ valor, valorDesc, cuentas, onGuardar, onCuentaCrea
             </div>
             <div className="flex items-center gap-1.5">
               <button onMouseDown={e => { e.preventDefault(); crearSubcuenta(); }}
-                disabled={sufijo.length !== 5 || creando || guardando}
+                disabled={sufijo.length !== 5 || creando}
                 className="px-2 py-0.5 text-[10px] font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded disabled:opacity-40 transition-colors">
-                {creando ? '...' : cuentas.find(c => c.codigo === cuentaBase.codigo + sufijo) ? 'Asignar' : 'Crear y asignar'}
+                {creando ? '...' : cuentas.find(c => c.codigo === cuentaBase.codigo + sufijo) ? 'Seleccionar' : 'Crear subcuenta'}
               </button>
               {errorSub && <span className="text-[10px] text-red-500 truncate">{errorSub}</span>}
             </div>
           </div>
         ) : (
+          /* Modo: buscar/seleccionar */
           <>
-            {/* Modo buscar/seleccionar */}
             <input value={q} onChange={e => setQ(e.target.value)} placeholder="Buscar o crear cuenta..."
               autoFocus onKeyDown={e => { if (e.key === 'Escape') cerrar(); }}
               className="w-full rounded border border-blue-300 px-2 py-1 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-blue-400" />

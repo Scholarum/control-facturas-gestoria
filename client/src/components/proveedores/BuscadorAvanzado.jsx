@@ -4,14 +4,15 @@ const FILTROS_VACIO = {
   razonSocial: '',
   cif: '', cifPresencia: '',
   carpeta: '', carpetaPresencia: '',
-  cuentaContable: '', cuentaContablePresencia: '',
-  cuentaGasto: '', cuentaGastoPresencia: '',
+  cuentaContable: '', cuentaContablePresencia: '', cuentaContableExacto: false,
+  cuentaGasto: '', cuentaGastoPresencia: '', cuentaGastoExacto: false,
 };
 
 export { FILTROS_VACIO };
 
-function FiltroConSin({ label, valor, presencia, onValor, onPresencia, placeholder, mono }) {
+function FiltroConSin({ label, valor, presencia, onValor, onPresencia, placeholder, mono, exacto, onExacto }) {
   const deshabilitado = presencia === 'sin';
+  const tieneExacto = typeof exacto === 'boolean';
 
   return (
     <div>
@@ -27,9 +28,19 @@ function FiltroConSin({ label, valor, presencia, onValor, onPresencia, placehold
         </select>
         <input value={valor} onChange={e => onValor(e.target.value)}
           disabled={deshabilitado} placeholder={deshabilitado ? '—' : placeholder}
-          className={`flex-1 min-w-0 rounded-r-lg border border-gray-200 px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+          className={`flex-1 min-w-0 ${tieneExacto ? 'border-r-0' : 'rounded-r-lg'} border border-gray-200 px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 ${
             mono ? 'font-mono' : ''
           } ${deshabilitado ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : ''}`} />
+        {tieneExacto && (
+          <button type="button" onClick={() => onExacto(!exacto)} disabled={deshabilitado}
+            title={exacto ? 'Busqueda exacta' : 'Busqueda parcial'}
+            className={`rounded-r-lg border border-gray-200 px-2 py-1.5 text-[10px] font-bold transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+              deshabilitado ? 'bg-gray-100 text-gray-300 cursor-not-allowed'
+              : exacto ? 'bg-blue-600 text-white' : 'bg-gray-50 text-gray-400 hover:bg-gray-100 hover:text-gray-600'
+            }`}>
+            =
+          </button>
+        )}
       </div>
     </div>
   );
@@ -37,12 +48,14 @@ function FiltroConSin({ label, valor, presencia, onValor, onPresencia, placehold
 
 export default function BuscadorAvanzado({ filtros, onChange }) {
   function set(k, v) { onChange({ ...filtros, [k]: v }); }
-  const hayFiltros = Object.values(filtros).some(v => v && (typeof v === 'string' ? v.trim() : v));
+  const hayFiltros = Object.entries(filtros).some(([k, v]) => {
+    if (typeof v === 'boolean') return v;
+    return v && typeof v === 'string' && v.trim();
+  });
 
   return (
     <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-        {/* Razon Social — solo texto */}
         <div>
           <label className="block text-xs font-medium text-gray-500 mb-1">Razon Social</label>
           <input value={filtros.razonSocial} onChange={e => set('razonSocial', e.target.value)}
@@ -59,11 +72,11 @@ export default function BuscadorAvanzado({ filtros, onChange }) {
 
         <FiltroConSin label="Cta. Contable" valor={filtros.cuentaContable} presencia={filtros.cuentaContablePresencia}
           onValor={v => set('cuentaContable', v)} onPresencia={v => set('cuentaContablePresencia', v)}
-          placeholder="400..." />
+          placeholder="400..." exacto={filtros.cuentaContableExacto} onExacto={v => set('cuentaContableExacto', v)} />
 
         <FiltroConSin label="Cta. Gasto" valor={filtros.cuentaGasto} presencia={filtros.cuentaGastoPresencia}
           onValor={v => set('cuentaGasto', v)} onPresencia={v => set('cuentaGastoPresencia', v)}
-          placeholder="62..." />
+          placeholder="62..." exacto={filtros.cuentaGastoExacto} onExacto={v => set('cuentaGastoExacto', v)} />
       </div>
       {hayFiltros && (
         <div className="mt-2 flex items-center gap-2">
