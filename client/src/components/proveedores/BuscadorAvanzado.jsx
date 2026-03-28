@@ -10,7 +10,7 @@ const FILTROS_VACIO = {
 
 export { FILTROS_VACIO };
 
-function FiltroConSin({ label, valor, presencia, onValor, onPresencia, placeholder, mono, exacto, onExacto }) {
+function FiltroConSin({ label, valor, presencia, onCambio, placeholder, mono, exacto, onExacto }) {
   const deshabilitado = presencia === 'sin';
   const tieneExacto = typeof exacto === 'boolean';
 
@@ -18,7 +18,7 @@ function FiltroConSin({ label, valor, presencia, onValor, onPresencia, placehold
     <div>
       <label className="block text-xs font-medium text-gray-500 mb-1">{label}</label>
       <div className="flex">
-        <select value={presencia || ''} onChange={e => { onPresencia(e.target.value); if (e.target.value === 'sin') onValor(''); }}
+        <select value={presencia || ''} onChange={e => onCambio(e.target.value === 'sin' ? '' : valor, e.target.value)}
           className={`rounded-l-lg border border-r-0 border-gray-200 px-1.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 bg-gray-50 ${
             presencia === 'sin' ? 'text-red-600 font-semibold' : presencia === 'con' ? 'text-emerald-600 font-semibold' : 'text-gray-500'
           }`}>
@@ -26,7 +26,7 @@ function FiltroConSin({ label, valor, presencia, onValor, onPresencia, placehold
           <option value="con">Con</option>
           <option value="sin">Sin</option>
         </select>
-        <input value={valor} onChange={e => onValor(e.target.value)}
+        <input value={valor} onChange={e => onCambio(e.target.value, presencia)}
           disabled={deshabilitado} placeholder={deshabilitado ? '—' : placeholder}
           className={`flex-1 min-w-0 ${tieneExacto ? 'border-r-0' : 'rounded-r-lg'} border border-gray-200 px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 ${
             mono ? 'font-mono' : ''
@@ -48,6 +48,7 @@ function FiltroConSin({ label, valor, presencia, onValor, onPresencia, placehold
 
 export default function BuscadorAvanzado({ filtros, onChange }) {
   function set(k, v) { onChange({ ...filtros, [k]: v }); }
+  function set2(k1, v1, k2, v2) { onChange({ ...filtros, [k1]: v1, [k2]: v2 }); }
   const hayFiltros = Object.entries(filtros).some(([k, v]) => {
     if (typeof v === 'boolean') return v;
     return v && typeof v === 'string' && v.trim();
@@ -63,19 +64,19 @@ export default function BuscadorAvanzado({ filtros, onChange }) {
         </div>
 
         <FiltroConSin label="CIF / NIF" valor={filtros.cif} presencia={filtros.cifPresencia}
-          onValor={v => set('cif', v.toUpperCase())} onPresencia={v => set('cifPresencia', v)}
+          onCambio={(v, p) => set2('cif', v.toUpperCase(), 'cifPresencia', p)}
           placeholder="B12345678" mono />
 
         <FiltroConSin label="Carpeta Drive" valor={filtros.carpeta} presencia={filtros.carpetaPresencia}
-          onValor={v => set('carpeta', v)} onPresencia={v => set('carpetaPresencia', v)}
+          onCambio={(v, p) => set2('carpeta', v, 'carpetaPresencia', p)}
           placeholder="Nombre..." />
 
         <FiltroConSin label="Cta. Contable" valor={filtros.cuentaContable} presencia={filtros.cuentaContablePresencia}
-          onValor={v => set('cuentaContable', v)} onPresencia={v => set('cuentaContablePresencia', v)}
+          onCambio={(v, p) => set2('cuentaContable', v, 'cuentaContablePresencia', p)}
           placeholder="400..." exacto={filtros.cuentaContableExacto} onExacto={v => set('cuentaContableExacto', v)} />
 
         <FiltroConSin label="Cta. Gasto" valor={filtros.cuentaGasto} presencia={filtros.cuentaGastoPresencia}
-          onValor={v => set('cuentaGasto', v)} onPresencia={v => set('cuentaGastoPresencia', v)}
+          onCambio={(v, p) => set2('cuentaGasto', v, 'cuentaGastoPresencia', p)}
           placeholder="62..." exacto={filtros.cuentaGastoExacto} onExacto={v => set('cuentaGastoExacto', v)} />
       </div>
       {hayFiltros && (
