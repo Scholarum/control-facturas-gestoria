@@ -207,6 +207,9 @@ export default function Proveedores() {
                     empresaId={empresaActiva?.id}
                     onGuardado={async () => { setProveedores(await fetchProveedoresCrud(empresaActiva?.id)); }}
                     onEliminar={() => eliminar(p)}
+                    onCuentaCreada={nueva => {
+                      if (nueva) setPlanContable(prev => [...prev, nueva].sort((a, b) => a.codigo.localeCompare(b.codigo)));
+                    }}
                   />
                 ))}
               </tbody>
