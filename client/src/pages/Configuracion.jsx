@@ -55,7 +55,19 @@ function PanelSync({ config, onChange }) {
     });
   }, [config]);
 
-  if (!local) return null;
+  if (!local) return (
+    <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+      <div className="px-5 py-4 border-b border-gray-100">
+        <p className="text-sm font-semibold text-gray-900">Sincronizacion con Drive</p>
+      </div>
+      <div className="flex justify-center py-8">
+        <svg className="h-5 w-5 animate-spin text-blue-500" viewBox="0 0 24 24" fill="none">
+          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
+        </svg>
+      </div>
+    </div>
+  );
 
   async function handleSave() {
     setSaving(true); setOk(false);
@@ -156,7 +168,19 @@ function PanelNotificaciones({ config, onChange }) {
     });
   }, [config]);
 
-  if (!local) return null;
+  if (!local) return (
+    <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+      <div className="px-5 py-4 border-b border-gray-100">
+        <p className="text-sm font-semibold text-gray-900">Configuracion de notificaciones (Mailjet)</p>
+      </div>
+      <div className="flex justify-center py-8">
+        <svg className="h-5 w-5 animate-spin text-blue-500" viewBox="0 0 24 24" fill="none">
+          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
+        </svg>
+      </div>
+    </div>
+  );
 
   async function handleSave() {
     setSaving(true); setOk(false);
@@ -1029,13 +1053,18 @@ export default function Configuracion({ todasFacturas, onFacturasActualizadas })
   const [savingPrompt,  setSavingPrompt]  = useState(false);
   const [savedOk,       setSavedOk]       = useState(false);
   const [sistemaConfig, setSistemaConfig] = useState(null);
+  const [configError,   setConfigError]   = useState(null);
+  const [loadingConfig, setLoadingConfig] = useState(true);
 
   useEffect(() => {
     fetchPrompt()
       .then(p => { setPrompt(p); setPromptOrig(p); })
       .catch(() => {})
       .finally(() => setLoadingPrompt(false));
-    fetchConfigSistema().then(setSistemaConfig).catch(() => {});
+    fetchConfigSistema()
+      .then(data => { setSistemaConfig(data); setConfigError(null); })
+      .catch(e => setConfigError(e.message))
+      .finally(() => setLoadingConfig(false));
   }, []);
 
   async function handleSavePrompt() {
@@ -1057,7 +1086,10 @@ export default function Configuracion({ todasFacturas, onFacturasActualizadas })
 
   return (
     <div className="space-y-5 max-w-4xl">
-      <h2 className="text-base font-semibold text-gray-900">Configuración</h2>
+      <div className="flex items-center gap-3">
+        <h2 className="text-base font-semibold text-gray-900">Configuracion</h2>
+        <span className="px-2 py-0.5 text-[10px] font-medium text-slate-500 bg-slate-100 rounded-full uppercase tracking-wide">Global</span>
+      </div>
 
       {/* ── Pestañas ── */}
       <div className="flex gap-1 border-b border-gray-200">
@@ -1072,6 +1104,32 @@ export default function Configuracion({ todasFacturas, onFacturasActualizadas })
           </button>
         ))}
       </div>
+
+      {/* ── Error cargando configuración global ── */}
+      {configError && (
+        <div className="bg-red-50 border border-red-200 rounded-xl p-4 flex items-center justify-between">
+          <p className="text-sm text-red-700">Error al cargar la configuracion del sistema: {configError}</p>
+          <button onClick={() => {
+            setLoadingConfig(true); setConfigError(null);
+            fetchConfigSistema()
+              .then(data => { setSistemaConfig(data); setConfigError(null); })
+              .catch(e => setConfigError(e.message))
+              .finally(() => setLoadingConfig(false));
+          }} className="px-3 py-1 text-xs font-medium text-red-700 bg-red-100 hover:bg-red-200 rounded-lg transition-colors">
+            Reintentar
+          </button>
+        </div>
+      )}
+
+      {/* ── Cargando configuración ── */}
+      {loadingConfig && !configError && (
+        <div className="flex justify-center py-6">
+          <svg className="h-5 w-5 animate-spin text-blue-500" viewBox="0 0 24 24" fill="none">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
+          </svg>
+        </div>
+      )}
 
       {/* ── Panel modo gestoría (siempre visible) ── */}
       {sistemaConfig && (
