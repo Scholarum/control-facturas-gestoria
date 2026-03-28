@@ -67,13 +67,20 @@ function AppInner() {
       .finally(() => setLoading(false));
   }, [user, empresaActiva]);
 
-  // Autodetectar proveedores — en background, no bloquea la UI
+  // Proveedores sin cuenta contable para la empresa activa (desde facturas ya cargadas)
   useEffect(() => {
-    if (!user || loading) return;
-    autodetectarProveedores()
-      .then(({ sinCuentas }) => setAlertaProveedores(sinCuentas))
-      .catch(() => {});
-  }, [user, loading]);
+    if (!user || loading || !todasFacturas.length) { setAlertaProveedores([]); return; }
+    // Agrupar proveedores unicos sin cuenta contable
+    const sinCuenta = new Map();
+    for (const f of todasFacturas) {
+      if (f.proveedor_id && !f.cta_proveedor_codigo) {
+        if (!sinCuenta.has(f.proveedor_id)) {
+          sinCuenta.set(f.proveedor_id, { id: f.proveedor_id, razon_social: f.razon_social || f.proveedor, cif: f.proveedor_cif });
+        }
+      }
+    }
+    setAlertaProveedores([...sinCuenta.values()]);
+  }, [user, loading, todasFacturas]);
 
   // Cerrar dropdowns al clicar fuera
   useEffect(() => {
