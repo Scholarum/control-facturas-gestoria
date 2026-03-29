@@ -314,6 +314,13 @@ export async function guardarMensaje(conversacionId, role, content) {
   });
 }
 
+export async function ocultarConversacion(conversacionId) {
+  await fetch(`${API_BASE}/api/chat/conversaciones/${conversacionId}`, {
+    method: 'DELETE',
+    headers: authHeaders(),
+  });
+}
+
 // ─── Auditoría ────────────────────────────────────────────────────────────────
 
 export async function fetchAuditoria() {

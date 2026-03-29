@@ -29,12 +29,27 @@ router.get('/', async (req, res) => {
     SELECT c.id, c.agente_id, c.titulo, c.origen, c.created_at, c.updated_at,
            (SELECT COUNT(*)::int FROM chat_mensajes WHERE conversacion_id = c.id) AS num_mensajes
     FROM chat_conversaciones c
-    WHERE c.usuario_id = $1 ${agente ? 'AND c.agente_id = $2' : ''}
+    WHERE c.usuario_id = $1 AND c.oculta = false ${agente ? 'AND c.agente_id = $2' : ''}
     ORDER BY c.updated_at DESC
     LIMIT 20
   `, agente ? [userId, agente] : [userId]);
 
   res.json({ ok: true, data: convs });
+});
+
+// DELETE /api/chat/conversaciones/:id — ocultar conversación (no borra, solo oculta)
+router.delete('/:id', async (req, res) => {
+  const db = getDb();
+  const convId = parseInt(req.params.id, 10);
+
+  const conv = await db.one(
+    'SELECT id FROM chat_conversaciones WHERE id = $1 AND usuario_id = $2',
+    [convId, req.usuario.id]
+  );
+  if (!conv) return res.status(404).json({ ok: false, error: 'Conversación no encontrada' });
+
+  await db.query('UPDATE chat_conversaciones SET oculta = true WHERE id = $1', [convId]);
+  res.json({ ok: true });
 });
 
 // POST /api/chat/conversaciones — crear nueva conversación

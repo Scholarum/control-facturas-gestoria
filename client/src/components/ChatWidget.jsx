@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { getStoredToken, fetchChatConfig, fetchConversaciones, crearConversacion, fetchMensajes, guardarMensaje } from '../api.js';
+import { getStoredToken, fetchChatConfig, fetchConversaciones, crearConversacion, fetchMensajes, guardarMensaje, ocultarConversacion } from '../api.js';
 
 const API_BASE = (import.meta.env.VITE_API_URL ?? '').replace(/\/$/, '');
 
@@ -27,17 +27,25 @@ export default function ChatWidget() {
   // Cargar config y conversaciones al abrir
   useEffect(() => {
     if (!open) return;
-    fetchChatConfig().then(setChatConfig);
-    loadConversaciones();
+    (async () => {
+      const cfg = await fetchChatConfig();
+      setChatConfig(cfg);
+      const convs = await fetchConversaciones(agentId);
+      setConvList(convs);
+      if (convs.length > 0 && !convId) {
+        await loadConversacion(convs[0].id);
+      } else if (convs.length === 0 && !convId) {
+        // Primera sesión: crear conversación con bienvenida
+        const conv = await crearConversacion(agentId, window.location.pathname);
+        setConvId(conv.id);
+        setConvList([conv]);
+        if (cfg.mensaje_bienvenida) {
+          setMessages([{ role: 'assistant', content: cfg.mensaje_bienvenida, html: cfg.mensaje_bienvenida }]);
+          guardarMensaje(conv.id, 'assistant', cfg.mensaje_bienvenida);
+        }
+      }
+    })();
   }, [open, agentId]);
-
-  async function loadConversaciones() {
-    const convs = await fetchConversaciones(agentId);
-    setConvList(convs);
-    if (convs.length > 0 && !convId) {
-      await loadConversacion(convs[0].id);
-    }
-  }
 
   async function loadConversacion(id) {
     const msgs = await fetchMensajes(id);
@@ -240,19 +248,43 @@ export default function ChatWidget() {
         </div>
       </div>
 
+      {/* Aviso de almacenamiento */}
+      <div className="bg-amber-50 border-b border-amber-200 px-3 py-1.5 text-xs text-amber-700 flex items-center gap-1.5 shrink-0">
+        <svg className="w-3 h-3 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+        </svg>
+        Las conversaciones se almacenan y pueden ser revisadas por el administrador.
+      </div>
+
       {/* Lista de conversaciones anteriores */}
       {showHistory ? (
         <div className="flex-1 overflow-y-auto bg-gray-50">
           {convList.length === 0 ? (
             <p className="text-center text-gray-400 text-xs mt-8">Sin conversaciones</p>
           ) : convList.map(c => (
-            <button key={c.id} onClick={() => loadConversacion(c.id)}
-              className={`w-full text-left px-4 py-3 border-b border-gray-100 hover:bg-blue-50 transition-colors ${c.id === convId ? 'bg-blue-50' : ''}`}>
-              <p className="text-sm font-medium text-gray-800 truncate">{c.titulo || 'Conversación sin título'}</p>
-              <p className="text-xs text-gray-400 mt-0.5">
-                {new Date(c.updated_at).toLocaleDateString('es-ES')} — {c.num_mensajes} mensaje(s)
-              </p>
-            </button>
+            <div key={c.id}
+              className={`flex items-center border-b border-gray-100 hover:bg-blue-50 transition-colors ${c.id === convId ? 'bg-blue-50' : ''}`}>
+              <button onClick={() => loadConversacion(c.id)} className="flex-1 text-left px-4 py-3 min-w-0">
+                <p className="text-sm font-medium text-gray-800 truncate">{c.titulo || 'Conversación sin título'}</p>
+                <p className="text-xs text-gray-400 mt-0.5">
+                  {new Date(c.updated_at).toLocaleDateString('es-ES')} — {c.num_mensajes} mensaje(s)
+                </p>
+              </button>
+              <button
+                onClick={async () => {
+                  if (!confirm('La conversación se ocultará de tu historial.\nEl administrador seguirá teniendo acceso a ella para su análisis.\n\n¿Continuar?')) return;
+                  await ocultarConversacion(c.id);
+                  setConvList(prev => prev.filter(x => x.id !== c.id));
+                  if (convId === c.id) { setConvId(null); setMessages([]); }
+                }}
+                title="Ocultar conversación"
+                className="px-3 py-3 text-gray-400 hover:text-red-500 transition-colors shrink-0"
+              >
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                </svg>
+              </button>
+            </div>
           ))}
         </div>
       ) : (
