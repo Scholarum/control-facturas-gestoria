@@ -14,11 +14,18 @@ function FiltrosSeccion({ filtros, onChange, proveedores, totalFacturas, totalFi
     <div className="flex flex-wrap gap-2 sm:gap-3 items-end">
       <div className="flex flex-col gap-1 w-[calc(50%-0.25rem)] sm:w-auto">
         <label className="text-xs font-medium text-gray-500">Proveedor</label>
-        <select value={filtros.proveedor} onChange={e => set('proveedor', e.target.value)}
-          className={`${inputCls} sm:min-w-[160px]`}>
-          <option value="">Todos</option>
-          {proveedores.map(p => <option key={p.nombre_carpeta ?? p} value={p.nombre_carpeta ?? p}>{p.label ?? p}</option>)}
-        </select>
+        <input type="text" value={filtros.proveedor} onChange={e => set('proveedor', e.target.value)}
+          placeholder="Buscar proveedor..." className={`${inputCls} sm:min-w-[160px]`} />
+      </div>
+      <div className="flex flex-col gap-1 w-[calc(50%-0.25rem)] sm:w-auto">
+        <label className="text-xs font-medium text-gray-500">N.º Factura</label>
+        <input type="text" value={filtros.numFactura} onChange={e => set('numFactura', e.target.value)}
+          placeholder="Buscar num..." className={`${inputCls} sm:min-w-[120px]`} />
+      </div>
+      <div className="flex flex-col gap-1 w-[calc(50%-0.25rem)] sm:w-auto">
+        <label className="text-xs font-medium text-gray-500">CIF</label>
+        <input type="text" value={filtros.cif} onChange={e => set('cif', e.target.value)}
+          placeholder="Buscar CIF..." className={`${inputCls} sm:min-w-[120px]`} />
       </div>
       <div className="flex flex-col gap-1 w-[calc(50%-0.25rem)] sm:w-auto">
         <label className="text-xs font-medium text-gray-500">Fecha desde</label>
@@ -47,7 +54,7 @@ function FiltrosSeccion({ filtros, onChange, proveedores, totalFacturas, totalFi
         </select>
       </div>
       <div className="flex flex-col gap-1 w-full sm:w-auto">
-        <label className="text-xs font-medium text-gray-500">Proveedor</label>
+        <label className="text-xs font-medium text-gray-500">Vinculacion</label>
         <select value={filtros.soloSinProveedor || ''} onChange={e => set('soloSinProveedor', e.target.value)}
           className={`${inputCls} sm:min-w-[140px] ${filtros.soloSinProveedor === 'si' ? 'text-orange-600 font-medium' : filtros.soloSinProveedor === 'no' ? 'text-emerald-600 font-medium' : ''}`}>
           <option value="">Todos</option>
@@ -56,7 +63,7 @@ function FiltrosSeccion({ filtros, onChange, proveedores, totalFacturas, totalFi
         </select>
       </div>
       {hayFiltros && (
-        <button onClick={() => onChange({ proveedor: '', fechaDesde: '', fechaHasta: '', soloIncidencias: '', soloSinProveedor: '', estadoExtraccion: '' })}
+        <button onClick={() => onChange({ proveedor: '', numFactura: '', cif: '', fechaDesde: '', fechaHasta: '', soloIncidencias: '', soloSinProveedor: '', estadoExtraccion: '' })}
           className="self-end px-3 py-1.5 text-sm text-gray-500 hover:text-gray-800 hover:bg-gray-100 rounded-lg transition-colors">
           Limpiar
         </button>
@@ -183,9 +190,11 @@ export default function SeccionFacturas({
   onDatosActualizados,
   onProveedorActualizado,
   modoGestoria = 'v2',
+  focusFacturaId,
+  onClearFocus,
 }) {
   const esV1 = modoGestoria === 'v1';
-  const [filtros,       setFiltros]       = useState({ proveedor: '', fechaDesde: '', fechaHasta: '', soloIncidencias: '', soloSinProveedor: '', estadoExtraccion: '' });
+  const [filtros,       setFiltros]       = useState({ proveedor: '', numFactura: '', cif: '', fechaDesde: '', fechaHasta: '', soloIncidencias: '', soloSinProveedor: '', estadoExtraccion: '' });
   const [seleccionados, setSeleccionados] = useState(new Set());
   const [descargando,        setDescargando]        = useState(false);
   const [contabilizando,     setContabilizando]     = useState(false);
@@ -201,7 +210,9 @@ export default function SeccionFacturas({
 
   const filtradas = useMemo(() => facturas.filter(f => {
     const d = f.datos_extraidos;
-    if (filtros.proveedor  && f.proveedor !== filtros.proveedor) return false;
+    if (filtros.proveedor && !(f.proveedor || '').toLowerCase().includes(filtros.proveedor.toLowerCase())) return false;
+    if (filtros.numFactura && !(d?.numero_factura || '').toLowerCase().includes(filtros.numFactura.toLowerCase())) return false;
+    if (filtros.cif && !(d?.cif_emisor || '').toLowerCase().includes(filtros.cif.toLowerCase())) return false;
     if (filtros.fechaDesde && d?.fecha_emision && d.fecha_emision < filtros.fechaDesde) return false;
     if (filtros.fechaHasta && d?.fecha_emision && d.fecha_emision > filtros.fechaHasta) return false;
     if (filtros.estadoExtraccion && f.estado !== filtros.estadoExtraccion) return false;
@@ -582,6 +593,8 @@ export default function SeccionFacturas({
         onDatosActualizados={onDatosActualizados}
         onProveedorActualizado={onProveedorActualizado}
         modoGestoria={modoGestoria}
+        focusFacturaId={focusFacturaId}
+        onClearFocus={onClearFocus}
       />
     </div>
   );

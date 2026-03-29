@@ -869,11 +869,24 @@ export default function TablaFacturas({
   facturas, seleccionados, onToggle, onToggleTodo,
   loading, hayFiltros, esAdmin = false, onRevertir, onEliminar,
   planContable = [], onAsignarCG, onDatosActualizados, onProveedorActualizado, modoGestoria = 'v2',
+  focusFacturaId, onClearFocus,
 }) {
   const [expandidos, setExpandidos] = useState(new Set());
+  const focusRef = useRef(null);
   const todosSeleccionados = facturas.length > 0 && seleccionados.size === facturas.length;
   const algunoSeleccionado = seleccionados.size > 0 && !todosSeleccionados;
   const colspan = esAdmin ? 11 : 10;
+
+  // Auto-expandir y hacer scroll a la factura buscada
+  useEffect(() => {
+    if (!focusFacturaId) return;
+    setExpandidos(prev => new Set(prev).add(focusFacturaId));
+    // Esperar al siguiente render para que la fila exista
+    requestAnimationFrame(() => {
+      focusRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      setTimeout(() => onClearFocus?.(), 2000);
+    });
+  }, [focusFacturaId]);
 
   function toggleExpand(id, e) {
     e.stopPropagation();
@@ -950,11 +963,13 @@ export default function TablaFacturas({
                     ? 'Proveedor sin cuenta contable asignada'
                     : '';
 
+                const isFocused = focusFacturaId === f.id;
                 const mainRow = (
                   <tr
                     key={`row-${f.id}`}
+                    ref={isFocused ? focusRef : undefined}
                     onClick={() => onToggle(f.id)}
-                    className={`cursor-pointer transition-colors ${selected ? 'bg-blue-50 hover:bg-blue-100' : incidencia ? 'bg-red-50/40 hover:bg-red-50' : incProv ? 'bg-orange-50/40 hover:bg-orange-50' : esPar ? 'bg-white hover:bg-gray-50' : 'bg-slate-50/70 hover:bg-slate-100/70'}`}
+                    className={`cursor-pointer transition-colors ${isFocused ? 'ring-2 ring-blue-400 ring-inset' : ''} ${selected ? 'bg-blue-50 hover:bg-blue-100' : incidencia ? 'bg-red-50/40 hover:bg-red-50' : incProv ? 'bg-orange-50/40 hover:bg-orange-50' : esPar ? 'bg-white hover:bg-gray-50' : 'bg-slate-50/70 hover:bg-slate-100/70'}`}
                   >
                     {/* Botón expandir (solo datos fiscales) */}
                     <td className="px-3 py-3" onClick={e => toggleExpand(f.id, e)}>

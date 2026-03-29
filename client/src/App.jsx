@@ -45,6 +45,7 @@ function AppInner() {
   const [syncMsg,         setSyncMsg]         = useState(null); // { ok, texto }
   const [planContable,    setPlanContable]    = useState([]);
   const [alertaProveedores, setAlertaProveedores] = useState([]); // proveedores sin cuentas
+  const [focusFacturaId,  setFocusFacturaId]  = useState(null);
   const [adminMenuOpen,   setAdminMenuOpen]   = useState(false);
   const [userMenuOpen,    setUserMenuOpen]    = useState(false);
   const [mobileMenuOpen,  setMobileMenuOpen]  = useState(false);
@@ -330,7 +331,13 @@ function AppInner() {
           {/* Búsqueda global */}
           <BusquedaGlobal
             empresaId={empresaActiva?.id}
-            onSelectFactura={() => setTab('facturas')}
+            onSelectFactura={(f) => {
+              setTab('facturas');
+              const estado = f.estado_gestion || 'PENDIENTE';
+              const subTabMap = { PENDIENTE: 'pendientes', DESCARGADA: 'descargadas', CC_ASIGNADA: 'cc_asignada', CONTABILIZADA: 'contabilizadas' };
+              setSubTab(subTabMap[estado] || 'pendientes');
+              setFocusFacturaId(f.id);
+            }}
             onSelectProveedor={() => setTab('proveedores')}
           />
 
@@ -740,6 +747,7 @@ function AppInner() {
                 onEliminarFactura={handleEliminarFactura}
                 onDatosActualizados={!esV1 ? handleDatosActualizados : undefined}
                 onProveedorActualizado={!esV1 ? handleProveedorActualizado : undefined}
+                focusFacturaId={focusFacturaId} onClearFocus={() => setFocusFacturaId(null)}
               />
             )}
             {subTab === 'descargadas' && (
@@ -757,6 +765,7 @@ function AppInner() {
                 onAsignarCGMasivo={!esV1 ? handleAsignarCGMasivo : undefined}
                 onDatosActualizados={!esV1 ? handleDatosActualizados : undefined}
                 onProveedorActualizado={!esV1 ? handleProveedorActualizado : undefined}
+                focusFacturaId={focusFacturaId} onClearFocus={() => setFocusFacturaId(null)}
               />
             )}
             {!esV1 && subTab === 'cc_asignada' && (
@@ -775,6 +784,7 @@ function AppInner() {
                 onAsignarCGMasivo={handleAsignarCGMasivo}
                 onDatosActualizados={handleDatosActualizados}
                 onProveedorActualizado={handleProveedorActualizado}
+                focusFacturaId={focusFacturaId} onClearFocus={() => setFocusFacturaId(null)}
               />
             )}
             {subTab === 'contabilizadas' && (
@@ -789,6 +799,7 @@ function AppInner() {
                 modoGestoria={modoGestoria}
                 onEstadoActualizado={handleEstadoActualizado}
                 onAsignarCG={!esV1 ? handleAsignarCG : undefined}
+                focusFacturaId={focusFacturaId} onClearFocus={() => setFocusFacturaId(null)}
               />
             )}
 
