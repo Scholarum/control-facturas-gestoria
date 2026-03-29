@@ -1,7 +1,7 @@
 export default function ModalContabilizar({ count, onContabilizar, onCerrar, cargando }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-gray-900/60 backdrop-blur-sm">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md animate-fade-in">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-[calc(100%-2rem)] sm:max-w-md animate-fade-in">
 
         {/* Cabecera */}
         <div className="flex items-start gap-4 p-6 border-b border-gray-100">

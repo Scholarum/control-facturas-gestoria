@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext.jsx';
 import Login          from './pages/Login.jsx';
 import Usuarios       from './pages/Usuarios.jsx';
@@ -8,9 +8,14 @@ import Historial      from './pages/Historial.jsx';
 import Configuracion  from './pages/Configuracion.jsx';
 import Proveedores    from './pages/Proveedores.jsx';
 import SeccionFacturas from './components/SeccionFacturas.jsx';
+import Dashboard      from './pages/Dashboard.jsx';
 import HistorialA3    from './pages/HistorialA3.jsx';
 import Empresas       from './pages/Empresas.jsx';
-import { fetchFacturas, fetchProveedores, exportarExcel, triggerSyncManual, fetchPlanContable, asignarCuentaGasto, asignarCGMasivo, autodetectarProveedores, aplicarCuentasProveedor, vincularProveedores, fetchRoles } from './api.js';
+import { fetchFacturas, fetchStats, fetchProveedores, exportarExcel, triggerSyncManual, fetchPlanContable, asignarCuentaGasto, asignarCGMasivo, autodetectarProveedores, aplicarCuentasProveedor, vincularProveedores, fetchRoles } from './api.js';
+import ChatWidget from './components/ChatWidget.jsx';
+import Notificaciones from './components/Notificaciones.jsx';
+import BusquedaGlobal from './components/BusquedaGlobal.jsx';
+import useCache from './hooks/useCache.js';
 
 // ─── Stats ────────────────────────────────────────────────────────────────────
 
@@ -30,8 +35,6 @@ function AppInner() {
 
   const [tab,             setTab]             = useState('facturas');
   const [subTab,          setSubTab]          = useState('pendientes');
-  const [todasFacturas,   setTodasFacturas]   = useState([]);
-  const [proveedores,     setProveedores]     = useState([]);
   const [loading,         setLoading]         = useState(true);
   const [error,           setError]           = useState(null);
   const [exportandoTotal, setExportandoTotal] = useState(false);
@@ -39,10 +42,22 @@ function AppInner() {
   const [aplicandoCuentas,   setAplicandoCuentas]   = useState(false);
   const [vinculandoProvs,   setVinculandoProvs]   = useState(false);
   const [syncMsg,         setSyncMsg]         = useState(null); // { ok, texto }
-  const [planContable,    setPlanContable]    = useState([]);
-  const [alertaProveedores, setAlertaProveedores] = useState([]); // proveedores sin cuentas
+  // Cache para proveedores y plan contable (5 min TTL, revalida en background)
+  const { data: proveedores = [], invalidate: invalidateProveedores } = useCache(
+    `proveedores`, () => fetchProveedores(), { enabled: !!user }
+  );
+  const { data: planContable = [], invalidate: invalidatePlanContable } = useCache(
+    empresaActiva ? `planContable-${empresaActiva.id}` : null,
+    () => fetchPlanContable(empresaActiva?.id),
+    { enabled: !!user && !!empresaActiva }
+  );
+  const [alertaProveedores, setAlertaProveedores] = useState([]);
+  const [stats,           setStats]           = useState({ total: 0, pendientes: 0, descargadas: 0, ccAsignadas: 0, contabilizadas: 0 });
+  const [refreshKey,      setRefreshKey]      = useState(0); // incrementar para forzar recarga de secciones
+  const [focusFacturaId,  setFocusFacturaId]  = useState(null);
   const [adminMenuOpen,   setAdminMenuOpen]   = useState(false);
   const [userMenuOpen,    setUserMenuOpen]    = useState(false);
+  const [mobileMenuOpen,  setMobileMenuOpen]  = useState(false);
   const adminMenuRef = useRef(null);
   const userMenuRef  = useRef(null);
 
@@ -54,33 +69,23 @@ function AppInner() {
     }
   }, [user, tab]);
 
-  // Carga inicial — todo en paralelo, recargar al cambiar empresa
+  // Cargar stats + proveedores + plan contable al cambiar empresa
+  const refreshStats = useCallback(async () => {
+    if (!empresaActiva) return;
+    try {
+      const s = await fetchStats(empresaActiva.id);
+      setStats({ total: s.total, pendientes: s.pendientes, descargadas: s.descargadas, ccAsignadas: s.ccAsignadas, contabilizadas: s.contabilizadas });
+      setAlertaProveedores(s.alertaProveedores || []);
+    } catch {}
+  }, [empresaActiva]);
+
   useEffect(() => {
     if (!user || !empresaActiva) return;
     setLoading(true);
-    Promise.all([
-      fetchFacturas(empresaActiva.id).then(setTodasFacturas),
-      fetchProveedores().then(setProveedores),
-      fetchPlanContable(empresaActiva.id).then(setPlanContable).catch(() => {}),
-    ])
+    refreshStats()
       .catch(() => setError('No se pudo conectar con el servidor.'))
       .finally(() => setLoading(false));
   }, [user, empresaActiva]);
-
-  // Proveedores sin cuenta contable para la empresa activa (desde facturas ya cargadas)
-  useEffect(() => {
-    if (!user || loading || !todasFacturas.length) { setAlertaProveedores([]); return; }
-    // Agrupar proveedores unicos sin cuenta contable
-    const sinCuenta = new Map();
-    for (const f of todasFacturas) {
-      if (f.proveedor_id && !f.cta_proveedor_codigo) {
-        if (!sinCuenta.has(f.proveedor_id)) {
-          sinCuenta.set(f.proveedor_id, { id: f.proveedor_id, razon_social: f.razon_social || f.proveedor, cif: f.proveedor_cif });
-        }
-      }
-    }
-    setAlertaProveedores([...sinCuenta.values()]);
-  }, [user, loading, todasFacturas]);
 
   // Cerrar dropdowns al clicar fuera
   useEffect(() => {
@@ -92,43 +97,26 @@ function AppInner() {
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
-  // Listas por estado (reactivas a todasFacturas)
-  const pendientes     = useMemo(() => todasFacturas.filter(f => (f.estado_gestion || 'PENDIENTE') === 'PENDIENTE'), [todasFacturas]);
-  const descargadas    = useMemo(() => todasFacturas.filter(f => f.estado_gestion === 'DESCARGADA'),    [todasFacturas]);
-  const ccAsignadas    = useMemo(() => todasFacturas.filter(f => f.estado_gestion === 'CC_ASIGNADA'),   [todasFacturas]);
-  const contabilizadas = useMemo(() => todasFacturas.filter(f => f.estado_gestion === 'CONTABILIZADA'), [todasFacturas]);
-
-  // Stats en tiempo real
-  const stats = useMemo(() => ({
-    total:          todasFacturas.length,
-    pendientes:     pendientes.length,
-    descargadas:    descargadas.length,
-    ccAsignadas:    ccAsignadas.length,
-    contabilizadas: contabilizadas.length,
-  }), [todasFacturas, pendientes, descargadas, ccAsignadas, contabilizadas]);
-
-  // Callback cuando una SeccionFacturas mueve facturas de estado
-  function handleEstadoActualizado(ids, nuevoEstado) {
-    setTodasFacturas(prev => prev.map(f =>
-      ids.includes(f.id) ? { ...f, estado_gestion: nuevoEstado } : f
-    ));
-    // Si contabilizamos desde Descargadas, saltar a Contabilizadas automáticamente
-    if (nuevoEstado === 'CONTABILIZADA') setSubTab('contabilizadas');
-    // Si descargamos desde Pendientes, saltar a Descargadas
-    if (nuevoEstado === 'DESCARGADA')    setSubTab('descargadas');
-    if (nuevoEstado === 'CC_ASIGNADA')   setSubTab('cc_asignada');
+  // Invalidar datos: refresca stats y secciones
+  function invalidate(nuevoSubTab) {
+    refreshStats();
+    setRefreshKey(k => k + 1);
+    if (nuevoSubTab) setSubTab(nuevoSubTab);
   }
 
-  function handleEliminarFactura(id) {
-    setTodasFacturas(prev => prev.filter(f => f.id !== id));
+  function handleEstadoActualizado(_ids, nuevoEstado) {
+    if (nuevoEstado === 'CONTABILIZADA') invalidate('contabilizadas');
+    else if (nuevoEstado === 'DESCARGADA') invalidate('descargadas');
+    else if (nuevoEstado === 'CC_ASIGNADA') invalidate('cc_asignada');
+    else invalidate();
   }
+
+  function handleEliminarFactura() { invalidate(); }
 
   async function handleProveedorActualizado() {
-    try {
-      const [nuevas, provs] = await Promise.all([fetchFacturas(empresaActiva?.id), fetchProveedores()]);
-      setTodasFacturas(nuevas);
-      setProveedores(provs);
-    } catch {}
+    invalidateProveedores();
+    invalidatePlanContable();
+    invalidate();
   }
 
   async function handleEmularGestoria() {
@@ -144,48 +132,23 @@ function AppInner() {
     }
   }
 
-  function handleDatosActualizados(id, nuevosDatos) {
-    setTodasFacturas(prev => prev.map(f =>
-      f.id === id ? { ...f, datos_extraidos: nuevosDatos } : f
-    ));
-  }
+  function handleDatosActualizados() { invalidate(); }
 
   async function handleAsignarCG(id, cgId) {
     try {
       const result = await asignarCuentaGasto(id, cgId);
-      setTodasFacturas(prev => prev.map(f =>
-        f.id === id
-          ? { ...f, cg_manual_id: cgId, cg_efectiva_id: result.cg_efectiva_id, estado_gestion: result.estado_gestion }
-          : f
-      ));
-      if (result.estado_gestion === 'CC_ASIGNADA') setSubTab('cc_asignada');
+      if (result.estado_gestion === 'CC_ASIGNADA') invalidate('cc_asignada');
+      else invalidate();
     } catch (e) {
       setError(e.message);
     }
   }
 
-  function handleAsignarCGMasivo(ids, cgId) {
-    setTodasFacturas(prev => prev.map(f =>
-      ids.includes(f.id)
-        ? { ...f, cg_manual_id: cgId, cg_efectiva_id: cgId, estado_gestion: 'CC_ASIGNADA' }
-        : f
-    ));
-    setSubTab('cc_asignada');
-  }
+  function handleAsignarCGMasivo() { invalidate('cc_asignada'); }
 
-  async function handleRefreshFacturas() {
-    try {
-      const nuevas = await fetchFacturas(empresaActiva?.id);
-      setTodasFacturas(nuevas);
-    } catch (_) {}
-  }
+  function handleRefreshFacturas() { invalidate(); }
 
-  // Callback para re-extracción desde Configuración
-  function handleFacturaActualizada(id, estado, datos) {
-    setTodasFacturas(prev => prev.map(f =>
-      f.id === id ? { ...f, estado, datos_extraidos: datos } : f
-    ));
-  }
+  function handleFacturaActualizada() { invalidate(); }
 
   // Sincronización manual con Drive (solo admin)
   async function handleSyncManual() {
@@ -207,8 +170,7 @@ function AppInner() {
     setVinculandoProvs(true); setError('');
     try {
       const result = await vincularProveedores(empresaActiva?.id);
-      const nuevas = await fetchFacturas();
-      setTodasFacturas(nuevas);
+      invalidate();
       let texto = `${result.carpetas_rellenadas} carpeta(s) vinculada(s)`;
       if (result.sin_proveedor > 0) {
         texto += ` · ${result.sin_proveedor} factura(s) sin proveedor en el sistema`;
@@ -223,8 +185,7 @@ function AppInner() {
     setAplicandoCuentas(true); setError('');
     try {
       const result = await aplicarCuentasProveedor(empresaActiva?.id);
-      const nuevas = await fetchFacturas();
-      setTodasFacturas(nuevas);
+      invalidate();
       let texto = `${result.actualizadas} factura${result.actualizadas !== 1 ? 's' : ''} pasada${result.actualizadas !== 1 ? 's' : ''} a "Cta. Gasto"`;
       if (result.pendientes_sin_mover > 0) {
         // Agrupar motivos
@@ -244,12 +205,14 @@ function AppInner() {
     }
   }
 
-  // Excel con todas las facturas sin filtros
+  // Excel con todas las facturas sin filtros — pide IDs al servidor
   async function handleExportarTotal() {
-    if (!todasFacturas.length) return;
+    if (!stats.total) return;
     setExportandoTotal(true);
     try {
-      await exportarExcel(todasFacturas.map(f => f.id));
+      // Obtener todos los IDs de la empresa activa (query ligera)
+      const { data } = await fetchFacturas(empresaActiva?.id, { limit: 10000 });
+      await exportarExcel(data.map(f => f.id));
     } catch (e) {
       setError(e.message);
     } finally {
@@ -278,6 +241,7 @@ function AppInner() {
   const esV1 = modoGestoria === 'v1';
 
   const tabs = [
+    { id: 'dashboard',    label: 'Dashboard',             visible: puedeVer('facturas')     },
     { id: 'facturas',     label: 'Facturas',              visible: puedeVer('facturas')     },
     { id: 'proveedores',  label: 'Proveedores',           visible: puedeVer('proveedores')  },
     { id: 'conciliacion', label: 'Conciliacion de Mayor', visible: puedeVer('conciliacion') },
@@ -301,13 +265,13 @@ function AppInner() {
 
       {/* Barra de empresa + sync global */}
       {empresas.length > 0 && (
-        <div className="bg-slate-800 text-white py-1.5 px-6 flex items-center gap-3 sticky top-0 z-50">
+        <div className="bg-slate-800 text-white py-2 px-3 sm:px-6 flex items-center gap-2 sm:gap-3 sticky top-0 z-50 flex-wrap">
           {empresas.length > 1 && (
             <>
-              <span className="text-xs text-slate-400">Empresa:</span>
+              <span className="text-xs text-slate-400 hidden sm:inline">Empresa:</span>
               {empresas.map(e => (
                 <button key={e.id} onClick={() => cambiarEmpresa(e)}
-                  className={`px-3 py-0.5 rounded text-xs font-medium transition-colors ${
+                  className={`px-3 py-1 rounded text-xs font-medium transition-colors ${
                     empresaActiva?.id === e.id
                       ? 'bg-white text-slate-800'
                       : 'text-slate-300 hover:text-white hover:bg-slate-700'
@@ -320,10 +284,24 @@ function AppInner() {
           {empresas.length === 1 && (
             <span className="text-xs text-slate-300">{empresas[0].nombre}</span>
           )}
+
+          {/* Búsqueda global */}
+          <BusquedaGlobal
+            empresaId={empresaActiva?.id}
+            onSelectFactura={(f) => {
+              setTab('facturas');
+              const estado = f.estado_gestion || 'PENDIENTE';
+              const subTabMap = { PENDIENTE: 'pendientes', DESCARGADA: 'descargadas', CC_ASIGNADA: 'cc_asignada', CONTABILIZADA: 'contabilizadas' };
+              setSubTab(subTabMap[estado] || 'pendientes');
+              setFocusFacturaId(f.id);
+            }}
+            onSelectProveedor={() => setTab('proveedores')}
+          />
+
           <div className="ml-auto flex items-center gap-2">
             {esAdmin && (
               <button onClick={handleSyncManual} disabled={sincronizando}
-                className="flex items-center gap-1.5 px-3 py-0.5 rounded text-xs font-medium text-slate-300 hover:text-white hover:bg-slate-700 transition-colors disabled:opacity-50">
+                className="flex items-center gap-1.5 px-3 py-1 rounded text-xs font-medium text-slate-300 hover:text-white hover:bg-slate-700 transition-colors disabled:opacity-50">
                 {sincronizando ? (
                   <svg className="h-3 w-3 animate-spin" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/></svg>
                 ) : (
@@ -358,7 +336,16 @@ function AppInner() {
 
       {/* Header */}
       <header className={`bg-white border-b border-gray-200 sticky z-40 shadow-sm`} style={{ top: (empresas.length > 0 ? 34 : 0) + (estaEmulando ? 34 : 0) }}>
-        <div className="max-w-screen-xl mx-auto px-6 h-14 flex items-center gap-4">
+        <div className="max-w-screen-xl mx-auto px-3 sm:px-6 h-14 flex items-center gap-2 sm:gap-4">
+
+          {/* Hamburguesa (solo móvil) */}
+          <button onClick={() => setMobileMenuOpen(o => !o)} className="md:hidden flex-shrink-0 p-2 -ml-1 rounded-lg text-gray-600 hover:bg-gray-100">
+            <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              {mobileMenuOpen
+                ? <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                : <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />}
+            </svg>
+          </button>
 
           {/* Logo */}
           <div className="flex items-center gap-2 flex-shrink-0">
@@ -366,8 +353,8 @@ function AppInner() {
             <span className="font-semibold text-gray-900 text-sm hidden sm:block">Control de Facturas</span>
           </div>
 
-          {/* Pestañas principales */}
-          <nav className="flex gap-1 flex-1">
+          {/* Pestañas principales (ocultas en móvil) */}
+          <nav className="hidden md:flex gap-1 flex-1">
             {tabs.map(t => (
               <button key={t.id} onClick={() => setTab(t.id)}
                 className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors whitespace-nowrap ${
@@ -377,6 +364,9 @@ function AppInner() {
               </button>
             ))}
           </nav>
+
+          {/* Spacer en móvil */}
+          <div className="flex-1 md:hidden" />
 
           {/* Dropdown Administración */}
           {hayMenuAdmin && (
@@ -489,9 +479,40 @@ function AppInner() {
           </div>
 
         </div>
+
+        {/* Menú móvil desplegable */}
+        {mobileMenuOpen && (
+          <div className="md:hidden border-t border-gray-200 bg-white px-3 py-2 space-y-1">
+            {tabs.map(t => (
+              <button key={t.id} onClick={() => { setTab(t.id); setMobileMenuOpen(false); }}
+                className={`block w-full text-left px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+                  tab === t.id ? 'bg-blue-600 text-white' : 'text-gray-700 hover:bg-gray-100'
+                }`}>
+                {t.label}
+              </button>
+            ))}
+            {hayMenuAdmin && (
+              <>
+                <div className="border-t border-gray-100 my-1" />
+                {[
+                  { id: 'empresas',      icon: '🏛️', label: 'Empresas',       visible: puedeVer('configuracion') },
+                  { id: 'usuarios',      icon: '👥', label: 'Usuarios',       visible: puedeVer('usuarios')      },
+                  { id: 'configuracion', icon: '⚙️',  label: 'Configuracion', visible: puedeVer('configuracion') },
+                ].filter(i => i.visible).map(item => (
+                  <button key={item.id} onClick={() => { setTab(item.id); setMobileMenuOpen(false); }}
+                    className={`block w-full text-left px-3 py-2.5 rounded-lg text-sm font-medium flex items-center gap-2.5 transition-colors ${
+                      tab === item.id ? 'bg-blue-600 text-white' : 'text-gray-700 hover:bg-gray-100'
+                    }`}>
+                    <span>{item.icon}</span> {item.label}
+                  </button>
+                ))}
+              </>
+            )}
+          </div>
+        )}
       </header>
 
-      <main className="max-w-screen-xl mx-auto px-6 py-6 space-y-4">
+      <main className="max-w-screen-xl mx-auto px-3 sm:px-6 py-4 sm:py-6 space-y-4">
 
         {/* ── Banner: proveedores detectados sin cuentas ── */}
         {alertaProveedores.length > 0 && esAdmin && (
@@ -550,12 +571,15 @@ function AppInner() {
         {/* ── Pestaña Mi Perfil ── */}
         {tab === 'perfil' && <MiPerfil />}
 
+        {/* ── Pestaña Dashboard ── */}
+        {tab === 'dashboard' && <Dashboard empresaId={empresaActiva?.id} />}
+
         {/* ── Pestaña Facturas ── */}
         {tab === 'facturas' && (
           <div className="space-y-4">
 
             {/* Stats */}
-            <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
               <StatCard label="Total"          value={stats.total}          color="text-gray-900" />
               <StatCard label="Pendientes"     value={stats.pendientes}     color="text-amber-600" />
               <StatCard label="Descargadas"    value={stats.descargadas}    color="text-blue-600" />
@@ -574,6 +598,7 @@ function AppInner() {
                     <button
                       onClick={handleVincularProveedores}
                       disabled={vinculandoProvs || sincronizando}
+                      title="Asocia facturas con proveedores existentes comparando el CIF del emisor y el nombre de carpeta. No cambia el estado de las facturas."
                       className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg shadow-sm transition-colors disabled:opacity-60"
                     >
                       {vinculandoProvs ? (
@@ -591,6 +616,7 @@ function AppInner() {
                     <button
                       onClick={handleAplicarCuentasProveedor}
                       disabled={aplicandoCuentas || sincronizando}
+                      title="Mueve a 'Cta. Gasto' las facturas pendientes que tienen proveedor vinculado, cuenta contable, cuenta de gasto y datos completos."
                       className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-purple-700 bg-purple-50 hover:bg-purple-100 border border-purple-200 rounded-lg shadow-sm transition-colors disabled:opacity-60"
                     >
                       {aplicandoCuentas ? (
@@ -622,7 +648,7 @@ function AppInner() {
             <div className="flex justify-end">
               <button
                 onClick={handleExportarTotal}
-                disabled={exportandoTotal || todasFacturas.length === 0}
+                disabled={exportandoTotal || stats.total === 0}
                 className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg transition-colors disabled:opacity-50"
               >
                 {exportandoTotal ? (
@@ -635,7 +661,7 @@ function AppInner() {
                     <path fillRule="evenodd" d="M6 2a2 2 0 00-2 2v12a2 2 0 002 2h8a2 2 0 002-2V7.414A2 2 0 0015.414 6L12 2.586A2 2 0 0010.586 2H6zm5 6a1 1 0 10-2 0v3.586l-1.293-1.293a1 1 0 10-1.414 1.414l3 3a1 1 0 001.414 0l3-3a1 1 0 00-1.414-1.414L11 11.586V8z" clipRule="evenodd" />
                   </svg>
                 )}
-                {exportandoTotal ? 'Exportando...' : `Exportar Excel completo (${todasFacturas.length})`}
+                {exportandoTotal ? 'Exportando...' : `Exportar Excel completo (${stats.total})`}
               </button>
             </div>
 
@@ -665,11 +691,11 @@ function AppInner() {
             {subTab === 'pendientes' && (
               <SeccionFacturas
                 tipo="pendientes"
-                facturas={pendientes}
+                empresaId={empresaActiva?.id}
+                refreshKey={refreshKey}
                 proveedores={proveedores}
                 esAdmin={esAdmin}
                 soloLectura={!puedeEditar('facturas')}
-                loading={loading}
                 planContable={planContable}
                 modoGestoria={modoGestoria}
                 onEstadoActualizado={handleEstadoActualizado}
@@ -678,16 +704,17 @@ function AppInner() {
                 onEliminarFactura={handleEliminarFactura}
                 onDatosActualizados={!esV1 ? handleDatosActualizados : undefined}
                 onProveedorActualizado={!esV1 ? handleProveedorActualizado : undefined}
+                focusFacturaId={focusFacturaId} onClearFocus={() => setFocusFacturaId(null)}
               />
             )}
             {subTab === 'descargadas' && (
               <SeccionFacturas
                 tipo="descargadas"
-                facturas={descargadas}
+                empresaId={empresaActiva?.id}
+                refreshKey={refreshKey}
                 proveedores={proveedores}
                 esAdmin={esAdmin}
                 soloLectura={!puedeEditar('facturas')}
-                loading={loading}
                 planContable={planContable}
                 modoGestoria={modoGestoria}
                 onEstadoActualizado={handleEstadoActualizado}
@@ -695,16 +722,17 @@ function AppInner() {
                 onAsignarCGMasivo={!esV1 ? handleAsignarCGMasivo : undefined}
                 onDatosActualizados={!esV1 ? handleDatosActualizados : undefined}
                 onProveedorActualizado={!esV1 ? handleProveedorActualizado : undefined}
+                focusFacturaId={focusFacturaId} onClearFocus={() => setFocusFacturaId(null)}
               />
             )}
             {!esV1 && subTab === 'cc_asignada' && (
               <SeccionFacturas
                 tipo="cc_asignada"
-                facturas={ccAsignadas}
+                empresaId={empresaActiva?.id}
+                refreshKey={refreshKey}
                 proveedores={proveedores}
                 esAdmin={esAdmin}
                 soloLectura={!puedeEditar('facturas')}
-                loading={loading}
                 planContable={planContable}
                 modoGestoria={modoGestoria}
                 onEstadoActualizado={handleEstadoActualizado}
@@ -713,20 +741,22 @@ function AppInner() {
                 onAsignarCGMasivo={handleAsignarCGMasivo}
                 onDatosActualizados={handleDatosActualizados}
                 onProveedorActualizado={handleProveedorActualizado}
+                focusFacturaId={focusFacturaId} onClearFocus={() => setFocusFacturaId(null)}
               />
             )}
             {subTab === 'contabilizadas' && (
               <SeccionFacturas
                 tipo="contabilizadas"
-                facturas={contabilizadas}
+                empresaId={empresaActiva?.id}
+                refreshKey={refreshKey}
                 proveedores={proveedores}
                 esAdmin={esAdmin}
                 soloLectura={!puedeEditar('facturas')}
-                loading={loading}
                 planContable={planContable}
                 modoGestoria={modoGestoria}
                 onEstadoActualizado={handleEstadoActualizado}
                 onAsignarCG={!esV1 ? handleAsignarCG : undefined}
+                focusFacturaId={focusFacturaId} onClearFocus={() => setFocusFacturaId(null)}
               />
             )}
 
@@ -740,10 +770,18 @@ function AppInner() {
 
 // ─── Root ─────────────────────────────────────────────────────────────────────
 
+function ChatGate() {
+  const { chatAcceso } = useAuth();
+  if (!chatAcceso) return null;
+  return <ChatWidget />;
+}
+
 export default function App() {
   return (
     <AuthProvider>
       <AppInner />
+      <Notificaciones />
+      <ChatGate />
     </AuthProvider>
   );
 }

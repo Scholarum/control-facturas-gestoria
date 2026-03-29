@@ -2,6 +2,7 @@ const express = require('express');
 const JSZip   = require('jszip');
 const XLSX    = require('xlsx');
 const router  = express.Router();
+const logger  = require('../config/logger');
 
 const multer  = require('multer');
 const { getDb }                     = require('../config/database');
@@ -53,60 +54,133 @@ function tieneIncidencia(datos) {
 
 router.use(resolveUser);
 
+// ─── GET /api/drive/stats — contadores por estado (ligero) ───────────────────
+
+router.get('/stats', async (req, res) => {
+  const db = getDb();
+  const empresaId = parseInt(req.query.empresa, 10) || null;
+  const where = empresaId ? 'WHERE empresa_id = $1' : '';
+  const params = empresaId ? [empresaId] : [];
+
+  const rows = await db.all(`
+    SELECT COALESCE(estado_gestion, 'PENDIENTE') AS estado, COUNT(*)::int AS total
+    FROM drive_archivos ${where}
+    GROUP BY COALESCE(estado_gestion, 'PENDIENTE')
+  `, params);
+
+  const stats = { pendientes: 0, descargadas: 0, ccAsignadas: 0, contabilizadas: 0, total: 0 };
+  for (const r of rows) {
+    stats.total += r.total;
+    if (r.estado === 'PENDIENTE')      stats.pendientes     = r.total;
+    if (r.estado === 'DESCARGADA')     stats.descargadas    = r.total;
+    if (r.estado === 'CC_ASIGNADA')    stats.ccAsignadas    = r.total;
+    if (r.estado === 'CONTABILIZADA')  stats.contabilizadas = r.total;
+  }
+
+  // Proveedores sin cuenta contable (para alerta)
+  const sinCuenta = empresaId
+    ? await db.all(`
+        SELECT DISTINCT da.proveedor AS razon_social,
+               (CASE WHEN da.datos_extraidos ~ '^\\s*\\{' THEN da.datos_extraidos::jsonb->>'cif_emisor' END) AS cif
+        FROM drive_archivos da
+        LEFT JOIN LATERAL (
+          SELECT p2.id, pe2.cuenta_contable_id FROM proveedores p2
+          LEFT JOIN proveedor_empresa pe2 ON pe2.proveedor_id = p2.id AND pe2.empresa_id = da.empresa_id
+          WHERE p2.activo = true AND (
+            (p2.cif IS NOT NULL AND da.datos_extraidos ~ '^\\s*\\{' AND normalizar_cif((da.datos_extraidos::jsonb)->>'cif_emisor') = normalizar_cif(p2.cif))
+            OR p2.nombre_carpeta = da.proveedor
+          ) LIMIT 1
+        ) p ON true
+        WHERE da.empresa_id = $1 AND da.proveedor IS NOT NULL
+          AND (p.id IS NULL OR p.cuenta_contable_id IS NULL)
+        LIMIT 20
+      `, [empresaId])
+    : [];
+
+  res.json({ ok: true, data: { ...stats, alertaProveedores: sinCuenta } });
+});
+
 // ─── GET /api/drive ───────────────────────────────────────────────────────────
 
 router.get('/', async (req, res) => {
   const db = getDb();
   const empresaId = parseInt(req.query.empresa, 10) || null;
-  const whereEmpresa = empresaId ? 'AND da.empresa_id = $1' : '';
-  const params = empresaId ? [empresaId] : [];
+  const estado    = req.query.estado || null;  // PENDIENTE, DESCARGADA, CC_ASIGNADA, CONTABILIZADA
+  const page      = Math.max(1, parseInt(req.query.page, 10) || 1);
+  const limit     = Math.min(10000, Math.max(1, parseInt(req.query.limit, 10) || 25));
+  const offset    = (page - 1) * limit;
 
-  const archivos = await db.all(`
-    SELECT
-      da.id, da.google_id, da.nombre_archivo, da.ruta_completa,
-      da.proveedor, da.fecha_subida, da.estado, da.estado_gestion,
-      da.datos_extraidos, da.error_extraccion, da.procesado_at, da.ultima_sync,
-      da.lote_a3_id, da.empresa_id,
-      p.id                                                        AS proveedor_id,
-      p.razon_social,
-      p.cif                                                       AS proveedor_cif,
-      da.cuenta_gasto_id                                          AS cg_manual_id,
-      COALESCE(da.cuenta_gasto_id, pe.cuenta_gasto_id)            AS cg_efectiva_id,
-      COALESCE(cgd.codigo,  peg.codigo)                           AS cuenta_gasto_codigo,
-      COALESCE(cgd.descripcion, peg.descripcion)                  AS cuenta_gasto_desc,
-      pec.codigo                                                  AS cta_proveedor_codigo,
-      la.nombre_fichero                                           AS lote_a3_nombre,
-      la.fecha                                                    AS lote_a3_fecha
-    FROM drive_archivos da
-    LEFT JOIN LATERAL (
-      SELECT p2.*
-      FROM proveedores p2
-      WHERE p2.activo = true
-        AND (
-          (
-            p2.cif IS NOT NULL
-            AND da.datos_extraidos IS NOT NULL
-            AND da.datos_extraidos ~ '^\\s*\\{'
-            AND normalizar_cif((da.datos_extraidos::jsonb)->>'cif_emisor') = normalizar_cif(p2.cif)
+  const conditions = ['1=1'];
+  const params = [];
+  let idx = 1;
+
+  if (empresaId) { conditions.push(`da.empresa_id = $${idx++}`); params.push(empresaId); }
+  if (estado) {
+    if (estado === 'PENDIENTE') {
+      conditions.push(`COALESCE(da.estado_gestion, 'PENDIENTE') = 'PENDIENTE'`);
+    } else {
+      conditions.push(`da.estado_gestion = $${idx++}`); params.push(estado);
+    }
+  }
+
+  const whereClause = conditions.join(' AND ');
+
+  const [archivos, countRow] = await Promise.all([
+    db.all(`
+      SELECT
+        da.id, da.google_id, da.nombre_archivo, da.ruta_completa,
+        da.proveedor, da.fecha_subida, da.estado, da.estado_gestion,
+        da.datos_extraidos, da.error_extraccion, da.procesado_at, da.ultima_sync,
+        da.lote_a3_id, da.empresa_id,
+        p.id                                                        AS proveedor_id,
+        p.razon_social,
+        p.cif                                                       AS proveedor_cif,
+        da.cuenta_gasto_id                                          AS cg_manual_id,
+        COALESCE(da.cuenta_gasto_id, pe.cuenta_gasto_id)            AS cg_efectiva_id,
+        COALESCE(cgd.codigo,  peg.codigo)                           AS cuenta_gasto_codigo,
+        COALESCE(cgd.descripcion, peg.descripcion)                  AS cuenta_gasto_desc,
+        pec.codigo                                                  AS cta_proveedor_codigo,
+        la.nombre_fichero                                           AS lote_a3_nombre,
+        la.fecha                                                    AS lote_a3_fecha
+      FROM drive_archivos da
+      LEFT JOIN LATERAL (
+        SELECT p2.*
+        FROM proveedores p2
+        WHERE p2.activo = true
+          AND (
+            (
+              p2.cif IS NOT NULL
+              AND da.datos_extraidos IS NOT NULL
+              AND da.datos_extraidos ~ '^\\s*\\{'
+              AND normalizar_cif((da.datos_extraidos::jsonb)->>'cif_emisor') = normalizar_cif(p2.cif)
+            )
+            OR p2.nombre_carpeta = da.proveedor
           )
-          OR p2.nombre_carpeta = da.proveedor
-        )
-      ORDER BY (p2.cif IS NOT NULL
-                AND da.datos_extraidos IS NOT NULL
-                AND da.datos_extraidos ~ '^\\s*\\{'
-                AND normalizar_cif((da.datos_extraidos::jsonb)->>'cif_emisor') = normalizar_cif(p2.cif)
-               ) DESC NULLS LAST
-      LIMIT 1
-    ) p ON true
-    LEFT JOIN proveedor_empresa pe  ON pe.proveedor_id = p.id AND pe.empresa_id = da.empresa_id
-    LEFT JOIN plan_contable peg     ON peg.id = pe.cuenta_gasto_id
-    LEFT JOIN plan_contable cgd     ON cgd.id = da.cuenta_gasto_id
-    LEFT JOIN plan_contable pec     ON pec.id = pe.cuenta_contable_id
-    LEFT JOIN lotes_exportacion_a3 la ON la.id = da.lote_a3_id
-    WHERE 1=1 ${whereEmpresa}
-    ORDER BY da.id DESC
-  `, params);
-  res.json({ ok: true, data: archivos.map(parsearArchivo) });
+        ORDER BY (p2.cif IS NOT NULL
+                  AND da.datos_extraidos IS NOT NULL
+                  AND da.datos_extraidos ~ '^\\s*\\{'
+                  AND normalizar_cif((da.datos_extraidos::jsonb)->>'cif_emisor') = normalizar_cif(p2.cif)
+                 ) DESC NULLS LAST
+        LIMIT 1
+      ) p ON true
+      LEFT JOIN proveedor_empresa pe  ON pe.proveedor_id = p.id AND pe.empresa_id = da.empresa_id
+      LEFT JOIN plan_contable peg     ON peg.id = pe.cuenta_gasto_id
+      LEFT JOIN plan_contable cgd     ON cgd.id = da.cuenta_gasto_id
+      LEFT JOIN plan_contable pec     ON pec.id = pe.cuenta_contable_id
+      LEFT JOIN lotes_exportacion_a3 la ON la.id = da.lote_a3_id
+      WHERE ${whereClause}
+      ORDER BY da.id DESC
+      LIMIT $${idx++} OFFSET $${idx++}
+    `, [...params, limit, offset]),
+
+    db.one(`SELECT COUNT(*)::int AS total FROM drive_archivos da WHERE ${whereClause}`, params),
+  ]);
+
+  res.json({
+    ok: true,
+    data: archivos.map(parsearArchivo),
+    pagination: { page, limit, total: countRow.total, totalPages: Math.ceil(countRow.total / limit) },
+  });
 });
 
 // ─── GET /api/drive/proveedores ───────────────────────────────────────────────
@@ -212,7 +286,7 @@ router.post('/descargar-zip', async (req, res) => {
         estado_previo: archivo.estado_gestion,
         google_id:     archivo.google_id,
       },
-    }).catch(e => console.error('[audit]', e.message));
+    }).catch(e => logger.error({ err: e.message }, 'audit error'));
   }
 
   // STORE sin comprimir: los PDFs ya están comprimidos, DEFLATE es lento y no reduce tamaño
@@ -281,14 +355,18 @@ router.put('/contabilizar', async (req, res) => {
   );
 
   if (archivos.length > 0) {
-    registrarEvento({
-      evento:    EVENTOS.CONTABILIZAR_MASIVO,
-      usuarioId,
-      ip:        req.clientIp,
-      userAgent: req.userAgent,
-      detalle:   { count: archivos.length, facturas: archivos },
-    }).catch(e => console.error('[audit]', e.message));
+    // Registrar un evento por cada factura para el historial individual
+    for (const a of archivos) {
+      registrarEvento({
+        evento: EVENTOS.CONTABILIZAR_MASIVO, usuarioId,
+        ip: req.clientIp, userAgent: req.userAgent,
+        detalle: { drive_id: a.id, nombre: a.nombre_archivo, proveedor: a.proveedor, count: archivos.length },
+      }).catch(() => {});
+    }
   }
+
+  const { broadcast } = require('../services/sseService');
+  broadcast('facturas_contabilizadas', { count: archivos.length, usuario: req.usuario?.nombre });
 
   res.json({ ok: true, data: { contabilizadas: archivos.length } });
 });
@@ -321,6 +399,15 @@ router.put('/cg-masivo', express.json(), async (req, res) => {
      WHERE id = ANY($3::int[]) AND estado_gestion != 'CONTABILIZADA'`,
     [cgId, nuevoEstado, ids]
   );
+
+  const usuarioId = req.usuario?.id;
+  for (const a of archivos.filter(x => x.estado_gestion !== 'CONTABILIZADA')) {
+    registrarEvento({
+      evento: 'ASIGNAR_CG', usuarioId,
+      ip: req.clientIp, userAgent: req.userAgent,
+      detalle: { drive_id: a.id, cuenta_gasto_id: cgId, estado_previo: a.estado_gestion, estado_nuevo: nuevoEstado },
+    }).catch(() => {});
+  }
 
   res.json({ ok: true, data: { actualizadas: ids.length, cg_efectiva_id: cgId, estado_gestion: nuevoEstado } });
 });
@@ -403,10 +490,19 @@ router.put('/:id/cg', express.json(), async (req, res) => {
     if (nuevoEstado === 'CC_ASIGNADA') nuevoEstado = 'PENDIENTE';
   }
 
+  const estadoPrevio = archivo.estado_gestion || 'PENDIENTE';
   await db.query(
     'UPDATE drive_archivos SET cuenta_gasto_id = $1, estado_gestion = $2 WHERE id = $3',
     [cgId, nuevoEstado, id]
   );
+
+  if (estadoPrevio !== nuevoEstado) {
+    registrarEvento({
+      evento: 'ASIGNAR_CG', usuarioId: req.usuario?.id,
+      ip: req.clientIp, userAgent: req.userAgent,
+      detalle: { drive_id: id, cuenta_gasto_id: cgId, estado_previo: estadoPrevio, estado_nuevo: nuevoEstado },
+    }).catch(() => {});
+  }
 
   res.json({ ok: true, data: { id, cg_efectiva_id: cgId, estado_gestion: nuevoEstado } });
 });
@@ -913,6 +1009,13 @@ router.put('/aplicar-cuentas-proveedor', requireAuth, async (req, res) => {
         [idsActualizar]
       );
       actualizadas = r.rowCount;
+      for (const id of idsActualizar) {
+        registrarEvento({
+          evento: 'ASIGNAR_CG', usuarioId: req.usuario?.id,
+          ip: req.clientIp, userAgent: req.userAgent,
+          detalle: { drive_id: id, estado_previo: 'PENDIENTE', estado_nuevo: 'CC_ASIGNADA', via: 'aplicar-cuentas-proveedor' },
+        }).catch(() => {});
+      }
     }
 
     res.json({ ok: true, data: { actualizadas, pendientes_sin_mover: motivos.length, motivos } });
@@ -1038,7 +1141,7 @@ router.get('/carpetas', requireAdmin, async (req, res) => {
 
     res.json({ ok: true, data: resultado });
   } catch (err) {
-    console.error('[Drive] Error listando carpetas:', err.message);
+    logger.error({ err: err.message }, 'Drive: error listando carpetas');
     res.status(500).json({ ok: false, error: err.message });
   }
 });
@@ -1064,7 +1167,7 @@ router.post('/carpetas', requireAdmin, async (req, res) => {
     const carpeta = await crearCarpeta(drive, nombre.trim());
     res.json({ ok: true, data: { ...carpeta, archivos: 0 } });
   } catch (err) {
-    console.error('[Drive] Error creando carpeta:', err.message);
+    logger.error({ err: err.message }, 'Drive: error creando carpeta');
     res.status(500).json({ ok: false, error: err.message });
   }
 });
@@ -1111,7 +1214,7 @@ router.post('/upload-universal', requireAuth, upload.array('archivos', 20), asyn
 
         resultados.push({ nombre: file.originalname, id: row.id, google_id: driveFile.id, ok: true });
       } catch (e) {
-        console.error(`[Upload] Error subiendo ${file.originalname}:`, e.message);
+        logger.error({ archivo: file.originalname, err: e.message }, 'Upload: error subiendo archivo');
         resultados.push({ nombre: file.originalname, ok: false, error: e.message });
       }
     }
@@ -1122,7 +1225,7 @@ router.post('/upload-universal', requireAuth, upload.array('archivos', 20), asyn
     if (idsSubidos.length > 0) {
       setImmediate(async () => {
         try {
-          console.log(`[Upload] Extrayendo ${idsSubidos.length} facturas con Gemini...`);
+          logger.info({ facturas: idsSubidos.length }, 'Upload: extrayendo facturas con Gemini');
           await ejecutarExtraccion(idsSubidos);
 
           // 4. Asignar empresa_id por CIF receptor
@@ -1188,9 +1291,11 @@ router.post('/upload-universal', requireAuth, upload.array('archivos', 20), asyn
               )
           `, [idsSubidos]);
 
-          console.log(`[Upload] Procesamiento completado para ${idsSubidos.length} facturas`);
+          logger.info({ facturas: idsSubidos.length }, 'Upload: procesamiento completado');
+          const { broadcast } = require('../services/sseService');
+          broadcast('upload_complete', { count: idsSubidos.length });
         } catch (e) {
-          console.error('[Upload] Error en procesamiento post-subida:', e.message);
+          logger.error({ err: e.message }, 'Upload: error en procesamiento post-subida');
         }
       });
     }
@@ -1207,7 +1312,7 @@ router.post('/upload-universal', requireAuth, upload.array('archivos', 20), asyn
       },
     });
   } catch (err) {
-    console.error('[Upload] Error general:', err.message);
+    logger.error({ err: err.message }, 'Upload: error general');
     res.status(500).json({ ok: false, error: err.message });
   }
 });

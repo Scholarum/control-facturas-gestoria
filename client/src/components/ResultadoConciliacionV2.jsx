@@ -79,7 +79,7 @@ function SelectorVincular({ anchorRef, facturasSinMatch, onVincular, onCerrar })
     : facturasSinMatch;
 
   const style = {
-    position: 'fixed', left: pos.left, zIndex: 9999, width: 420,
+    position: 'fixed', left: pos.left, zIndex: 9999, width: Math.min(420, window.innerWidth - 16),
     ...(pos.top != null ? { top: pos.top } : {}),
     ...(pos.bottom != null ? { bottom: pos.bottom } : {}),
   };
@@ -334,7 +334,7 @@ export default function ResultadoConciliacionV2({ resultadosPorProveedor: result
       {/* Resumen global */}
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
         <h3 className="font-semibold text-gray-900 text-base mb-4">Resultado de la conciliacion</h3>
-        <div className="grid grid-cols-2 sm:grid-cols-6 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
           <StatCard label="Proveedores" value={resumenInicial.totalProveedores} color="text-gray-900" bg="bg-gray-50" />
           <StatCard label="Total" value={todosResultados.length} color="text-gray-900" bg="bg-gray-50" />
           <StatCard label="Conciliadas" value={totalOk} color="text-emerald-700" bg="bg-emerald-50" />

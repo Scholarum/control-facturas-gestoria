@@ -1,12 +1,14 @@
 require('dotenv').config();
 
 const express           = require('express');
+const logger            = require('./config/logger');
 const cors              = require('cors');
 const path              = require('path');
 const fs                = require('fs');
 const { initDb }        = require('./config/database');
 const { runMigrations } = require('./config/migrate');
 const { attachRequestMeta } = require('./middleware/audit');
+const { apiLimiter }       = require('./middleware/rateLimiter');
 const { ensurePromptSeeded } = require('./services/extractorService');
 const { iniciarCrons }       = require('./services/cronService');
 
@@ -23,6 +25,7 @@ app.use(cors({
   credentials: true,
 }));
 app.use(express.json());
+app.use('/api', apiLimiter);
 app.use(attachRequestMeta);
 
 // API routes
@@ -39,6 +42,11 @@ app.use('/api/plan-contable', require('./routes/planContable'));
 app.use('/api/proveedores',   require('./routes/proveedores'));
 app.use('/api/roles',         require('./routes/roles'));
 app.use('/api/exportacion-a3', require('./routes/exportacionA3'));
+app.use('/api/chat',               require('./routes/chat'));
+app.use('/api/chat/conversaciones', require('./routes/conversaciones'));
+app.use('/api/eventos',       require('./routes/eventos'));
+app.use('/api/busqueda',      require('./routes/busqueda'));
+app.use('/api/dashboard',     require('./routes/dashboard'));
 app.use('/ver',               require('./routes/acceso'));
 app.get('/health', (_req, res) => res.json({ ok: true, uptime: process.uptime() }));
 
@@ -54,7 +62,7 @@ if (fs.existsSync(clientDist)) {
 }
 
 app.use((err, _req, res, _next) => {
-  console.error(err);
+  logger.error(err, 'Error interno del servidor');
   res.status(500).json({ ok: false, error: 'Error interno del servidor' });
 });
 
@@ -63,9 +71,9 @@ async function start() {
   await runMigrations();
   await ensurePromptSeeded();
   await iniciarCrons();
-  app.listen(PORT, () => console.log(`Servidor arrancado en http://localhost:${PORT}`));
+  app.listen(PORT, () => logger.info({ port: PORT }, 'Servidor arrancado'));
 }
 
-start().catch(err => { console.error('Error al arrancar:', err); process.exit(1); });
+start().catch(err => { logger.error(err, 'Error al arrancar'); process.exit(1); });
 
 module.exports = app;

@@ -1,6 +1,6 @@
-import { useState, useMemo, useEffect, useRef } from 'react';
+import { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import TablaFacturas, { tieneIncidencia, tieneIncidenciaProveedor } from './TablaFacturas.jsx';
-import { descargarZip, contabilizar, revertirEstado, eliminarFactura, asignarCGMasivo, exportarLoteA3, exportarSage, sagePreview } from '../api.js';
+import { fetchFacturas, descargarZip, contabilizar, revertirEstado, eliminarFactura, asignarCGMasivo, exportarLoteA3, exportarSage, sagePreview } from '../api.js';
 
 // ─── Filtros compactos por sección ────────────────────────────────────────────
 
@@ -11,24 +11,31 @@ function FiltrosSeccion({ filtros, onChange, proveedores, totalFacturas, totalFi
   function set(k, v) { onChange({ ...filtros, [k]: v }); }
 
   return (
-    <div className="flex flex-wrap gap-3 items-end">
-      <div className="flex flex-col gap-1">
+    <div className="flex flex-wrap gap-2 sm:gap-3 items-end">
+      <div className="flex flex-col gap-1 w-[calc(50%-0.25rem)] sm:w-auto">
         <label className="text-xs font-medium text-gray-500">Proveedor</label>
-        <select value={filtros.proveedor} onChange={e => set('proveedor', e.target.value)}
-          className={`${inputCls} min-w-[160px]`}>
-          <option value="">Todos</option>
-          {proveedores.map(p => <option key={p.nombre_carpeta ?? p} value={p.nombre_carpeta ?? p}>{p.label ?? p}</option>)}
-        </select>
+        <input type="text" value={filtros.proveedor} onChange={e => set('proveedor', e.target.value)}
+          placeholder="Buscar proveedor..." className={`${inputCls} sm:min-w-[160px]`} />
       </div>
-      <div className="flex flex-col gap-1">
+      <div className="flex flex-col gap-1 w-[calc(50%-0.25rem)] sm:w-auto">
+        <label className="text-xs font-medium text-gray-500">N.º Factura</label>
+        <input type="text" value={filtros.numFactura} onChange={e => set('numFactura', e.target.value)}
+          placeholder="Buscar num..." className={`${inputCls} sm:min-w-[120px]`} />
+      </div>
+      <div className="flex flex-col gap-1 w-[calc(50%-0.25rem)] sm:w-auto">
+        <label className="text-xs font-medium text-gray-500">CIF</label>
+        <input type="text" value={filtros.cif} onChange={e => set('cif', e.target.value)}
+          placeholder="Buscar CIF..." className={`${inputCls} sm:min-w-[120px]`} />
+      </div>
+      <div className="flex flex-col gap-1 w-[calc(50%-0.25rem)] sm:w-auto">
         <label className="text-xs font-medium text-gray-500">Fecha desde</label>
         <input type="date" value={filtros.fechaDesde} onChange={e => set('fechaDesde', e.target.value)} className={inputCls} />
       </div>
-      <div className="flex flex-col gap-1">
+      <div className="flex flex-col gap-1 w-[calc(50%-0.25rem)] sm:w-auto">
         <label className="text-xs font-medium text-gray-500">Fecha hasta</label>
         <input type="date" value={filtros.fechaHasta} onChange={e => set('fechaHasta', e.target.value)} className={inputCls} />
       </div>
-      <div className="flex flex-col gap-1">
+      <div className="flex flex-col gap-1 w-[calc(50%-0.25rem)] sm:w-auto">
         <label className="text-xs font-medium text-gray-500">Extraccion</label>
         <select value={filtros.estadoExtraccion || ''} onChange={e => set('estadoExtraccion', e.target.value)} className={inputCls}>
           <option value="">Todos</option>
@@ -37,26 +44,26 @@ function FiltrosSeccion({ filtros, onChange, proveedores, totalFacturas, totalFi
           <option value="REVISION_MANUAL">Revision manual</option>
         </select>
       </div>
-      <div className="flex flex-col gap-1">
+      <div className="flex flex-col gap-1 w-[calc(50%-0.25rem)] sm:w-auto">
         <label className="text-xs font-medium text-gray-500">Datos</label>
         <select value={filtros.soloIncidencias || ''} onChange={e => set('soloIncidencias', e.target.value)}
-          className={`${inputCls} min-w-[130px] ${filtros.soloIncidencias === 'si' ? 'text-red-600 font-medium' : filtros.soloIncidencias === 'no' ? 'text-emerald-600 font-medium' : ''}`}>
+          className={`${inputCls} sm:min-w-[130px] ${filtros.soloIncidencias === 'si' ? 'text-red-600 font-medium' : filtros.soloIncidencias === 'no' ? 'text-emerald-600 font-medium' : ''}`}>
           <option value="">Todos</option>
           <option value="si">Incompletos ({numIncidencias})</option>
           <option value="no">Completos ({totalFacturas - numIncidencias})</option>
         </select>
       </div>
-      <div className="flex flex-col gap-1">
-        <label className="text-xs font-medium text-gray-500">Proveedor</label>
+      <div className="flex flex-col gap-1 w-full sm:w-auto">
+        <label className="text-xs font-medium text-gray-500">Vinculacion</label>
         <select value={filtros.soloSinProveedor || ''} onChange={e => set('soloSinProveedor', e.target.value)}
-          className={`${inputCls} min-w-[140px] ${filtros.soloSinProveedor === 'si' ? 'text-orange-600 font-medium' : filtros.soloSinProveedor === 'no' ? 'text-emerald-600 font-medium' : ''}`}>
+          className={`${inputCls} sm:min-w-[140px] ${filtros.soloSinProveedor === 'si' ? 'text-orange-600 font-medium' : filtros.soloSinProveedor === 'no' ? 'text-emerald-600 font-medium' : ''}`}>
           <option value="">Todos</option>
           <option value="si">Sin proveedor/cta ({numSinProveedor})</option>
           <option value="no">Con proveedor ({totalFacturas - numSinProveedor})</option>
         </select>
       </div>
       {hayFiltros && (
-        <button onClick={() => onChange({ proveedor: '', fechaDesde: '', fechaHasta: '', soloIncidencias: '', soloSinProveedor: '', estadoExtraccion: '' })}
+        <button onClick={() => onChange({ proveedor: '', numFactura: '', cif: '', fechaDesde: '', fechaHasta: '', soloIncidencias: '', soloSinProveedor: '', estadoExtraccion: '' })}
           className="self-end px-3 py-1.5 text-sm text-gray-500 hover:text-gray-800 hover:bg-gray-100 rounded-lg transition-colors">
           Limpiar
         </button>
@@ -125,7 +132,7 @@ function ComboboxCuentaMasiva({ cuentas, value, onChange }) {
         onChange={e => setQ(e.target.value)}
         onFocus={() => { setQ(''); setAbierto(true); }}
         placeholder="Selecciona cuenta de gasto..."
-        className="rounded-lg border border-white/30 bg-white/10 text-white placeholder-white/50 px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-white/50 w-72 pr-6"
+        className="rounded-lg border border-white/30 bg-white/10 text-white placeholder-white/50 px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-white/50 w-full sm:w-72 pr-6"
         autoComplete="off"
       />
       {value && (
@@ -136,7 +143,7 @@ function ComboboxCuentaMasiva({ cuentas, value, onChange }) {
         >✕</button>
       )}
       {abierto && (
-        <div className="absolute z-50 top-full left-0 w-80 mt-1 bg-white border border-gray-200 rounded-lg shadow-xl max-h-48 overflow-y-auto">
+        <div className="absolute z-50 top-full left-0 w-full sm:w-80 mt-1 bg-white border border-gray-200 rounded-lg shadow-xl max-h-48 overflow-y-auto">
           {filtradas.length === 0 ? (
             <p className="px-3 py-2 text-xs text-gray-400">Sin resultados</p>
           ) : filtradas.map(c => (
@@ -167,13 +174,17 @@ function ComboboxCuentaMasiva({ cuentas, value, onChange }) {
  * tipo: 'pendientes' | 'descargadas' | 'cc_asignada' | 'contabilizadas'
  * onEstadoActualizado(ids: number[], nuevoEstado: string): void
  */
+const TIPO_ESTADO = { pendientes: 'PENDIENTE', descargadas: 'DESCARGADA', cc_asignada: 'CC_ASIGNADA', contabilizadas: 'CONTABILIZADA' };
+const PAGE_SIZES = [25, 50, 100, 500];
+const DEFAULT_PAGE_SIZE = 25;
+
 export default function SeccionFacturas({
   tipo,
-  facturas,
+  empresaId,
+  refreshKey,
   proveedores,
   esAdmin,
   soloLectura = false,
-  loading,
   onEstadoActualizado,
   onRefreshFacturas,
   planContable = [],
@@ -183,9 +194,34 @@ export default function SeccionFacturas({
   onDatosActualizados,
   onProveedorActualizado,
   modoGestoria = 'v2',
+  focusFacturaId,
+  onClearFocus,
 }) {
   const esV1 = modoGestoria === 'v1';
-  const [filtros,       setFiltros]       = useState({ proveedor: '', fechaDesde: '', fechaHasta: '', soloIncidencias: '', soloSinProveedor: '', estadoExtraccion: '' });
+  const [facturas,      setFacturas]     = useState([]);
+  const [loading,       setLoading]      = useState(true);
+  const [page,          setPage]         = useState(1);
+  const [pageSize,      setPageSize]     = useState(DEFAULT_PAGE_SIZE);
+  const [totalPages,    setTotalPages]   = useState(1);
+  const [totalFacturas, setTotalFacturas] = useState(0);
+  const [filtros,       setFiltros]       = useState({ proveedor: '', numFactura: '', cif: '', fechaDesde: '', fechaHasta: '', soloIncidencias: '', soloSinProveedor: '', estadoExtraccion: '' });
+
+  // Cargar facturas paginadas
+  const loadFacturas = useCallback(async (p = 1, size = pageSize) => {
+    if (!empresaId) return;
+    setLoading(true);
+    try {
+      const limit = size === 'all' ? 10000 : size;
+      const { data, pagination } = await fetchFacturas(empresaId, { estado: TIPO_ESTADO[tipo], page: size === 'all' ? 1 : p, limit });
+      setFacturas(data);
+      setPage(pagination.page);
+      setTotalPages(pagination.totalPages);
+      setTotalFacturas(pagination.total);
+    } catch { /* silenciar */ }
+    setLoading(false);
+  }, [empresaId, tipo, pageSize]);
+
+  useEffect(() => { loadFacturas(1); }, [loadFacturas, refreshKey]);
   const [seleccionados, setSeleccionados] = useState(new Set());
   const [descargando,        setDescargando]        = useState(false);
   const [contabilizando,     setContabilizando]     = useState(false);
@@ -201,7 +237,9 @@ export default function SeccionFacturas({
 
   const filtradas = useMemo(() => facturas.filter(f => {
     const d = f.datos_extraidos;
-    if (filtros.proveedor  && f.proveedor !== filtros.proveedor) return false;
+    if (filtros.proveedor && !(f.proveedor || '').toLowerCase().includes(filtros.proveedor.toLowerCase())) return false;
+    if (filtros.numFactura && !(d?.numero_factura || '').toLowerCase().includes(filtros.numFactura.toLowerCase())) return false;
+    if (filtros.cif && !(d?.cif_emisor || '').toLowerCase().includes(filtros.cif.toLowerCase())) return false;
     if (filtros.fechaDesde && d?.fecha_emision && d.fecha_emision < filtros.fechaDesde) return false;
     if (filtros.fechaHasta && d?.fecha_emision && d.fecha_emision > filtros.fechaHasta) return false;
     if (filtros.estadoExtraccion && f.estado !== filtros.estadoExtraccion) return false;
@@ -372,10 +410,10 @@ export default function SeccionFacturas({
         </div>
       )}
 
-      {/* Barra de acciones — visible siempre que haya selección */}
+      {/* Barra de acciones — flotante cuando hay selección */}
       {haySeleccion && (
-        <div className="space-y-2">
-          <div className="flex items-center gap-3 bg-blue-600 text-white rounded-xl px-5 py-3 shadow-lg shadow-blue-200 flex-wrap">
+        <div className="space-y-2 sticky bottom-4 z-30">
+          <div className="flex items-center gap-2 sm:gap-3 bg-blue-600 text-white rounded-xl px-3 sm:px-5 py-3 shadow-lg shadow-blue-200 flex-wrap">
             <span className="text-sm font-medium flex-1">
               {n} {n === 1 ? 'factura seleccionada' : 'facturas seleccionadas'}
             </span>
@@ -458,7 +496,7 @@ export default function SeccionFacturas({
         const fmt     = v => new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format(v);
         return (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setModalA3Open(false)}>
-            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 overflow-hidden" onClick={e => e.stopPropagation()}>
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-[calc(100%-2rem)] sm:max-w-md mx-4 overflow-hidden" onClick={e => e.stopPropagation()}>
               <div className="px-6 py-5 border-b border-gray-100">
                 <h2 className="text-base font-semibold text-gray-900">Exportar Lote a A3</h2>
                 <p className="text-sm text-gray-500 mt-0.5">Se generará el fichero CSV y las facturas pasarán a <strong>Contabilizadas</strong>.</p>
@@ -503,7 +541,7 @@ export default function SeccionFacturas({
       {/* Modal configuracion exportacion SAGE */}
       {modalSageOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setModalSageOpen(false)}>
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4" onClick={e => e.stopPropagation()}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-[calc(100%-2rem)] sm:max-w-lg mx-4" onClick={e => e.stopPropagation()}>
             <div className="px-6 py-4 border-b border-gray-100">
               <h3 className="text-sm font-semibold text-gray-900">Exportar a SAGE ContaPlus</h3>
               <p className="text-xs text-gray-400 mt-0.5">{seleccionados.size} factura(s) de {sageProveedores.length} proveedor(es)</p>
@@ -582,7 +620,49 @@ export default function SeccionFacturas({
         onDatosActualizados={onDatosActualizados}
         onProveedorActualizado={onProveedorActualizado}
         modoGestoria={modoGestoria}
+        focusFacturaId={focusFacturaId}
+        onClearFocus={onClearFocus}
       />
+
+      {/* Paginación */}
+      {/* Paginación + selector de tamaño */}
+      {totalFacturas > 0 && (
+        <div className="flex items-center justify-between flex-wrap gap-2 bg-white rounded-xl border border-gray-200 shadow-sm px-4 py-3">
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-gray-500">Mostrar</span>
+            <select
+              value={pageSize}
+              onChange={e => {
+                const v = e.target.value === 'all' ? 'all' : Number(e.target.value);
+                setPageSize(v);
+                loadFacturas(1, v);
+              }}
+              className="text-xs border border-gray-200 rounded px-2 py-1 bg-white text-gray-700"
+            >
+              {PAGE_SIZES.map(s => <option key={s} value={s}>{s}</option>)}
+              <option value="all">Todos</option>
+            </select>
+            <span className="text-xs text-gray-500">
+              {pageSize === 'all'
+                ? `${totalFacturas} facturas`
+                : `Pagina ${page} de ${totalPages} (${totalFacturas} facturas)`
+              }
+            </span>
+          </div>
+          {pageSize !== 'all' && totalPages > 1 && (
+            <div className="flex items-center gap-1">
+              <button onClick={() => loadFacturas(1)} disabled={page <= 1}
+                className="px-2 py-1 text-xs rounded border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-30">&laquo;</button>
+              <button onClick={() => loadFacturas(page - 1)} disabled={page <= 1}
+                className="px-2 py-1 text-xs rounded border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-30">&lsaquo;</button>
+              <button onClick={() => loadFacturas(page + 1)} disabled={page >= totalPages}
+                className="px-2 py-1 text-xs rounded border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-30">&rsaquo;</button>
+              <button onClick={() => loadFacturas(totalPages)} disabled={page >= totalPages}
+                className="px-2 py-1 text-xs rounded border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-30">&raquo;</button>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

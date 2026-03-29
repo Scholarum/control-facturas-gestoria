@@ -17,7 +17,7 @@ function safeUser(u) {
 router.get('/', requireAdmin, async (req, res) => {
   const db = getDb();
   const usuarios = await db.all(
-    'SELECT id, nombre, email, rol, activo, created_at FROM usuarios ORDER BY id'
+    'SELECT id, nombre, email, rol, activo, chat_bloqueado, created_at FROM usuarios ORDER BY id'
   );
   // Cargar empresas asignadas a cada usuario
   const ue = await db.all('SELECT ue.usuario_id, e.id AS empresa_id, e.nombre FROM usuario_empresa ue JOIN empresas e ON e.id = ue.empresa_id WHERE e.activo = true');
@@ -81,7 +81,7 @@ router.put('/:id', async (req, res) => {
     return res.status(403).json({ ok: false, error: 'Solo puedes editar tu propio perfil' });
   }
 
-  const { nombre, email, rol, activo } = req.body;
+  const { nombre, email, rol, activo, chat_bloqueado } = req.body;
   const db   = getDb();
   const user = await db.one('SELECT * FROM usuarios WHERE id = $1', [id]);
   if (!user) return res.status(404).json({ ok: false, error: 'Usuario no encontrado' });
@@ -95,14 +95,15 @@ router.put('/:id', async (req, res) => {
     if (roles.some(r => r.nombre === rol)) nuevoRol = rol;
   }
   const nuevoActivo = (isAdmin && activo !== undefined) ? (activo ? 1 : 0) : user.activo;
+  const nuevoChatBloqueado = (isAdmin && chat_bloqueado !== undefined) ? !!chat_bloqueado : (user.chat_bloqueado || false);
 
   try {
     await db.query(
-      "UPDATE usuarios SET nombre=$1, email=$2, rol=$3, activo=$4 WHERE id=$5",
-      [nuevoNombre, nuevoEmail, nuevoRol, nuevoActivo, id]
+      "UPDATE usuarios SET nombre=$1, email=$2, rol=$3, activo=$4, chat_bloqueado=$6 WHERE id=$5",
+      [nuevoNombre, nuevoEmail, nuevoRol, nuevoActivo, id, nuevoChatBloqueado]
     );
     const updated = await db.one(
-      'SELECT id, nombre, email, rol, activo, created_at FROM usuarios WHERE id = $1',
+      'SELECT id, nombre, email, rol, activo, chat_bloqueado, created_at FROM usuarios WHERE id = $1',
       [id]
     );
     res.json({ ok: true, data: updated });

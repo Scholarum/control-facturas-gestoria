@@ -110,10 +110,22 @@ export async function desactivarUsuario(id) {
 
 // ─── Facturas ─────────────────────────────────────────────────────────────────
 
-export async function fetchFacturas(empresaId) {
-  const q = empresaId ? `?empresa=${empresaId}` : '';
-  const res = await fetch(`${API_BASE}/api/drive${q}`, { headers: authHeaders() });
+export async function fetchFacturas(empresaId, { estado, page = 1, limit = 50 } = {}) {
+  const params = new URLSearchParams();
+  if (empresaId) params.set('empresa', empresaId);
+  if (estado)    params.set('estado', estado);
+  params.set('page', page);
+  params.set('limit', limit);
+  const res = await fetch(`${API_BASE}/api/drive?${params}`, { headers: authHeaders() });
   if (!res.ok) throw new Error('Error al cargar facturas');
+  const json = await res.json();
+  return { data: json.data, pagination: json.pagination };
+}
+
+export async function fetchStats(empresaId) {
+  const q = empresaId ? `?empresa=${empresaId}` : '';
+  const res = await fetch(`${API_BASE}/api/drive/stats${q}`, { headers: authHeaders() });
+  if (!res.ok) throw new Error('Error al cargar stats');
   const { data } = await res.json();
   return data;
 }
@@ -260,11 +272,67 @@ export async function exportarExcel(ids) {
   URL.revokeObjectURL(url);
 }
 
+// ─── Chat / Conversaciones ───────────────────────────────────────────────────
+
+export async function fetchChatConfig() {
+  const res = await fetch(`${API_BASE}/api/chat/conversaciones/config`, { headers: authHeaders() });
+  if (!res.ok) return {};
+  const { data } = await res.json();
+  return data;
+}
+
+export async function fetchConversaciones(agenteId) {
+  const q = agenteId ? `?agente=${agenteId}` : '';
+  const res = await fetch(`${API_BASE}/api/chat/conversaciones${q}`, { headers: authHeaders() });
+  if (!res.ok) return [];
+  const { data } = await res.json();
+  return data;
+}
+
+export async function crearConversacion(agentId, origen) {
+  const res = await fetch(`${API_BASE}/api/chat/conversaciones`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ agentId, origen }),
+  });
+  const { data } = await res.json();
+  return data;
+}
+
+export async function fetchMensajes(conversacionId) {
+  const res = await fetch(`${API_BASE}/api/chat/conversaciones/${conversacionId}/mensajes`, { headers: authHeaders() });
+  if (!res.ok) return [];
+  const { data } = await res.json();
+  return data;
+}
+
+export async function guardarMensaje(conversacionId, role, content) {
+  await fetch(`${API_BASE}/api/chat/conversaciones/${conversacionId}/mensajes`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ role, content }),
+  });
+}
+
+export async function ocultarConversacion(conversacionId) {
+  await fetch(`${API_BASE}/api/chat/conversaciones/${conversacionId}`, {
+    method: 'DELETE',
+    headers: authHeaders(),
+  });
+}
+
 // ─── Auditoría ────────────────────────────────────────────────────────────────
 
 export async function fetchAuditoria() {
   const res = await fetch(`${API_BASE}/api/auditoria`, { headers: authHeaders() });
   if (!res.ok) throw new Error('Error al cargar auditoría');
+  const { data } = await res.json();
+  return data;
+}
+
+export async function fetchHistorialFactura(facturaId) {
+  const res = await fetch(`${API_BASE}/api/facturas/${facturaId}/auditoria`, { headers: authHeaders() });
+  if (!res.ok) throw new Error('Error al cargar historial');
   const { data } = await res.json();
   return data;
 }

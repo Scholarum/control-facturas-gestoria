@@ -3,6 +3,7 @@ const multer    = require('multer');
 const XLSX      = require('xlsx');
 const router    = express.Router();
 const { getDb } = require('../config/database');
+const logger    = require('../config/logger');
 const { resolveUser, requireAdmin, requireAuth } = require('../middleware/auth');
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
@@ -60,7 +61,7 @@ async function autoAsignarFacturasProveedor(db, proveedor) {
       [proveedor.nombre_carpeta || '', proveedor.cif || null]
     );
   } catch (e) {
-    console.error('[Proveedores] Error auto-asignando facturas:', e.message);
+    logger.error({ err: e }, 'Proveedores error auto-asignando facturas');
   }
 }
 

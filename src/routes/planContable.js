@@ -2,6 +2,7 @@ const express   = require('express');
 const multer    = require('multer');
 const XLSX      = require('xlsx');
 const router    = express.Router();
+const logger    = require('../config/logger');
 const { getDb } = require('../config/database');
 const { resolveUser, requireAdmin } = require('../middleware/auth');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
@@ -25,7 +26,7 @@ router.get('/', async (req, res) => {
       : await db.all(`SELECT * FROM plan_contable WHERE activo = true ${filtroEmpresa} ORDER BY codigo`);
     res.json({ ok: true, data: rows });
   } catch (err) {
-    console.error('[plan-contable] GET error:', err.message);
+    logger.error({ err: err.message }, 'plan-contable GET error');
     res.status(500).json({ ok: false, error: err.message });
   }
 });
@@ -47,7 +48,7 @@ router.post('/', requireAdmin, async (req, res) => {
     );
     res.json({ ok: true, data: row });
   } catch (err) {
-    console.error('[plan-contable] POST error:', err.message);
+    logger.error({ err: err.message }, 'plan-contable POST error');
     res.status(500).json({ ok: false, error: err.message });
   }
 });
@@ -114,7 +115,7 @@ router.post('/importar-pdf', requireAdmin, upload.single('archivo'), async (req,
       { apiVersion: 'v1' }
     );
 
-    console.log(`[PlanContable] Enviando PDF a Gemini (${Math.round(req.file.size/1024)}KB)...`);
+    logger.info({ sizeKB: Math.round(req.file.size/1024) }, 'PlanContable: enviando PDF a Gemini');
 
     const result = await model.generateContent([
       { inlineData: { mimeType: 'application/pdf', data: req.file.buffer.toString('base64') } },
@@ -140,7 +141,7 @@ Reglas:
 
     const parsed = JSON.parse(texto);
     const cuentas = parsed.cuentas || [];
-    console.log(`[PlanContable] Gemini extrajo ${cuentas.length} cuentas`);
+    logger.info({ cuentas: cuentas.length }, 'PlanContable: cuentas extraidas por Gemini');
 
     if (!cuentas.length) {
       return res.status(422).json({ ok: false, error: 'Gemini no encontro cuentas en el PDF' });
@@ -168,10 +169,10 @@ Reglas:
       } catch {}
     }
 
-    console.log(`[PlanContable] Importadas: ${insertadas} nuevas, ${actualizadas} actualizadas`);
+    logger.info({ insertadas, actualizadas }, 'PlanContable: importacion completada');
     res.json({ ok: true, data: { insertadas, actualizadas, total_extraidas: cuentas.length } });
   } catch (e) {
-    console.error('[PlanContable] Error Gemini:', e.message);
+    logger.error({ err: e.message }, 'PlanContable: error Gemini');
     res.status(500).json({ ok: false, error: `Error procesando PDF: ${e.message.slice(0, 200)}` });
   }
 });

@@ -52,7 +52,7 @@ async function getUserFromToken(token) {
     const payload = verifyToken(token);
     const db      = getDb();
     const user    = await db.one(
-      "SELECT id, nombre, email, rol, activo, created_at FROM usuarios WHERE id = $1 AND activo = 1",
+      "SELECT id, nombre, email, rol, activo, chat_bloqueado, created_at FROM usuarios WHERE id = $1 AND activo = 1",
       [payload.id]
     );
     return user || null;

@@ -17,6 +17,7 @@ const EVENTOS = {
   ELIMINAR_FACTURA:      'ELIMINAR_FACTURA',
   EDICION_DATOS_FACTURA: 'EDICION_DATOS_FACTURA',
   EXPORT_SAGE:           'EXPORT_SAGE',
+  ASIGNAR_CG:            'ASIGNAR_CG',
 };
 
 async function registrarEvento({ evento, facturaId, usuarioId, ip, userAgent, tokenUsado, detalle }) {
@@ -40,15 +41,16 @@ async function registrarEvento({ evento, facturaId, usuarioId, ip, userAgent, to
   return { evento, facturaId, ip, timestamp: new Date().toISOString() };
 }
 
-async function historialFactura(facturaId) {
+async function historialFactura(driveArchivoId) {
   const db = getDb();
   return db.all(
     `SELECT l.*, u.nombre AS usuario_nombre, u.rol AS usuario_rol
      FROM   logs_auditoria l
      LEFT JOIN usuarios u ON u.id = l.usuario_id
-     WHERE  l.factura_id = $1
+     WHERE  l.detalle IS NOT NULL
+       AND  (l.detalle::jsonb->>'drive_id')::text = $1::text
      ORDER  BY l.timestamp ASC`,
-    [facturaId]
+    [driveArchivoId]
   );
 }
 

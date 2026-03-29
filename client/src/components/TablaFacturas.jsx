@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { BadgeGestion, BadgeExtraccion } from './Badge.jsx';
-import { fetchPreviewFactura, editarDatosFactura, asignarCuentaContableProveedor, crearProveedorRapido, crearCuentaContable, eliminarCuentaContable } from '../api.js';
+import { fetchPreviewFactura, editarDatosFactura, asignarCuentaContableProveedor, crearProveedorRapido, crearCuentaContable, eliminarCuentaContable, fetchHistorialFactura } from '../api.js';
 import { useAuth } from '../context/AuthContext.jsx';
 
 // Campos obligatorios para considerar una factura sin incidencia
@@ -79,8 +79,8 @@ function ComboboxCuenta({ cuentas, value, onChange, disabled }) {
     const spaceBelow = window.innerHeight - rect.bottom;
     const openUp = spaceBelow < dropdownH && rect.top > dropdownH;
     setPos({
-      left:  rect.left,
-      width: Math.max(rect.width, 288), // w-72 = 18rem = 288px
+      left:  Math.min(rect.left, window.innerWidth - Math.min(Math.max(rect.width, 288), window.innerWidth - 16) - 8),
+      width: Math.min(Math.max(rect.width, 288), window.innerWidth - 16),
       ...(openUp
         ? { bottom: window.innerHeight - rect.top + 4, top: undefined }
         : { top: rect.bottom + 4, bottom: undefined }),
@@ -490,7 +490,7 @@ function FilaCcPreview({ f, planContable, onAsignarCG, selected, esPar = true, o
       {/* Modal crear proveedor al vuelo */}
       {modalProv && createPortal(
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => setModalProv(false)}>
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-4" onClick={e => e.stopPropagation()}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-[calc(100%-2rem)] sm:max-w-md p-6 space-y-4" onClick={e => e.stopPropagation()}>
             <h3 className="text-sm font-semibold text-gray-900">Crear proveedor</h3>
             {provError && <p className="text-xs text-red-600 bg-red-50 rounded px-2 py-1">{provError}</p>}
             <div className="space-y-3">
@@ -634,7 +634,7 @@ function PanelDetalleFiscal({ f, onDatosActualizados }) {
     <tr>
       <td colSpan={100} className={`px-0 pb-0 border-b ${hayIncidencia ? 'bg-red-50/60 border-red-100' : 'bg-blue-50/60 border-blue-100'}`}>
         {hayIncidencia && (
-          <div className="px-6 pt-3 pb-1">
+          <div className="px-3 sm:px-6 pt-3 pb-1">
             <p className="text-xs font-semibold text-red-600 flex items-center gap-1.5">
               <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z"/>
@@ -643,7 +643,17 @@ function PanelDetalleFiscal({ f, onDatosActualizados }) {
             </p>
           </div>
         )}
-        <div className="px-6 py-4 grid grid-cols-1 md:grid-cols-3 gap-6">
+        {d?._avisos_validacion?.length > 0 && (
+          <div className="px-3 sm:px-6 pt-3 pb-1">
+            <p className="text-xs font-semibold text-amber-600 flex items-center gap-1.5">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+              </svg>
+              Avisos de validacion: {d._avisos_validacion.join(' | ')}
+            </p>
+          </div>
+        )}
+        <div className="px-3 sm:px-6 py-4 grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-6">
 
           {/* Datos fiscales */}
           <div>
@@ -763,8 +773,80 @@ function PanelDetalleFiscal({ f, onDatosActualizados }) {
           </div>
 
         </div>
+
+        {/* Historial de cambios */}
+        <HistorialFactura facturaId={f.id} />
+
       </td>
     </tr>
+  );
+}
+
+// ─── Historial de cambios por factura ─────────────────────────────────────────
+
+function HistorialFactura({ facturaId }) {
+  const [open, setOpen] = useState(false);
+  const [logs, setLogs] = useState([]);
+  const [loading, setLoading] = useState(false);
+
+  function toggle() {
+    if (!open && logs.length === 0) {
+      setLoading(true);
+      fetchHistorialFactura(facturaId)
+        .then(setLogs)
+        .catch(() => {})
+        .finally(() => setLoading(false));
+    }
+    setOpen(o => !o);
+  }
+
+  const fmtTs = ts => new Date(ts).toLocaleString('es-ES', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' });
+
+  const EVENTO_LABELS = {
+    CONTABILIZAR_MASIVO: { label: 'Contabilizada', color: 'bg-emerald-500' },
+    REVERTIR_ESTADO: { label: 'Revertida', color: 'bg-amber-500' },
+    EDICION_DATOS_FACTURA: { label: 'Datos editados', color: 'bg-blue-500' },
+    ELIMINAR_FACTURA: { label: 'Eliminada', color: 'bg-red-500' },
+    EXPORT_EXCEL: { label: 'Exportada Excel', color: 'bg-purple-500' },
+    ASIGNAR_CG: { label: 'Cta. Gasto asignada', color: 'bg-purple-500' },
+    DOWNLOAD: { label: 'Descargada', color: 'bg-blue-500' },
+    EXPORT_SAGE: { label: 'Exportada SAGE', color: 'bg-orange-500' },
+  };
+
+  return (
+    <div className="px-3 sm:px-6 pb-4">
+      <button
+        onClick={toggle}
+        className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-700 font-medium transition-colors"
+      >
+        <svg className={`h-3.5 w-3.5 transition-transform ${open ? 'rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+        </svg>
+        Historial de cambios
+      </button>
+
+      {open && (
+        <div className="mt-3 ml-1 border-l-2 border-gray-200 pl-4 space-y-3">
+          {loading && <p className="text-xs text-gray-400">Cargando...</p>}
+          {!loading && logs.length === 0 && <p className="text-xs text-gray-400">Sin cambios registrados</p>}
+          {logs.map(log => {
+            const info = EVENTO_LABELS[log.evento] || { label: log.evento, color: 'bg-gray-400' };
+            return (
+              <div key={log.id} className="flex items-start gap-2">
+                <div className={`w-2 h-2 rounded-full mt-1.5 flex-shrink-0 ${info.color}`} />
+                <div className="min-w-0">
+                  <p className="text-xs text-gray-700">
+                    <span className="font-medium">{info.label}</span>
+                    {log.usuario_nombre && <span className="text-gray-400"> por {log.usuario_nombre}</span>}
+                  </p>
+                  <p className="text-xs text-gray-400">{fmtTs(log.timestamp)}</p>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -797,11 +879,24 @@ export default function TablaFacturas({
   facturas, seleccionados, onToggle, onToggleTodo,
   loading, hayFiltros, esAdmin = false, onRevertir, onEliminar,
   planContable = [], onAsignarCG, onDatosActualizados, onProveedorActualizado, modoGestoria = 'v2',
+  focusFacturaId, onClearFocus,
 }) {
   const [expandidos, setExpandidos] = useState(new Set());
+  const focusRef = useRef(null);
   const todosSeleccionados = facturas.length > 0 && seleccionados.size === facturas.length;
   const algunoSeleccionado = seleccionados.size > 0 && !todosSeleccionados;
   const colspan = esAdmin ? 11 : 10;
+
+  // Auto-expandir y hacer scroll a la factura buscada
+  useEffect(() => {
+    if (!focusFacturaId) return;
+    setExpandidos(prev => new Set(prev).add(focusFacturaId));
+    // Esperar al siguiente render para que la fila exista
+    requestAnimationFrame(() => {
+      focusRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      setTimeout(() => onClearFocus?.(), 2000);
+    });
+  }, [focusFacturaId]);
 
   function toggleExpand(id, e) {
     e.stopPropagation();
@@ -828,7 +923,7 @@ export default function TablaFacturas({
                   className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
                 />
               </th>
-              <Th>Proveedor</Th>
+              <Th className="sticky left-0 bg-gray-50 z-10">Proveedor</Th>
               <Th>Nº Factura</Th>
               <Th>Fecha emisión</Th>
               <Th className="text-right">Total</Th>
@@ -878,11 +973,13 @@ export default function TablaFacturas({
                     ? 'Proveedor sin cuenta contable asignada'
                     : '';
 
+                const isFocused = focusFacturaId === f.id;
                 const mainRow = (
                   <tr
                     key={`row-${f.id}`}
+                    ref={isFocused ? focusRef : undefined}
                     onClick={() => onToggle(f.id)}
-                    className={`cursor-pointer transition-colors ${selected ? 'bg-blue-50 hover:bg-blue-100' : incidencia ? 'bg-red-50/40 hover:bg-red-50' : incProv ? 'bg-orange-50/40 hover:bg-orange-50' : esPar ? 'bg-white hover:bg-gray-50' : 'bg-slate-50/70 hover:bg-slate-100/70'}`}
+                    className={`cursor-pointer transition-colors ${isFocused ? 'ring-2 ring-blue-400 ring-inset' : ''} ${selected ? 'bg-blue-50 hover:bg-blue-100' : incidencia ? 'bg-red-50/40 hover:bg-red-50' : incProv ? 'bg-orange-50/40 hover:bg-orange-50' : esPar ? 'bg-white hover:bg-gray-50' : 'bg-slate-50/70 hover:bg-slate-100/70'}`}
                   >
                     {/* Botón expandir (solo datos fiscales) */}
                     <td className="px-3 py-3" onClick={e => toggleExpand(f.id, e)}>
@@ -904,7 +1001,7 @@ export default function TablaFacturas({
                         className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
                       />
                     </td>
-                    <td className="px-4 py-3 font-medium text-gray-900 max-w-[180px] truncate" title={incProv ? tooltipProv : f.proveedor}>
+                    <td className="px-4 py-3 font-medium text-gray-900 max-w-[180px] truncate sticky left-0 bg-white z-10" title={incProv ? tooltipProv : f.proveedor}>
                       <span className="flex items-center gap-1">
                         {incProv && (
                           <span title={tooltipProv} className="flex-shrink-0 cursor-help">

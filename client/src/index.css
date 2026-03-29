@@ -17,3 +17,33 @@
     to   { opacity: 1; transform: scale(1); }
   }
 }
+
+/* Touch targets mínimos en móvil */
+@media (max-width: 767px) {
+  table button, table a {
+    min-width: 36px;
+    min-height: 36px;
+  }
+  input, select, textarea {
+    min-height: 40px;
+    font-size: 16px; /* Evita zoom en iOS */
+  }
+}
+
+/* Indicador de scroll horizontal en tablas */
+.overflow-x-auto {
+  -webkit-overflow-scrolling: touch;
+}
+@media (max-width: 767px) {
+  .overflow-x-auto {
+    background:
+      linear-gradient(to right, white 30%, transparent),
+      linear-gradient(to left, white 30%, transparent),
+      linear-gradient(to right, rgba(0,0,0,.1), transparent 15px),
+      linear-gradient(to left, rgba(0,0,0,.1), transparent 15px);
+    background-position: left center, right center, left center, right center;
+    background-repeat: no-repeat;
+    background-size: 20px 100%, 20px 100%, 15px 100%, 15px 100%;
+    background-attachment: local, local, scroll, scroll;
+  }
+}
