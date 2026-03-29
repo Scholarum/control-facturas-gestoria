@@ -1,6 +1,6 @@
-import { useState, useMemo, useEffect, useRef } from 'react';
+import { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import TablaFacturas, { tieneIncidencia, tieneIncidenciaProveedor } from './TablaFacturas.jsx';
-import { descargarZip, contabilizar, revertirEstado, eliminarFactura, asignarCGMasivo, exportarLoteA3, exportarSage, sagePreview } from '../api.js';
+import { fetchFacturas, descargarZip, contabilizar, revertirEstado, eliminarFactura, asignarCGMasivo, exportarLoteA3, exportarSage, sagePreview } from '../api.js';
 
 // ─── Filtros compactos por sección ────────────────────────────────────────────
 
@@ -174,13 +174,16 @@ function ComboboxCuentaMasiva({ cuentas, value, onChange }) {
  * tipo: 'pendientes' | 'descargadas' | 'cc_asignada' | 'contabilizadas'
  * onEstadoActualizado(ids: number[], nuevoEstado: string): void
  */
+const TIPO_ESTADO = { pendientes: 'PENDIENTE', descargadas: 'DESCARGADA', cc_asignada: 'CC_ASIGNADA', contabilizadas: 'CONTABILIZADA' };
+const PAGE_SIZE = 50;
+
 export default function SeccionFacturas({
   tipo,
-  facturas,
+  empresaId,
+  refreshKey,
   proveedores,
   esAdmin,
   soloLectura = false,
-  loading,
   onEstadoActualizado,
   onRefreshFacturas,
   planContable = [],
@@ -194,7 +197,28 @@ export default function SeccionFacturas({
   onClearFocus,
 }) {
   const esV1 = modoGestoria === 'v1';
+  const [facturas,      setFacturas]     = useState([]);
+  const [loading,       setLoading]      = useState(true);
+  const [page,          setPage]         = useState(1);
+  const [totalPages,    setTotalPages]   = useState(1);
+  const [totalFacturas, setTotalFacturas] = useState(0);
   const [filtros,       setFiltros]       = useState({ proveedor: '', numFactura: '', cif: '', fechaDesde: '', fechaHasta: '', soloIncidencias: '', soloSinProveedor: '', estadoExtraccion: '' });
+
+  // Cargar facturas paginadas
+  const loadFacturas = useCallback(async (p = 1) => {
+    if (!empresaId) return;
+    setLoading(true);
+    try {
+      const { data, pagination } = await fetchFacturas(empresaId, { estado: TIPO_ESTADO[tipo], page: p, limit: PAGE_SIZE });
+      setFacturas(data);
+      setPage(pagination.page);
+      setTotalPages(pagination.totalPages);
+      setTotalFacturas(pagination.total);
+    } catch { /* silenciar */ }
+    setLoading(false);
+  }, [empresaId, tipo]);
+
+  useEffect(() => { loadFacturas(1); }, [loadFacturas, refreshKey]);
   const [seleccionados, setSeleccionados] = useState(new Set());
   const [descargando,        setDescargando]        = useState(false);
   const [contabilizando,     setContabilizando]     = useState(false);
@@ -596,6 +620,25 @@ export default function SeccionFacturas({
         focusFacturaId={focusFacturaId}
         onClearFocus={onClearFocus}
       />
+
+      {/* Paginación */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between bg-white rounded-xl border border-gray-200 shadow-sm px-4 py-3">
+          <span className="text-xs text-gray-500">
+            Pagina {page} de {totalPages} ({totalFacturas} facturas)
+          </span>
+          <div className="flex items-center gap-1">
+            <button onClick={() => loadFacturas(1)} disabled={page <= 1}
+              className="px-2 py-1 text-xs rounded border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-30">&laquo;</button>
+            <button onClick={() => loadFacturas(page - 1)} disabled={page <= 1}
+              className="px-2 py-1 text-xs rounded border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-30">&lsaquo;</button>
+            <button onClick={() => loadFacturas(page + 1)} disabled={page >= totalPages}
+              className="px-2 py-1 text-xs rounded border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-30">&rsaquo;</button>
+            <button onClick={() => loadFacturas(totalPages)} disabled={page >= totalPages}
+              className="px-2 py-1 text-xs rounded border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-30">&raquo;</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

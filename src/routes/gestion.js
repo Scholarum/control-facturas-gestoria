@@ -53,60 +53,133 @@ function tieneIncidencia(datos) {
 
 router.use(resolveUser);
 
+// ─── GET /api/drive/stats — contadores por estado (ligero) ───────────────────
+
+router.get('/stats', async (req, res) => {
+  const db = getDb();
+  const empresaId = parseInt(req.query.empresa, 10) || null;
+  const where = empresaId ? 'WHERE empresa_id = $1' : '';
+  const params = empresaId ? [empresaId] : [];
+
+  const rows = await db.all(`
+    SELECT COALESCE(estado_gestion, 'PENDIENTE') AS estado, COUNT(*)::int AS total
+    FROM drive_archivos ${where}
+    GROUP BY COALESCE(estado_gestion, 'PENDIENTE')
+  `, params);
+
+  const stats = { pendientes: 0, descargadas: 0, ccAsignadas: 0, contabilizadas: 0, total: 0 };
+  for (const r of rows) {
+    stats.total += r.total;
+    if (r.estado === 'PENDIENTE')      stats.pendientes     = r.total;
+    if (r.estado === 'DESCARGADA')     stats.descargadas    = r.total;
+    if (r.estado === 'CC_ASIGNADA')    stats.ccAsignadas    = r.total;
+    if (r.estado === 'CONTABILIZADA')  stats.contabilizadas = r.total;
+  }
+
+  // Proveedores sin cuenta contable (para alerta)
+  const sinCuenta = empresaId
+    ? await db.all(`
+        SELECT DISTINCT da.proveedor AS razon_social,
+               (CASE WHEN da.datos_extraidos ~ '^\\s*\\{' THEN da.datos_extraidos::jsonb->>'cif_emisor' END) AS cif
+        FROM drive_archivos da
+        LEFT JOIN LATERAL (
+          SELECT p2.id, pe2.cuenta_contable_id FROM proveedores p2
+          LEFT JOIN proveedor_empresa pe2 ON pe2.proveedor_id = p2.id AND pe2.empresa_id = da.empresa_id
+          WHERE p2.activo = true AND (
+            (p2.cif IS NOT NULL AND da.datos_extraidos ~ '^\\s*\\{' AND normalizar_cif((da.datos_extraidos::jsonb)->>'cif_emisor') = normalizar_cif(p2.cif))
+            OR p2.nombre_carpeta = da.proveedor
+          ) LIMIT 1
+        ) p ON true
+        WHERE da.empresa_id = $1 AND da.proveedor IS NOT NULL
+          AND (p.id IS NULL OR p.cuenta_contable_id IS NULL)
+        LIMIT 20
+      `, [empresaId])
+    : [];
+
+  res.json({ ok: true, data: { ...stats, alertaProveedores: sinCuenta } });
+});
+
 // ─── GET /api/drive ───────────────────────────────────────────────────────────
 
 router.get('/', async (req, res) => {
   const db = getDb();
   const empresaId = parseInt(req.query.empresa, 10) || null;
-  const whereEmpresa = empresaId ? 'AND da.empresa_id = $1' : '';
-  const params = empresaId ? [empresaId] : [];
+  const estado    = req.query.estado || null;  // PENDIENTE, DESCARGADA, CC_ASIGNADA, CONTABILIZADA
+  const page      = Math.max(1, parseInt(req.query.page, 10) || 1);
+  const limit     = Math.min(200, Math.max(1, parseInt(req.query.limit, 10) || 50));
+  const offset    = (page - 1) * limit;
 
-  const archivos = await db.all(`
-    SELECT
-      da.id, da.google_id, da.nombre_archivo, da.ruta_completa,
-      da.proveedor, da.fecha_subida, da.estado, da.estado_gestion,
-      da.datos_extraidos, da.error_extraccion, da.procesado_at, da.ultima_sync,
-      da.lote_a3_id, da.empresa_id,
-      p.id                                                        AS proveedor_id,
-      p.razon_social,
-      p.cif                                                       AS proveedor_cif,
-      da.cuenta_gasto_id                                          AS cg_manual_id,
-      COALESCE(da.cuenta_gasto_id, pe.cuenta_gasto_id)            AS cg_efectiva_id,
-      COALESCE(cgd.codigo,  peg.codigo)                           AS cuenta_gasto_codigo,
-      COALESCE(cgd.descripcion, peg.descripcion)                  AS cuenta_gasto_desc,
-      pec.codigo                                                  AS cta_proveedor_codigo,
-      la.nombre_fichero                                           AS lote_a3_nombre,
-      la.fecha                                                    AS lote_a3_fecha
-    FROM drive_archivos da
-    LEFT JOIN LATERAL (
-      SELECT p2.*
-      FROM proveedores p2
-      WHERE p2.activo = true
-        AND (
-          (
-            p2.cif IS NOT NULL
-            AND da.datos_extraidos IS NOT NULL
-            AND da.datos_extraidos ~ '^\\s*\\{'
-            AND normalizar_cif((da.datos_extraidos::jsonb)->>'cif_emisor') = normalizar_cif(p2.cif)
+  const conditions = ['1=1'];
+  const params = [];
+  let idx = 1;
+
+  if (empresaId) { conditions.push(`da.empresa_id = $${idx++}`); params.push(empresaId); }
+  if (estado) {
+    if (estado === 'PENDIENTE') {
+      conditions.push(`COALESCE(da.estado_gestion, 'PENDIENTE') = 'PENDIENTE'`);
+    } else {
+      conditions.push(`da.estado_gestion = $${idx++}`); params.push(estado);
+    }
+  }
+
+  const whereClause = conditions.join(' AND ');
+
+  const [archivos, countRow] = await Promise.all([
+    db.all(`
+      SELECT
+        da.id, da.google_id, da.nombre_archivo, da.ruta_completa,
+        da.proveedor, da.fecha_subida, da.estado, da.estado_gestion,
+        da.datos_extraidos, da.error_extraccion, da.procesado_at, da.ultima_sync,
+        da.lote_a3_id, da.empresa_id,
+        p.id                                                        AS proveedor_id,
+        p.razon_social,
+        p.cif                                                       AS proveedor_cif,
+        da.cuenta_gasto_id                                          AS cg_manual_id,
+        COALESCE(da.cuenta_gasto_id, pe.cuenta_gasto_id)            AS cg_efectiva_id,
+        COALESCE(cgd.codigo,  peg.codigo)                           AS cuenta_gasto_codigo,
+        COALESCE(cgd.descripcion, peg.descripcion)                  AS cuenta_gasto_desc,
+        pec.codigo                                                  AS cta_proveedor_codigo,
+        la.nombre_fichero                                           AS lote_a3_nombre,
+        la.fecha                                                    AS lote_a3_fecha
+      FROM drive_archivos da
+      LEFT JOIN LATERAL (
+        SELECT p2.*
+        FROM proveedores p2
+        WHERE p2.activo = true
+          AND (
+            (
+              p2.cif IS NOT NULL
+              AND da.datos_extraidos IS NOT NULL
+              AND da.datos_extraidos ~ '^\\s*\\{'
+              AND normalizar_cif((da.datos_extraidos::jsonb)->>'cif_emisor') = normalizar_cif(p2.cif)
+            )
+            OR p2.nombre_carpeta = da.proveedor
           )
-          OR p2.nombre_carpeta = da.proveedor
-        )
-      ORDER BY (p2.cif IS NOT NULL
-                AND da.datos_extraidos IS NOT NULL
-                AND da.datos_extraidos ~ '^\\s*\\{'
-                AND normalizar_cif((da.datos_extraidos::jsonb)->>'cif_emisor') = normalizar_cif(p2.cif)
-               ) DESC NULLS LAST
-      LIMIT 1
-    ) p ON true
-    LEFT JOIN proveedor_empresa pe  ON pe.proveedor_id = p.id AND pe.empresa_id = da.empresa_id
-    LEFT JOIN plan_contable peg     ON peg.id = pe.cuenta_gasto_id
-    LEFT JOIN plan_contable cgd     ON cgd.id = da.cuenta_gasto_id
-    LEFT JOIN plan_contable pec     ON pec.id = pe.cuenta_contable_id
-    LEFT JOIN lotes_exportacion_a3 la ON la.id = da.lote_a3_id
-    WHERE 1=1 ${whereEmpresa}
-    ORDER BY da.id DESC
-  `, params);
-  res.json({ ok: true, data: archivos.map(parsearArchivo) });
+        ORDER BY (p2.cif IS NOT NULL
+                  AND da.datos_extraidos IS NOT NULL
+                  AND da.datos_extraidos ~ '^\\s*\\{'
+                  AND normalizar_cif((da.datos_extraidos::jsonb)->>'cif_emisor') = normalizar_cif(p2.cif)
+                 ) DESC NULLS LAST
+        LIMIT 1
+      ) p ON true
+      LEFT JOIN proveedor_empresa pe  ON pe.proveedor_id = p.id AND pe.empresa_id = da.empresa_id
+      LEFT JOIN plan_contable peg     ON peg.id = pe.cuenta_gasto_id
+      LEFT JOIN plan_contable cgd     ON cgd.id = da.cuenta_gasto_id
+      LEFT JOIN plan_contable pec     ON pec.id = pe.cuenta_contable_id
+      LEFT JOIN lotes_exportacion_a3 la ON la.id = da.lote_a3_id
+      WHERE ${whereClause}
+      ORDER BY da.id DESC
+      LIMIT $${idx++} OFFSET $${idx++}
+    `, [...params, limit, offset]),
+
+    db.one(`SELECT COUNT(*)::int AS total FROM drive_archivos da WHERE ${whereClause}`, params),
+  ]);
+
+  res.json({
+    ok: true,
+    data: archivos.map(parsearArchivo),
+    pagination: { page, limit, total: countRow.total, totalPages: Math.ceil(countRow.total / limit) },
+  });
 });
 
 // ─── GET /api/drive/proveedores ───────────────────────────────────────────────

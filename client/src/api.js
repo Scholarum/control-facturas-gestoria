@@ -110,10 +110,22 @@ export async function desactivarUsuario(id) {
 
 // ─── Facturas ─────────────────────────────────────────────────────────────────
 
-export async function fetchFacturas(empresaId) {
-  const q = empresaId ? `?empresa=${empresaId}` : '';
-  const res = await fetch(`${API_BASE}/api/drive${q}`, { headers: authHeaders() });
+export async function fetchFacturas(empresaId, { estado, page = 1, limit = 50 } = {}) {
+  const params = new URLSearchParams();
+  if (empresaId) params.set('empresa', empresaId);
+  if (estado)    params.set('estado', estado);
+  params.set('page', page);
+  params.set('limit', limit);
+  const res = await fetch(`${API_BASE}/api/drive?${params}`, { headers: authHeaders() });
   if (!res.ok) throw new Error('Error al cargar facturas');
+  const json = await res.json();
+  return { data: json.data, pagination: json.pagination };
+}
+
+export async function fetchStats(empresaId) {
+  const q = empresaId ? `?empresa=${empresaId}` : '';
+  const res = await fetch(`${API_BASE}/api/drive/stats${q}`, { headers: authHeaders() });
+  if (!res.ok) throw new Error('Error al cargar stats');
   const { data } = await res.json();
   return data;
 }

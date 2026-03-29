@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext.jsx';
 import Login          from './pages/Login.jsx';
 import Usuarios       from './pages/Usuarios.jsx';
@@ -11,10 +11,11 @@ import SeccionFacturas from './components/SeccionFacturas.jsx';
 import Dashboard      from './pages/Dashboard.jsx';
 import HistorialA3    from './pages/HistorialA3.jsx';
 import Empresas       from './pages/Empresas.jsx';
-import { fetchFacturas, fetchProveedores, exportarExcel, triggerSyncManual, fetchPlanContable, asignarCuentaGasto, asignarCGMasivo, autodetectarProveedores, aplicarCuentasProveedor, vincularProveedores, fetchRoles } from './api.js';
+import { fetchFacturas, fetchStats, fetchProveedores, exportarExcel, triggerSyncManual, fetchPlanContable, asignarCuentaGasto, asignarCGMasivo, autodetectarProveedores, aplicarCuentasProveedor, vincularProveedores, fetchRoles } from './api.js';
 import ChatWidget from './components/ChatWidget.jsx';
 import Notificaciones from './components/Notificaciones.jsx';
 import BusquedaGlobal from './components/BusquedaGlobal.jsx';
+import useCache from './hooks/useCache.js';
 
 // ─── Stats ────────────────────────────────────────────────────────────────────
 
@@ -34,8 +35,6 @@ function AppInner() {
 
   const [tab,             setTab]             = useState('facturas');
   const [subTab,          setSubTab]          = useState('pendientes');
-  const [todasFacturas,   setTodasFacturas]   = useState([]);
-  const [proveedores,     setProveedores]     = useState([]);
   const [loading,         setLoading]         = useState(true);
   const [error,           setError]           = useState(null);
   const [exportandoTotal, setExportandoTotal] = useState(false);
@@ -43,8 +42,18 @@ function AppInner() {
   const [aplicandoCuentas,   setAplicandoCuentas]   = useState(false);
   const [vinculandoProvs,   setVinculandoProvs]   = useState(false);
   const [syncMsg,         setSyncMsg]         = useState(null); // { ok, texto }
-  const [planContable,    setPlanContable]    = useState([]);
-  const [alertaProveedores, setAlertaProveedores] = useState([]); // proveedores sin cuentas
+  // Cache para proveedores y plan contable (5 min TTL, revalida en background)
+  const { data: proveedores = [], invalidate: invalidateProveedores } = useCache(
+    `proveedores`, () => fetchProveedores(), { enabled: !!user }
+  );
+  const { data: planContable = [], invalidate: invalidatePlanContable } = useCache(
+    empresaActiva ? `planContable-${empresaActiva.id}` : null,
+    () => fetchPlanContable(empresaActiva?.id),
+    { enabled: !!user && !!empresaActiva }
+  );
+  const [alertaProveedores, setAlertaProveedores] = useState([]);
+  const [stats,           setStats]           = useState({ total: 0, pendientes: 0, descargadas: 0, ccAsignadas: 0, contabilizadas: 0 });
+  const [refreshKey,      setRefreshKey]      = useState(0); // incrementar para forzar recarga de secciones
   const [focusFacturaId,  setFocusFacturaId]  = useState(null);
   const [adminMenuOpen,   setAdminMenuOpen]   = useState(false);
   const [userMenuOpen,    setUserMenuOpen]    = useState(false);
@@ -60,33 +69,23 @@ function AppInner() {
     }
   }, [user, tab]);
 
-  // Carga inicial — todo en paralelo, recargar al cambiar empresa
+  // Cargar stats + proveedores + plan contable al cambiar empresa
+  const refreshStats = useCallback(async () => {
+    if (!empresaActiva) return;
+    try {
+      const s = await fetchStats(empresaActiva.id);
+      setStats({ total: s.total, pendientes: s.pendientes, descargadas: s.descargadas, ccAsignadas: s.ccAsignadas, contabilizadas: s.contabilizadas });
+      setAlertaProveedores(s.alertaProveedores || []);
+    } catch {}
+  }, [empresaActiva]);
+
   useEffect(() => {
     if (!user || !empresaActiva) return;
     setLoading(true);
-    Promise.all([
-      fetchFacturas(empresaActiva.id).then(setTodasFacturas),
-      fetchProveedores().then(setProveedores),
-      fetchPlanContable(empresaActiva.id).then(setPlanContable).catch(() => {}),
-    ])
+    refreshStats()
       .catch(() => setError('No se pudo conectar con el servidor.'))
       .finally(() => setLoading(false));
   }, [user, empresaActiva]);
-
-  // Proveedores sin cuenta contable para la empresa activa (desde facturas ya cargadas)
-  useEffect(() => {
-    if (!user || loading || !todasFacturas.length) { setAlertaProveedores([]); return; }
-    // Agrupar proveedores unicos sin cuenta contable
-    const sinCuenta = new Map();
-    for (const f of todasFacturas) {
-      if (f.proveedor_id && !f.cta_proveedor_codigo) {
-        if (!sinCuenta.has(f.proveedor_id)) {
-          sinCuenta.set(f.proveedor_id, { id: f.proveedor_id, razon_social: f.razon_social || f.proveedor, cif: f.proveedor_cif });
-        }
-      }
-    }
-    setAlertaProveedores([...sinCuenta.values()]);
-  }, [user, loading, todasFacturas]);
 
   // Cerrar dropdowns al clicar fuera
   useEffect(() => {
@@ -98,43 +97,26 @@ function AppInner() {
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
-  // Listas por estado (reactivas a todasFacturas)
-  const pendientes     = useMemo(() => todasFacturas.filter(f => (f.estado_gestion || 'PENDIENTE') === 'PENDIENTE'), [todasFacturas]);
-  const descargadas    = useMemo(() => todasFacturas.filter(f => f.estado_gestion === 'DESCARGADA'),    [todasFacturas]);
-  const ccAsignadas    = useMemo(() => todasFacturas.filter(f => f.estado_gestion === 'CC_ASIGNADA'),   [todasFacturas]);
-  const contabilizadas = useMemo(() => todasFacturas.filter(f => f.estado_gestion === 'CONTABILIZADA'), [todasFacturas]);
-
-  // Stats en tiempo real
-  const stats = useMemo(() => ({
-    total:          todasFacturas.length,
-    pendientes:     pendientes.length,
-    descargadas:    descargadas.length,
-    ccAsignadas:    ccAsignadas.length,
-    contabilizadas: contabilizadas.length,
-  }), [todasFacturas, pendientes, descargadas, ccAsignadas, contabilizadas]);
-
-  // Callback cuando una SeccionFacturas mueve facturas de estado
-  function handleEstadoActualizado(ids, nuevoEstado) {
-    setTodasFacturas(prev => prev.map(f =>
-      ids.includes(f.id) ? { ...f, estado_gestion: nuevoEstado } : f
-    ));
-    // Si contabilizamos desde Descargadas, saltar a Contabilizadas automáticamente
-    if (nuevoEstado === 'CONTABILIZADA') setSubTab('contabilizadas');
-    // Si descargamos desde Pendientes, saltar a Descargadas
-    if (nuevoEstado === 'DESCARGADA')    setSubTab('descargadas');
-    if (nuevoEstado === 'CC_ASIGNADA')   setSubTab('cc_asignada');
+  // Invalidar datos: refresca stats y secciones
+  function invalidate(nuevoSubTab) {
+    refreshStats();
+    setRefreshKey(k => k + 1);
+    if (nuevoSubTab) setSubTab(nuevoSubTab);
   }
 
-  function handleEliminarFactura(id) {
-    setTodasFacturas(prev => prev.filter(f => f.id !== id));
+  function handleEstadoActualizado(_ids, nuevoEstado) {
+    if (nuevoEstado === 'CONTABILIZADA') invalidate('contabilizadas');
+    else if (nuevoEstado === 'DESCARGADA') invalidate('descargadas');
+    else if (nuevoEstado === 'CC_ASIGNADA') invalidate('cc_asignada');
+    else invalidate();
   }
+
+  function handleEliminarFactura() { invalidate(); }
 
   async function handleProveedorActualizado() {
-    try {
-      const [nuevas, provs] = await Promise.all([fetchFacturas(empresaActiva?.id), fetchProveedores()]);
-      setTodasFacturas(nuevas);
-      setProveedores(provs);
-    } catch {}
+    invalidateProveedores();
+    invalidatePlanContable();
+    invalidate();
   }
 
   async function handleEmularGestoria() {
@@ -150,48 +132,23 @@ function AppInner() {
     }
   }
 
-  function handleDatosActualizados(id, nuevosDatos) {
-    setTodasFacturas(prev => prev.map(f =>
-      f.id === id ? { ...f, datos_extraidos: nuevosDatos } : f
-    ));
-  }
+  function handleDatosActualizados() { invalidate(); }
 
   async function handleAsignarCG(id, cgId) {
     try {
       const result = await asignarCuentaGasto(id, cgId);
-      setTodasFacturas(prev => prev.map(f =>
-        f.id === id
-          ? { ...f, cg_manual_id: cgId, cg_efectiva_id: result.cg_efectiva_id, estado_gestion: result.estado_gestion }
-          : f
-      ));
-      if (result.estado_gestion === 'CC_ASIGNADA') setSubTab('cc_asignada');
+      if (result.estado_gestion === 'CC_ASIGNADA') invalidate('cc_asignada');
+      else invalidate();
     } catch (e) {
       setError(e.message);
     }
   }
 
-  function handleAsignarCGMasivo(ids, cgId) {
-    setTodasFacturas(prev => prev.map(f =>
-      ids.includes(f.id)
-        ? { ...f, cg_manual_id: cgId, cg_efectiva_id: cgId, estado_gestion: 'CC_ASIGNADA' }
-        : f
-    ));
-    setSubTab('cc_asignada');
-  }
+  function handleAsignarCGMasivo() { invalidate('cc_asignada'); }
 
-  async function handleRefreshFacturas() {
-    try {
-      const nuevas = await fetchFacturas(empresaActiva?.id);
-      setTodasFacturas(nuevas);
-    } catch (_) {}
-  }
+  function handleRefreshFacturas() { invalidate(); }
 
-  // Callback para re-extracción desde Configuración
-  function handleFacturaActualizada(id, estado, datos) {
-    setTodasFacturas(prev => prev.map(f =>
-      f.id === id ? { ...f, estado, datos_extraidos: datos } : f
-    ));
-  }
+  function handleFacturaActualizada() { invalidate(); }
 
   // Sincronización manual con Drive (solo admin)
   async function handleSyncManual() {
@@ -213,8 +170,7 @@ function AppInner() {
     setVinculandoProvs(true); setError('');
     try {
       const result = await vincularProveedores(empresaActiva?.id);
-      const nuevas = await fetchFacturas();
-      setTodasFacturas(nuevas);
+      invalidate();
       let texto = `${result.carpetas_rellenadas} carpeta(s) vinculada(s)`;
       if (result.sin_proveedor > 0) {
         texto += ` · ${result.sin_proveedor} factura(s) sin proveedor en el sistema`;
@@ -229,8 +185,7 @@ function AppInner() {
     setAplicandoCuentas(true); setError('');
     try {
       const result = await aplicarCuentasProveedor(empresaActiva?.id);
-      const nuevas = await fetchFacturas();
-      setTodasFacturas(nuevas);
+      invalidate();
       let texto = `${result.actualizadas} factura${result.actualizadas !== 1 ? 's' : ''} pasada${result.actualizadas !== 1 ? 's' : ''} a "Cta. Gasto"`;
       if (result.pendientes_sin_mover > 0) {
         // Agrupar motivos
@@ -250,12 +205,14 @@ function AppInner() {
     }
   }
 
-  // Excel con todas las facturas sin filtros
+  // Excel con todas las facturas sin filtros — pide IDs al servidor
   async function handleExportarTotal() {
-    if (!todasFacturas.length) return;
+    if (!stats.total) return;
     setExportandoTotal(true);
     try {
-      await exportarExcel(todasFacturas.map(f => f.id));
+      // Obtener todos los IDs de la empresa activa (query ligera)
+      const { data } = await fetchFacturas(empresaActiva?.id, { limit: 10000 });
+      await exportarExcel(data.map(f => f.id));
     } catch (e) {
       setError(e.message);
     } finally {
@@ -691,7 +648,7 @@ function AppInner() {
             <div className="flex justify-end">
               <button
                 onClick={handleExportarTotal}
-                disabled={exportandoTotal || todasFacturas.length === 0}
+                disabled={exportandoTotal || stats.total === 0}
                 className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg transition-colors disabled:opacity-50"
               >
                 {exportandoTotal ? (
@@ -704,7 +661,7 @@ function AppInner() {
                     <path fillRule="evenodd" d="M6 2a2 2 0 00-2 2v12a2 2 0 002 2h8a2 2 0 002-2V7.414A2 2 0 0015.414 6L12 2.586A2 2 0 0010.586 2H6zm5 6a1 1 0 10-2 0v3.586l-1.293-1.293a1 1 0 10-1.414 1.414l3 3a1 1 0 001.414 0l3-3a1 1 0 00-1.414-1.414L11 11.586V8z" clipRule="evenodd" />
                   </svg>
                 )}
-                {exportandoTotal ? 'Exportando...' : `Exportar Excel completo (${todasFacturas.length})`}
+                {exportandoTotal ? 'Exportando...' : `Exportar Excel completo (${stats.total})`}
               </button>
             </div>
 
@@ -734,11 +691,11 @@ function AppInner() {
             {subTab === 'pendientes' && (
               <SeccionFacturas
                 tipo="pendientes"
-                facturas={pendientes}
+                empresaId={empresaActiva?.id}
+                refreshKey={refreshKey}
                 proveedores={proveedores}
                 esAdmin={esAdmin}
                 soloLectura={!puedeEditar('facturas')}
-                loading={loading}
                 planContable={planContable}
                 modoGestoria={modoGestoria}
                 onEstadoActualizado={handleEstadoActualizado}
@@ -753,11 +710,11 @@ function AppInner() {
             {subTab === 'descargadas' && (
               <SeccionFacturas
                 tipo="descargadas"
-                facturas={descargadas}
+                empresaId={empresaActiva?.id}
+                refreshKey={refreshKey}
                 proveedores={proveedores}
                 esAdmin={esAdmin}
                 soloLectura={!puedeEditar('facturas')}
-                loading={loading}
                 planContable={planContable}
                 modoGestoria={modoGestoria}
                 onEstadoActualizado={handleEstadoActualizado}
@@ -771,11 +728,11 @@ function AppInner() {
             {!esV1 && subTab === 'cc_asignada' && (
               <SeccionFacturas
                 tipo="cc_asignada"
-                facturas={ccAsignadas}
+                empresaId={empresaActiva?.id}
+                refreshKey={refreshKey}
                 proveedores={proveedores}
                 esAdmin={esAdmin}
                 soloLectura={!puedeEditar('facturas')}
-                loading={loading}
                 planContable={planContable}
                 modoGestoria={modoGestoria}
                 onEstadoActualizado={handleEstadoActualizado}
@@ -790,11 +747,11 @@ function AppInner() {
             {subTab === 'contabilizadas' && (
               <SeccionFacturas
                 tipo="contabilizadas"
-                facturas={contabilizadas}
+                empresaId={empresaActiva?.id}
+                refreshKey={refreshKey}
                 proveedores={proveedores}
                 esAdmin={esAdmin}
                 soloLectura={!puedeEditar('facturas')}
-                loading={loading}
                 planContable={planContable}
                 modoGestoria={modoGestoria}
                 onEstadoActualizado={handleEstadoActualizado}
