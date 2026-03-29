@@ -770,12 +770,18 @@ function AppInner() {
 
 // ─── Root ─────────────────────────────────────────────────────────────────────
 
+function ChatGate() {
+  const { chatAcceso } = useAuth();
+  if (!chatAcceso) return null;
+  return <ChatWidget />;
+}
+
 export default function App() {
   return (
     <AuthProvider>
       <AppInner />
       <Notificaciones />
-      <ChatWidget />
+      <ChatGate />
     </AuthProvider>
   );
 }

@@ -12,6 +12,7 @@ export function AuthProvider({ children }) {
   const [empresaActiva,setEmpresaActiva]= useState(null);
   const [loading,      setLoading]      = useState(true);
   const [emulacion,    setEmulacion]    = useState(null);
+  const [chatAcceso,   setChatAcceso]   = useState(false);
 
   function initEmpresas(lista) {
     setEmpresas(lista || []);
@@ -35,6 +36,7 @@ export function AuthProvider({ children }) {
         if (data) {
           setUser(data.user); setPermisos(data.permisos || {});
           setModoGestoria(data.modo_gestoria || 'v1');
+          setChatAcceso(!!data.chatAcceso);
           initEmpresas(data.empresas);
         } else { clearToken(); }
       })
@@ -45,16 +47,16 @@ export function AuthProvider({ children }) {
   async function login(email, password) {
     const data = await apiLogin(email, password);
     storeToken(data.token); setUser(data.user); setPermisos(data.permisos || {});
-    setModoGestoria(data.modo_gestoria || 'v1'); initEmpresas(data.empresas);
-    setEmulacion(null);
+    setModoGestoria(data.modo_gestoria || 'v1'); setChatAcceso(!!data.chatAcceso);
+    initEmpresas(data.empresas); setEmulacion(null);
     return data.user;
   }
 
   async function loginWithGoogle(credential) {
     const data = await apiLoginGoogle(credential);
     storeToken(data.token); setUser(data.user); setPermisos(data.permisos || {});
-    setModoGestoria(data.modo_gestoria || 'v1'); initEmpresas(data.empresas);
-    setEmulacion(null);
+    setModoGestoria(data.modo_gestoria || 'v1'); setChatAcceso(!!data.chatAcceso);
+    initEmpresas(data.empresas); setEmulacion(null);
     return data.user;
   }
 
@@ -101,6 +103,7 @@ export function AuthProvider({ children }) {
       estaEmulando, emularGestoria, detenerEmulacion,
       modoGestoria: modoEfectivo,
       empresas, empresaActiva, cambiarEmpresa, recargarEmpresas,
+      chatAcceso,
     }}>
       {children}
     </AuthContext.Provider>

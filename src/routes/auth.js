@@ -48,7 +48,9 @@ router.post('/login', loginLimiter, async (req, res) => {
     const permisos = await getPermisos(user.rol);
     const config   = await getSistemaConfig();
     const empresas = await getEmpresasUsuario(user.id, user.rol);
-    res.json({ ok: true, data: { token, user, permisos, modo_gestoria: config.modo_gestoria, empresas } });
+    const chatRoles = (config.chat_roles || '').split(',').map(r => r.trim()).filter(Boolean);
+    const chatAcceso = config.chat_activo === 'true' && chatRoles.includes(user.rol) && !user.chat_bloqueado;
+    res.json({ ok: true, data: { token, user, permisos, modo_gestoria: config.modo_gestoria, empresas, chatAcceso } });
   } catch (err) {
     res.status(err.status || 500).json({ ok: false, error: err.message });
   }
@@ -91,7 +93,9 @@ router.post('/google', async (req, res) => {
     const permisos = await getPermisos(user.rol);
     const config   = await getSistemaConfig();
     const empresas = await getEmpresasUsuario(user.id, user.rol);
-    res.json({ ok: true, data: { token, user, permisos, modo_gestoria: config.modo_gestoria, empresas } });
+    const chatRoles = (config.chat_roles || '').split(',').map(r => r.trim()).filter(Boolean);
+    const chatAcceso = config.chat_activo === 'true' && chatRoles.includes(user.rol) && !user.chat_bloqueado;
+    res.json({ ok: true, data: { token, user, permisos, modo_gestoria: config.modo_gestoria, empresas, chatAcceso } });
   } catch (err) {
     res.status(500).json({ ok: false, error: 'Error al verificar el token de Google' });
   }
@@ -106,7 +110,14 @@ router.get('/me', resolveUser, requireAuth, async (req, res) => {
     const permisos = await getPermisos(user.rol);
     const config   = await getSistemaConfig();
     const empresas = await getEmpresasUsuario(user.id, user.rol);
-    res.json({ ok: true, data: { user, permisos, modo_gestoria: config.modo_gestoria, empresas } });
+
+    // Determinar acceso al chat
+    const chatRoles = (config.chat_roles || '').split(',').map(r => r.trim()).filter(Boolean);
+    const chatAcceso = config.chat_activo === 'true'
+      && chatRoles.includes(user.rol)
+      && !user.chat_bloqueado;
+
+    res.json({ ok: true, data: { user, permisos, modo_gestoria: config.modo_gestoria, empresas, chatAcceso } });
   } catch (e) {
     res.status(500).json({ ok: false, error: e.message });
   }

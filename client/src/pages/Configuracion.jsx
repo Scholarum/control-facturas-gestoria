@@ -7,12 +7,14 @@ import PanelNotificaciones from '../components/configuracion/PanelNotificaciones
 import PanelEmailTemplate from '../components/configuracion/PanelEmailTemplate.jsx';
 import PanelHistorialNotificaciones from '../components/configuracion/PanelHistorialNotificaciones.jsx';
 import DriveManager from '../components/configuracion/DriveManager.jsx';
+import PanelChat from '../components/configuracion/PanelChat.jsx';
 import { Spinner } from '../components/configuracion/helpers.jsx';
 
 const TABS = [
   { id: 'drive', label: 'Drive y Subida' },
   { id: 'sync',  label: 'Sincronizacion' },
   { id: 'notif', label: 'Notificaciones' },
+  { id: 'chat',  label: 'Chat Asistente' },
 ];
 
 export default function Configuracion({ onFacturasActualizadas }) {
@@ -186,6 +188,10 @@ export default function Configuracion({ onFacturasActualizadas }) {
           <PanelEmailTemplate />
           <PanelHistorialNotificaciones />
         </div>
+      )}
+
+      {activeTab === 'chat' && (
+        <PanelChat config={sistemaConfig} onChange={handleSaveSistema} />
       )}
     </div>
   );

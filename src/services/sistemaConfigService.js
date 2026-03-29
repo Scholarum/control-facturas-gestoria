@@ -9,6 +9,12 @@ const DEFAULTS = {
   notify_hora:       '09:00',
   notify_app_url:    'http://localhost:5173',
   modo_gestoria:     'v1',       // v1 = solo descarga/contabilizar | v2 = flujo completo con cuentas
+  // Chat
+  chat_activo:            'true',
+  chat_roles:             'ADMIN,GESTORIA',  // roles con acceso, separados por coma
+  chat_agente_defecto:    'atc',
+  chat_max_mensajes_dia:  '100',             // por usuario
+  chat_mensaje_bienvenida: '',               // vacío = sin mensaje de bienvenida
 };
 
 let _cache = null;

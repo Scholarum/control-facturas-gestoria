@@ -71,6 +71,9 @@ const CAMPOS_SISTEMA = [
   'notify_activo', 'notify_frecuencia', 'notify_hora', 'notify_app_url',
   'email_asunto', 'email_cuerpo', 'email_remitente',
   'modo_gestoria',
+  // Chat
+  'chat_activo', 'chat_roles', 'chat_agente_defecto', 'chat_max_mensajes_dia',
+  'chat_mensaje_bienvenida',
 ];
 
 router.put('/sistema', requireAdmin, async (req, res) => {

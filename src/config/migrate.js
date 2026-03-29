@@ -322,6 +322,8 @@ const tablas = [
 
   `CREATE INDEX IF NOT EXISTS idx_chat_conv_usuario ON chat_conversaciones(usuario_id, agente_id)`,
   `CREATE INDEX IF NOT EXISTS idx_chat_msg_conv     ON chat_mensajes(conversacion_id)`,
+
+  `ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS chat_bloqueado BOOLEAN NOT NULL DEFAULT false`,
 ];
 
 // ─── Seeds ────────────────────────────────────────────────────────────────────
