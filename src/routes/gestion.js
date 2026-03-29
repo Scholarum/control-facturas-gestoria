@@ -106,7 +106,7 @@ router.get('/', async (req, res) => {
   const empresaId = parseInt(req.query.empresa, 10) || null;
   const estado    = req.query.estado || null;  // PENDIENTE, DESCARGADA, CC_ASIGNADA, CONTABILIZADA
   const page      = Math.max(1, parseInt(req.query.page, 10) || 1);
-  const limit     = Math.min(200, Math.max(1, parseInt(req.query.limit, 10) || 50));
+  const limit     = Math.min(10000, Math.max(1, parseInt(req.query.limit, 10) || 25));
   const offset    = (page - 1) * limit;
 
   const conditions = ['1=1'];

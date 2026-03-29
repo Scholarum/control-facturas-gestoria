@@ -175,7 +175,8 @@ function ComboboxCuentaMasiva({ cuentas, value, onChange }) {
  * onEstadoActualizado(ids: number[], nuevoEstado: string): void
  */
 const TIPO_ESTADO = { pendientes: 'PENDIENTE', descargadas: 'DESCARGADA', cc_asignada: 'CC_ASIGNADA', contabilizadas: 'CONTABILIZADA' };
-const PAGE_SIZE = 50;
+const PAGE_SIZES = [25, 50, 100, 500];
+const DEFAULT_PAGE_SIZE = 25;
 
 export default function SeccionFacturas({
   tipo,
@@ -200,23 +201,25 @@ export default function SeccionFacturas({
   const [facturas,      setFacturas]     = useState([]);
   const [loading,       setLoading]      = useState(true);
   const [page,          setPage]         = useState(1);
+  const [pageSize,      setPageSize]     = useState(DEFAULT_PAGE_SIZE);
   const [totalPages,    setTotalPages]   = useState(1);
   const [totalFacturas, setTotalFacturas] = useState(0);
   const [filtros,       setFiltros]       = useState({ proveedor: '', numFactura: '', cif: '', fechaDesde: '', fechaHasta: '', soloIncidencias: '', soloSinProveedor: '', estadoExtraccion: '' });
 
   // Cargar facturas paginadas
-  const loadFacturas = useCallback(async (p = 1) => {
+  const loadFacturas = useCallback(async (p = 1, size = pageSize) => {
     if (!empresaId) return;
     setLoading(true);
     try {
-      const { data, pagination } = await fetchFacturas(empresaId, { estado: TIPO_ESTADO[tipo], page: p, limit: PAGE_SIZE });
+      const limit = size === 'all' ? 10000 : size;
+      const { data, pagination } = await fetchFacturas(empresaId, { estado: TIPO_ESTADO[tipo], page: size === 'all' ? 1 : p, limit });
       setFacturas(data);
       setPage(pagination.page);
       setTotalPages(pagination.totalPages);
       setTotalFacturas(pagination.total);
     } catch { /* silenciar */ }
     setLoading(false);
-  }, [empresaId, tipo]);
+  }, [empresaId, tipo, pageSize]);
 
   useEffect(() => { loadFacturas(1); }, [loadFacturas, refreshKey]);
   const [seleccionados, setSeleccionados] = useState(new Set());
@@ -622,21 +625,42 @@ export default function SeccionFacturas({
       />
 
       {/* Paginación */}
-      {totalPages > 1 && (
-        <div className="flex items-center justify-between bg-white rounded-xl border border-gray-200 shadow-sm px-4 py-3">
-          <span className="text-xs text-gray-500">
-            Pagina {page} de {totalPages} ({totalFacturas} facturas)
-          </span>
-          <div className="flex items-center gap-1">
-            <button onClick={() => loadFacturas(1)} disabled={page <= 1}
-              className="px-2 py-1 text-xs rounded border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-30">&laquo;</button>
-            <button onClick={() => loadFacturas(page - 1)} disabled={page <= 1}
-              className="px-2 py-1 text-xs rounded border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-30">&lsaquo;</button>
-            <button onClick={() => loadFacturas(page + 1)} disabled={page >= totalPages}
-              className="px-2 py-1 text-xs rounded border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-30">&rsaquo;</button>
-            <button onClick={() => loadFacturas(totalPages)} disabled={page >= totalPages}
-              className="px-2 py-1 text-xs rounded border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-30">&raquo;</button>
+      {/* Paginación + selector de tamaño */}
+      {totalFacturas > 0 && (
+        <div className="flex items-center justify-between flex-wrap gap-2 bg-white rounded-xl border border-gray-200 shadow-sm px-4 py-3">
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-gray-500">Mostrar</span>
+            <select
+              value={pageSize}
+              onChange={e => {
+                const v = e.target.value === 'all' ? 'all' : Number(e.target.value);
+                setPageSize(v);
+                loadFacturas(1, v);
+              }}
+              className="text-xs border border-gray-200 rounded px-2 py-1 bg-white text-gray-700"
+            >
+              {PAGE_SIZES.map(s => <option key={s} value={s}>{s}</option>)}
+              <option value="all">Todos</option>
+            </select>
+            <span className="text-xs text-gray-500">
+              {pageSize === 'all'
+                ? `${totalFacturas} facturas`
+                : `Pagina ${page} de ${totalPages} (${totalFacturas} facturas)`
+              }
+            </span>
           </div>
+          {pageSize !== 'all' && totalPages > 1 && (
+            <div className="flex items-center gap-1">
+              <button onClick={() => loadFacturas(1)} disabled={page <= 1}
+                className="px-2 py-1 text-xs rounded border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-30">&laquo;</button>
+              <button onClick={() => loadFacturas(page - 1)} disabled={page <= 1}
+                className="px-2 py-1 text-xs rounded border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-30">&lsaquo;</button>
+              <button onClick={() => loadFacturas(page + 1)} disabled={page >= totalPages}
+                className="px-2 py-1 text-xs rounded border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-30">&rsaquo;</button>
+              <button onClick={() => loadFacturas(totalPages)} disabled={page >= totalPages}
+                className="px-2 py-1 text-xs rounded border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-30">&raquo;</button>
+            </div>
+          )}
         </div>
       )}
     </div>
