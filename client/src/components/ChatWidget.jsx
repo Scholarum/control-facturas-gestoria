@@ -36,8 +36,11 @@ export default function ChatWidget() {
     setInput('');
     setLoading(true);
 
+    // Añadir burbuja vacía del asistente que iremos rellenando
+    const assistantIdx = updated.length;
+    setMessages(prev => [...prev, { role: 'assistant', content: '', html: '', streaming: true }]);
+
     try {
-      // Historial para la API: solo role + content (texto plano)
       const apiMessages = updated.map(m => ({ role: m.role, content: m.content }));
 
       const res = await fetch(`${API_BASE}/api/chat`, {
@@ -49,15 +52,72 @@ export default function ChatWidget() {
         body: JSON.stringify({ agentId, messages: apiMessages }),
       });
 
-      const data = await res.json();
-
-      if (data.ok) {
-        setMessages(prev => [...prev, { role: 'assistant', content: data.reply, html: data.reply }]);
-      } else {
-        setMessages(prev => [...prev, { role: 'assistant', content: data.error || 'Error desconocido' }]);
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        setMessages(prev => prev.map((m, i) =>
+          i === assistantIdx ? { role: 'assistant', content: err.error || 'Error desconocido' } : m
+        ));
+        setLoading(false);
+        return;
       }
+
+      // Leer SSE stream
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let accumulated = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop(); // último fragmento incompleto
+
+        let eventType = '';
+        for (const line of lines) {
+          if (line.startsWith('event: ')) {
+            eventType = line.slice(7).trim();
+          } else if (line.startsWith('data: ')) {
+            const raw = line.slice(6);
+            try {
+              const data = JSON.parse(raw);
+              if (eventType === 'delta') {
+                accumulated += data.text;
+                setMessages(prev => prev.map((m, i) =>
+                  i === assistantIdx ? { ...m, content: accumulated, html: accumulated } : m
+                ));
+              } else if (eventType === 'tool_call') {
+                // Mostrar indicador de herramienta
+                const toolMsg = `Consultando ${data.name}...`;
+                setMessages(prev => prev.map((m, i) =>
+                  i === assistantIdx ? { ...m, content: toolMsg, html: '', tooling: true } : m
+                ));
+              } else if (eventType === 'error') {
+                setMessages(prev => prev.map((m, i) =>
+                  i === assistantIdx ? { role: 'assistant', content: data.error || 'Error' } : m
+                ));
+              } else if (eventType === 'done') {
+                // Marcar como completado
+                setMessages(prev => prev.map((m, i) =>
+                  i === assistantIdx ? { ...m, streaming: false, tooling: false } : m
+                ));
+              }
+            } catch { /* ignorar líneas no-JSON */ }
+          }
+        }
+      }
+
+      // Si el stream terminó sin evento 'done', limpiar igualmente
+      setMessages(prev => prev.map((m, i) =>
+        i === assistantIdx ? { ...m, streaming: false, tooling: false } : m
+      ));
+
     } catch {
-      setMessages(prev => [...prev, { role: 'assistant', content: 'Error de conexión con el servidor.' }]);
+      setMessages(prev => prev.map((m, i) =>
+        i === assistantIdx ? { role: 'assistant', content: 'Error de conexión con el servidor.' } : m
+      ));
     } finally {
       setLoading(false);
     }
@@ -121,21 +181,23 @@ export default function ChatWidget() {
                   : 'bg-white text-gray-800 border border-gray-200 shadow-sm'
               }`}
             >
-              {msg.html
-                ? <div dangerouslySetInnerHTML={{ __html: msg.html }} />
-                : msg.content
-              }
+              {msg.tooling ? (
+                <span className="text-gray-400 flex items-center gap-1.5">
+                  <svg className="h-3.5 w-3.5 animate-spin" viewBox="0 0 24 24" fill="none">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
+                  </svg>
+                  {msg.content}
+                </span>
+              ) : msg.html ? (
+                <div dangerouslySetInnerHTML={{ __html: msg.html }} />
+              ) : (
+                msg.content
+              )}
+              {msg.streaming && !msg.tooling && <span className="animate-pulse">|</span>}
             </div>
           </div>
         ))}
-
-        {loading && (
-          <div className="flex justify-start">
-            <div className="bg-white border border-gray-200 shadow-sm rounded-lg px-3 py-2 text-sm text-gray-400">
-              Escribiendo<span className="animate-pulse">...</span>
-            </div>
-          </div>
-        )}
 
         <div ref={bottomRef} />
       </div>
