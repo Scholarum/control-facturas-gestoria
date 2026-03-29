@@ -1,5 +1,5 @@
-import { useState, useRef, useEffect } from 'react';
-import { getStoredToken } from '../api.js';
+import { useState, useRef, useEffect, useCallback } from 'react';
+import { getStoredToken, fetchConversaciones, crearConversacion, fetchMensajes, guardarMensaje } from '../api.js';
 
 const API_BASE = (import.meta.env.VITE_API_URL ?? '').replace(/\/$/, '');
 
@@ -10,25 +10,71 @@ const AGENTS = [
 export default function ChatWidget() {
   const [open, setOpen] = useState(false);
   const [agentId, setAgentId] = useState(AGENTS[0].id);
-  const [messages, setMessages] = useState([]);   // { role, content, html? }
+  const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
+  const [convId, setConvId] = useState(null);
+  const [convList, setConvList] = useState([]);
+  const [showHistory, setShowHistory] = useState(false);
   const bottomRef = useRef(null);
 
-  // Auto-scroll al último mensaje
+  // Auto-scroll
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, loading]);
 
-  // Limpiar historial al cambiar de agente
+  // Cargar última conversación al abrir
+  useEffect(() => {
+    if (!open) return;
+    loadConversaciones();
+  }, [open, agentId]);
+
+  async function loadConversaciones() {
+    const convs = await fetchConversaciones(agentId);
+    setConvList(convs);
+    if (convs.length > 0 && !convId) {
+      await loadConversacion(convs[0].id);
+    }
+  }
+
+  async function loadConversacion(id) {
+    const msgs = await fetchMensajes(id);
+    setMessages(msgs.map(m => ({
+      role: m.role,
+      content: m.content,
+      html: m.role === 'assistant' ? m.content : undefined,
+    })));
+    setConvId(id);
+    setShowHistory(false);
+  }
+
+  async function startNewConversation() {
+    const conv = await crearConversacion(agentId, window.location.pathname);
+    setConvId(conv.id);
+    setMessages([]);
+    setShowHistory(false);
+    setConvList(prev => [conv, ...prev]);
+  }
+
   function handleAgentChange(e) {
     setAgentId(e.target.value);
+    setConvId(null);
     setMessages([]);
+    setConvList([]);
   }
 
   async function send() {
     const text = input.trim();
     if (!text || loading) return;
+
+    // Crear conversación si no existe
+    let activeConvId = convId;
+    if (!activeConvId) {
+      const conv = await crearConversacion(agentId, window.location.pathname);
+      activeConvId = conv.id;
+      setConvId(conv.id);
+      setConvList(prev => [conv, ...prev]);
+    }
 
     const userMsg = { role: 'user', content: text };
     const updated = [...messages, userMsg];
@@ -36,7 +82,9 @@ export default function ChatWidget() {
     setInput('');
     setLoading(true);
 
-    // Añadir burbuja vacía del asistente que iremos rellenando
+    // Persistir mensaje del usuario
+    guardarMensaje(activeConvId, 'user', text);
+
     const assistantIdx = updated.length;
     setMessages(prev => [...prev, { role: 'assistant', content: '', html: '', streaming: true }]);
 
@@ -61,7 +109,6 @@ export default function ChatWidget() {
         return;
       }
 
-      // Leer SSE stream
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
@@ -73,23 +120,21 @@ export default function ChatWidget() {
 
         buffer += decoder.decode(value, { stream: true });
         const lines = buffer.split('\n');
-        buffer = lines.pop(); // último fragmento incompleto
+        buffer = lines.pop();
 
         let eventType = '';
         for (const line of lines) {
           if (line.startsWith('event: ')) {
             eventType = line.slice(7).trim();
           } else if (line.startsWith('data: ')) {
-            const raw = line.slice(6);
             try {
-              const data = JSON.parse(raw);
+              const data = JSON.parse(line.slice(6));
               if (eventType === 'delta') {
                 accumulated += data.text;
                 setMessages(prev => prev.map((m, i) =>
                   i === assistantIdx ? { ...m, content: accumulated, html: accumulated } : m
                 ));
               } else if (eventType === 'tool_call') {
-                // Mostrar indicador de herramienta
                 const toolMsg = `Consultando ${data.name}...`;
                 setMessages(prev => prev.map((m, i) =>
                   i === assistantIdx ? { ...m, content: toolMsg, html: '', tooling: true } : m
@@ -99,17 +144,20 @@ export default function ChatWidget() {
                   i === assistantIdx ? { role: 'assistant', content: data.error || 'Error' } : m
                 ));
               } else if (eventType === 'done') {
-                // Marcar como completado
                 setMessages(prev => prev.map((m, i) =>
                   i === assistantIdx ? { ...m, streaming: false, tooling: false } : m
                 ));
               }
-            } catch { /* ignorar líneas no-JSON */ }
+            } catch { /* ignorar */ }
           }
         }
       }
 
-      // Si el stream terminó sin evento 'done', limpiar igualmente
+      // Persistir respuesta del asistente
+      if (accumulated) {
+        guardarMensaje(activeConvId, 'assistant', accumulated);
+      }
+
       setMessages(prev => prev.map((m, i) =>
         i === assistantIdx ? { ...m, streaming: false, tooling: false } : m
       ));
@@ -130,7 +178,7 @@ export default function ChatWidget() {
     }
   }
 
-  // ─── Botón flotante (panel cerrado) ──────────────────────────────────────
+  // ─── Botón flotante ──────────────────────────────────────────────────────
   if (!open) {
     return (
       <button
@@ -163,64 +211,97 @@ export default function ChatWidget() {
             ))}
           </select>
         </div>
-        <button onClick={() => setOpen(false)} className="text-white/80 hover:text-white text-xl leading-none">&times;</button>
+        <div className="flex items-center gap-2">
+          <button onClick={() => setShowHistory(h => !h)} title="Historial de conversaciones"
+            className="text-white/70 hover:text-white transition-colors">
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+          </button>
+          <button onClick={startNewConversation} title="Nueva conversación"
+            className="text-white/70 hover:text-white transition-colors">
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+            </svg>
+          </button>
+          <button onClick={() => setOpen(false)} className="text-white/80 hover:text-white text-xl leading-none">&times;</button>
+        </div>
       </div>
 
-      {/* Mensajes */}
-      <div className="flex-1 overflow-y-auto px-3 py-3 space-y-3 bg-gray-50">
-        {messages.length === 0 && !loading && (
-          <p className="text-center text-gray-400 text-xs mt-8">Escribe un mensaje para empezar</p>
-        )}
+      {/* Lista de conversaciones anteriores */}
+      {showHistory ? (
+        <div className="flex-1 overflow-y-auto bg-gray-50">
+          {convList.length === 0 ? (
+            <p className="text-center text-gray-400 text-xs mt-8">Sin conversaciones</p>
+          ) : convList.map(c => (
+            <button key={c.id} onClick={() => loadConversacion(c.id)}
+              className={`w-full text-left px-4 py-3 border-b border-gray-100 hover:bg-blue-50 transition-colors ${c.id === convId ? 'bg-blue-50' : ''}`}>
+              <p className="text-sm font-medium text-gray-800 truncate">{c.titulo || 'Conversación sin título'}</p>
+              <p className="text-xs text-gray-400 mt-0.5">
+                {new Date(c.updated_at).toLocaleDateString('es-ES')} — {c.num_mensajes} mensaje(s)
+              </p>
+            </button>
+          ))}
+        </div>
+      ) : (
+        <>
+          {/* Mensajes */}
+          <div className="flex-1 overflow-y-auto px-3 py-3 space-y-3 bg-gray-50">
+            {messages.length === 0 && !loading && (
+              <p className="text-center text-gray-400 text-xs mt-8">Escribe un mensaje para empezar</p>
+            )}
 
-        {messages.map((msg, i) => (
-          <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-            <div
-              className={`max-w-[85%] rounded-lg px-3 py-2 text-sm leading-relaxed ${
-                msg.role === 'user'
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-white text-gray-800 border border-gray-200 shadow-sm'
-              }`}
-            >
-              {msg.tooling ? (
-                <span className="text-gray-400 flex items-center gap-1.5">
-                  <svg className="h-3.5 w-3.5 animate-spin" viewBox="0 0 24 24" fill="none">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
-                  </svg>
-                  {msg.content}
-                </span>
-              ) : msg.html ? (
-                <div dangerouslySetInnerHTML={{ __html: msg.html }} />
-              ) : (
-                msg.content
-              )}
-              {msg.streaming && !msg.tooling && <span className="animate-pulse">|</span>}
-            </div>
+            {messages.map((msg, i) => (
+              <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                <div
+                  className={`max-w-[85%] rounded-lg px-3 py-2 text-sm leading-relaxed ${
+                    msg.role === 'user'
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-white text-gray-800 border border-gray-200 shadow-sm'
+                  }`}
+                >
+                  {msg.tooling ? (
+                    <span className="text-gray-400 flex items-center gap-1.5">
+                      <svg className="h-3.5 w-3.5 animate-spin" viewBox="0 0 24 24" fill="none">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
+                      </svg>
+                      {msg.content}
+                    </span>
+                  ) : msg.html ? (
+                    <div dangerouslySetInnerHTML={{ __html: msg.html }} />
+                  ) : (
+                    msg.content
+                  )}
+                  {msg.streaming && !msg.tooling && <span className="animate-pulse">|</span>}
+                </div>
+              </div>
+            ))}
+
+            <div ref={bottomRef} />
           </div>
-        ))}
 
-        <div ref={bottomRef} />
-      </div>
-
-      {/* Input */}
-      <div className="border-t border-gray-200 px-3 py-2 flex items-center gap-2 shrink-0 bg-white">
-        <input
-          type="text"
-          value={input}
-          onChange={e => setInput(e.target.value)}
-          onKeyDown={handleKey}
-          placeholder="Escribe un mensaje..."
-          disabled={loading}
-          className="flex-1 text-sm border border-gray-300 rounded-lg px-3 py-2 outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-400 disabled:opacity-50"
-        />
-        <button
-          onClick={send}
-          disabled={loading || !input.trim()}
-          className="bg-blue-600 hover:bg-blue-700 disabled:opacity-40 text-white rounded-lg px-3 py-2 text-sm font-medium transition-colors"
-        >
-          Enviar
-        </button>
-      </div>
+          {/* Input */}
+          <div className="border-t border-gray-200 px-3 py-2 flex items-center gap-2 shrink-0 bg-white">
+            <input
+              type="text"
+              value={input}
+              onChange={e => setInput(e.target.value)}
+              onKeyDown={handleKey}
+              placeholder="Escribe un mensaje..."
+              disabled={loading}
+              className="flex-1 text-sm border border-gray-300 rounded-lg px-3 py-2 outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-400 disabled:opacity-50"
+            />
+            <button
+              onClick={send}
+              disabled={loading || !input.trim()}
+              className="bg-blue-600 hover:bg-blue-700 disabled:opacity-40 text-white rounded-lg px-3 py-2 text-sm font-medium transition-colors"
+            >
+              Enviar
+            </button>
+          </div>
+        </>
+      )}
     </div>
   );
 }

@@ -300,6 +300,28 @@ const tablas = [
   `CREATE INDEX IF NOT EXISTS idx_tokens_token    ON tokens_acceso(token)`,
   `CREATE INDEX IF NOT EXISTS idx_drive_estado    ON drive_archivos(estado)`,
   `CREATE INDEX IF NOT EXISTS idx_drive_proveedor ON drive_archivos(proveedor)`,
+
+  // ─── Conversaciones del chat ───────────────────────────────────────────────
+  `CREATE TABLE IF NOT EXISTS chat_conversaciones (
+    id          SERIAL PRIMARY KEY,
+    usuario_id  INTEGER NOT NULL REFERENCES usuarios(id),
+    agente_id   TEXT    NOT NULL,
+    titulo      TEXT,
+    origen      TEXT,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`,
+
+  `CREATE TABLE IF NOT EXISTS chat_mensajes (
+    id                SERIAL PRIMARY KEY,
+    conversacion_id   INTEGER NOT NULL REFERENCES chat_conversaciones(id) ON DELETE CASCADE,
+    role              TEXT    NOT NULL,
+    content           TEXT    NOT NULL,
+    created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`,
+
+  `CREATE INDEX IF NOT EXISTS idx_chat_conv_usuario ON chat_conversaciones(usuario_id, agente_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_chat_msg_conv     ON chat_mensajes(conversacion_id)`,
 ];
 
 // ─── Seeds ────────────────────────────────────────────────────────────────────

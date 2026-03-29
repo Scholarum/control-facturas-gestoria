@@ -272,6 +272,41 @@ export async function exportarExcel(ids) {
   URL.revokeObjectURL(url);
 }
 
+// ─── Chat / Conversaciones ───────────────────────────────────────────────────
+
+export async function fetchConversaciones(agenteId) {
+  const q = agenteId ? `?agente=${agenteId}` : '';
+  const res = await fetch(`${API_BASE}/api/chat/conversaciones${q}`, { headers: authHeaders() });
+  if (!res.ok) return [];
+  const { data } = await res.json();
+  return data;
+}
+
+export async function crearConversacion(agentId, origen) {
+  const res = await fetch(`${API_BASE}/api/chat/conversaciones`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ agentId, origen }),
+  });
+  const { data } = await res.json();
+  return data;
+}
+
+export async function fetchMensajes(conversacionId) {
+  const res = await fetch(`${API_BASE}/api/chat/conversaciones/${conversacionId}/mensajes`, { headers: authHeaders() });
+  if (!res.ok) return [];
+  const { data } = await res.json();
+  return data;
+}
+
+export async function guardarMensaje(conversacionId, role, content) {
+  await fetch(`${API_BASE}/api/chat/conversaciones/${conversacionId}/mensajes`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ role, content }),
+  });
+}
+
 // ─── Auditoría ────────────────────────────────────────────────────────────────
 
 export async function fetchAuditoria() {
