@@ -11,6 +11,7 @@ import SeccionFacturas from './components/SeccionFacturas.jsx';
 import HistorialA3    from './pages/HistorialA3.jsx';
 import Empresas       from './pages/Empresas.jsx';
 import { fetchFacturas, fetchProveedores, exportarExcel, triggerSyncManual, fetchPlanContable, asignarCuentaGasto, asignarCGMasivo, autodetectarProveedores, aplicarCuentasProveedor, vincularProveedores, fetchRoles } from './api.js';
+import ChatWidget from './components/ChatWidget.jsx';
 
 // ─── Stats ────────────────────────────────────────────────────────────────────
 
@@ -744,6 +745,7 @@ export default function App() {
   return (
     <AuthProvider>
       <AppInner />
+      <ChatWidget />
     </AuthProvider>
   );
 }

@@ -39,6 +39,7 @@ app.use('/api/plan-contable', require('./routes/planContable'));
 app.use('/api/proveedores',   require('./routes/proveedores'));
 app.use('/api/roles',         require('./routes/roles'));
 app.use('/api/exportacion-a3', require('./routes/exportacionA3'));
+app.use('/api/chat',          require('./routes/chat'));
 app.use('/ver',               require('./routes/acceso'));
 app.get('/health', (_req, res) => res.json({ ok: true, uptime: process.uptime() }));
 
