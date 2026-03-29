@@ -290,6 +290,9 @@ router.put('/contabilizar', async (req, res) => {
     }).catch(e => console.error('[audit]', e.message));
   }
 
+  const { broadcast } = require('../services/sseService');
+  broadcast('facturas_contabilizadas', { count: archivos.length, usuario: req.usuario?.nombre });
+
   res.json({ ok: true, data: { contabilizadas: archivos.length } });
 });
 
@@ -1189,6 +1192,8 @@ router.post('/upload-universal', requireAuth, upload.array('archivos', 20), asyn
           `, [idsSubidos]);
 
           console.log(`[Upload] Procesamiento completado para ${idsSubidos.length} facturas`);
+          const { broadcast } = require('../services/sseService');
+          broadcast('upload_complete', { count: idsSubidos.length });
         } catch (e) {
           console.error('[Upload] Error en procesamiento post-subida:', e.message);
         }

@@ -269,6 +269,13 @@ export async function fetchAuditoria() {
   return data;
 }
 
+export async function fetchHistorialFactura(facturaId) {
+  const res = await fetch(`${API_BASE}/api/facturas/${facturaId}/auditoria`, { headers: authHeaders() });
+  if (!res.ok) throw new Error('Error al cargar historial');
+  const { data } = await res.json();
+  return data;
+}
+
 // ─── Configuración / Prompt ───────────────────────────────────────────────────
 
 export async function fetchPrompt() {

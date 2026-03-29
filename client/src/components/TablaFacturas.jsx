@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { BadgeGestion, BadgeExtraccion } from './Badge.jsx';
-import { fetchPreviewFactura, editarDatosFactura, asignarCuentaContableProveedor, crearProveedorRapido, crearCuentaContable, eliminarCuentaContable } from '../api.js';
+import { fetchPreviewFactura, editarDatosFactura, asignarCuentaContableProveedor, crearProveedorRapido, crearCuentaContable, eliminarCuentaContable, fetchHistorialFactura } from '../api.js';
 import { useAuth } from '../context/AuthContext.jsx';
 
 // Campos obligatorios para considerar una factura sin incidencia
@@ -763,8 +763,79 @@ function PanelDetalleFiscal({ f, onDatosActualizados }) {
           </div>
 
         </div>
+
+        {/* Historial de cambios */}
+        <HistorialFactura facturaId={f.id} />
+
       </td>
     </tr>
+  );
+}
+
+// ─── Historial de cambios por factura ─────────────────────────────────────────
+
+function HistorialFactura({ facturaId }) {
+  const [open, setOpen] = useState(false);
+  const [logs, setLogs] = useState([]);
+  const [loading, setLoading] = useState(false);
+
+  function toggle() {
+    if (!open && logs.length === 0) {
+      setLoading(true);
+      fetchHistorialFactura(facturaId)
+        .then(setLogs)
+        .catch(() => {})
+        .finally(() => setLoading(false));
+    }
+    setOpen(o => !o);
+  }
+
+  const fmtTs = ts => new Date(ts).toLocaleString('es-ES', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' });
+
+  const EVENTO_LABELS = {
+    CONTABILIZAR_MASIVO: { label: 'Contabilizada', color: 'bg-emerald-500' },
+    REVERTIR_ESTADO: { label: 'Revertida', color: 'bg-amber-500' },
+    EDICION_DATOS_FACTURA: { label: 'Datos editados', color: 'bg-blue-500' },
+    ELIMINAR_FACTURA: { label: 'Eliminada', color: 'bg-red-500' },
+    EXPORT_EXCEL: { label: 'Exportada Excel', color: 'bg-purple-500' },
+    ASIGNAR_CG: { label: 'Cuenta asignada', color: 'bg-purple-500' },
+    DESCARGA_ZIP: { label: 'Descargada', color: 'bg-blue-500' },
+  };
+
+  return (
+    <div className="px-3 sm:px-6 pb-4">
+      <button
+        onClick={toggle}
+        className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-700 font-medium transition-colors"
+      >
+        <svg className={`h-3.5 w-3.5 transition-transform ${open ? 'rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+        </svg>
+        Historial de cambios
+      </button>
+
+      {open && (
+        <div className="mt-3 ml-1 border-l-2 border-gray-200 pl-4 space-y-3">
+          {loading && <p className="text-xs text-gray-400">Cargando...</p>}
+          {!loading && logs.length === 0 && <p className="text-xs text-gray-400">Sin cambios registrados</p>}
+          {logs.map(log => {
+            const info = EVENTO_LABELS[log.evento] || { label: log.evento, color: 'bg-gray-400' };
+            return (
+              <div key={log.id} className="flex items-start gap-2">
+                <div className={`w-2 h-2 rounded-full mt-1.5 flex-shrink-0 ${info.color}`} />
+                <div className="min-w-0">
+                  <p className="text-xs text-gray-700">
+                    <span className="font-medium">{info.label}</span>
+                    {log.usuario_nombre && <span className="text-gray-400"> por {log.usuario_nombre}</span>}
+                  </p>
+                  <p className="text-xs text-gray-400">{fmtTs(log.timestamp)}</p>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
   );
 }
 

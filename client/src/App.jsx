@@ -8,10 +8,13 @@ import Historial      from './pages/Historial.jsx';
 import Configuracion  from './pages/Configuracion.jsx';
 import Proveedores    from './pages/Proveedores.jsx';
 import SeccionFacturas from './components/SeccionFacturas.jsx';
+import Dashboard      from './pages/Dashboard.jsx';
 import HistorialA3    from './pages/HistorialA3.jsx';
 import Empresas       from './pages/Empresas.jsx';
 import { fetchFacturas, fetchProveedores, exportarExcel, triggerSyncManual, fetchPlanContable, asignarCuentaGasto, asignarCGMasivo, autodetectarProveedores, aplicarCuentasProveedor, vincularProveedores, fetchRoles } from './api.js';
 import ChatWidget from './components/ChatWidget.jsx';
+import Notificaciones from './components/Notificaciones.jsx';
+import BusquedaGlobal from './components/BusquedaGlobal.jsx';
 
 // ─── Stats ────────────────────────────────────────────────────────────────────
 
@@ -280,6 +283,7 @@ function AppInner() {
   const esV1 = modoGestoria === 'v1';
 
   const tabs = [
+    { id: 'dashboard',    label: 'Dashboard',             visible: puedeVer('facturas')     },
     { id: 'facturas',     label: 'Facturas',              visible: puedeVer('facturas')     },
     { id: 'proveedores',  label: 'Proveedores',           visible: puedeVer('proveedores')  },
     { id: 'conciliacion', label: 'Conciliacion de Mayor', visible: puedeVer('conciliacion') },
@@ -376,6 +380,13 @@ function AppInner() {
             <span className="text-xl">🧾</span>
             <span className="font-semibold text-gray-900 text-sm hidden sm:block">Control de Facturas</span>
           </div>
+
+          {/* Búsqueda global */}
+          <BusquedaGlobal
+            empresaId={empresaActiva?.id}
+            onSelectFactura={() => setTab('facturas')}
+            onSelectProveedor={() => setTab('proveedores')}
+          />
 
           {/* Pestañas principales (ocultas en móvil) */}
           <nav className="hidden md:flex gap-1 flex-1">
@@ -595,6 +606,9 @@ function AppInner() {
         {/* ── Pestaña Mi Perfil ── */}
         {tab === 'perfil' && <MiPerfil />}
 
+        {/* ── Pestaña Dashboard ── */}
+        {tab === 'dashboard' && <Dashboard empresaId={empresaActiva?.id} />}
+
         {/* ── Pestaña Facturas ── */}
         {tab === 'facturas' && (
           <div className="space-y-4">
@@ -789,6 +803,7 @@ export default function App() {
   return (
     <AuthProvider>
       <AppInner />
+      <Notificaciones />
       <ChatWidget />
     </AuthProvider>
   );

@@ -372,10 +372,10 @@ export default function SeccionFacturas({
         </div>
       )}
 
-      {/* Barra de acciones — visible siempre que haya selección */}
+      {/* Barra de acciones — flotante cuando hay selección */}
       {haySeleccion && (
-        <div className="space-y-2">
-          <div className="flex items-center gap-3 bg-blue-600 text-white rounded-xl px-5 py-3 shadow-lg shadow-blue-200 flex-wrap">
+        <div className="space-y-2 sticky bottom-4 z-30">
+          <div className="flex items-center gap-2 sm:gap-3 bg-blue-600 text-white rounded-xl px-3 sm:px-5 py-3 shadow-lg shadow-blue-200 flex-wrap">
             <span className="text-sm font-medium flex-1">
               {n} {n === 1 ? 'factura seleccionada' : 'facturas seleccionadas'}
             </span>

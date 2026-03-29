@@ -40,6 +40,9 @@ app.use('/api/proveedores',   require('./routes/proveedores'));
 app.use('/api/roles',         require('./routes/roles'));
 app.use('/api/exportacion-a3', require('./routes/exportacionA3'));
 app.use('/api/chat',          require('./routes/chat'));
+app.use('/api/eventos',       require('./routes/eventos'));
+app.use('/api/busqueda',      require('./routes/busqueda'));
+app.use('/api/dashboard',     require('./routes/dashboard'));
 app.use('/ver',               require('./routes/acceso'));
 app.get('/health', (_req, res) => res.json({ ok: true, uptime: process.uptime() }));
 

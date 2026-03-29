@@ -242,11 +242,15 @@ async function ejecutarSync(origen = 'MANUAL') {
     );
 
     console.log(`[Sync] Completada en ${(duracion_ms/1000).toFixed(1)}s — ${facturas_nuevas} nuevas, ${facturas_error} error, ${facturas_duplicadas} duplicadas`);
+    const { broadcast } = require('./sseService');
+    broadcast('sync_complete', { facturas_nuevas, facturas_error, facturas_duplicadas, duracion_ms, extraccion });
     return { facturas_nuevas, facturas_error, facturas_duplicadas, duracion_ms, extraccion };
 
   } catch (err) {
     const duracion_ms = Date.now() - inicio;
     console.error(`[Sync] ERROR tras ${(duracion_ms/1000).toFixed(1)}s:`, err.message);
+    const { broadcast } = require('./sseService');
+    broadcast('sync_error', { error: err.message, duracion_ms });
     await db.query(
       `INSERT INTO historial_sincronizaciones
          (origen, estado, facturas_nuevas, facturas_error, duracion_ms, detalle)
