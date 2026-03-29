@@ -643,6 +643,16 @@ function PanelDetalleFiscal({ f, onDatosActualizados }) {
             </p>
           </div>
         )}
+        {d?._avisos_validacion?.length > 0 && (
+          <div className="px-3 sm:px-6 pt-3 pb-1">
+            <p className="text-xs font-semibold text-amber-600 flex items-center gap-1.5">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+              </svg>
+              Avisos de validacion: {d._avisos_validacion.join(' | ')}
+            </p>
+          </div>
+        )}
         <div className="px-3 sm:px-6 py-4 grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-6">
 
           {/* Datos fiscales */}

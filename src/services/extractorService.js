@@ -112,10 +112,17 @@ async function descargarPdfTmp(drive, googleId) {
   return tmpPath;
 }
 
-async function llamarGemini(model, pdfPath, prompt) {
-  const base64Pdf = fs.readFileSync(pdfPath).toString('base64');
-  const sizeKB = Math.round(base64Pdf.length * 0.75 / 1024);
+// Errores que se pueden reintentar (transitorios)
+const RETRIABLE_PREFIXES = ['GEMINI_RATE_LIMIT', 'GEMINI_SERVER', 'GEMINI_ERROR'];
+const MAX_RETRIES = 3;
 
+function isRetriable(err) {
+  return RETRIABLE_PREFIXES.some(p => (err.message || '').startsWith(p));
+}
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+async function llamarGeminiRaw(model, base64Pdf, prompt) {
   let resultado;
   try {
     resultado = await model.generateContent([
@@ -123,7 +130,6 @@ async function llamarGemini(model, pdfPath, prompt) {
       { text: prompt },
     ]);
   } catch (geminiErr) {
-    // Clasificar el error de Gemini
     const status = geminiErr.status || geminiErr.httpStatusCode || geminiErr.code;
     const msg = geminiErr.message || String(geminiErr);
     if (status === 429 || msg.includes('429') || msg.toLowerCase().includes('quota') || msg.toLowerCase().includes('rate')) {
@@ -136,7 +142,7 @@ async function llamarGemini(model, pdfPath, prompt) {
       throw new Error(`GEMINI_SERVER: Error del servidor Gemini (${status}). ${msg.slice(0, 200)}`);
     }
     if (msg.toLowerCase().includes('too large') || msg.toLowerCase().includes('payload') || msg.toLowerCase().includes('size')) {
-      throw new Error(`GEMINI_SIZE: PDF demasiado grande (${sizeKB}KB). ${msg.slice(0, 200)}`);
+      throw new Error(`GEMINI_SIZE: PDF demasiado grande. ${msg.slice(0, 200)}`);
     }
     throw new Error(`GEMINI_ERROR: ${msg.slice(0, 300)}`);
   }
@@ -164,6 +170,24 @@ async function llamarGemini(model, pdfPath, prompt) {
   }
 
   return mapearRespuestaGemini(raw);
+}
+
+async function llamarGemini(model, pdfPath, prompt) {
+  const base64Pdf = fs.readFileSync(pdfPath).toString('base64');
+
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      return await llamarGeminiRaw(model, base64Pdf, prompt);
+    } catch (err) {
+      if (attempt < MAX_RETRIES && isRetriable(err)) {
+        const delay = Math.min(1000 * Math.pow(2, attempt) + Math.random() * 500, 30000);
+        console.log(`[Gemini] Retry ${attempt + 1}/${MAX_RETRIES} en ${(delay/1000).toFixed(1)}s — ${err.message.slice(0, 80)}`);
+        await sleep(delay);
+        continue;
+      }
+      throw err;
+    }
+  }
 }
 
 // ─── Mapeador de formato ──────────────────────────────────────────────────────
@@ -228,9 +252,120 @@ function normalizarTotales(datos) {
   };
 }
 
+// ─── Validación de CIF/VAT internacional ─────────────────────────────────────
+
+function validarCIF(cif) {
+  if (!cif || typeof cif !== 'string') return { valido: false, motivo: 'CIF vacio' };
+  const c = cif.replace(/[\s.-]/g, '').toUpperCase();
+  if (c.length < 5) return { valido: false, motivo: `CIF demasiado corto: ${c}` };
+
+  // España: letra + 8 dígitos, o 8 dígitos + letra, o letra + 7 dígitos + letra
+  if (/^[A-Z]\d{8}$/.test(c)) return { valido: true }; // CIF empresa
+  if (/^\d{8}[A-Z]$/.test(c)) return { valido: true }; // NIF persona
+  if (/^[KLMXYZ]\d{7}[A-Z]$/.test(c)) return { valido: true }; // NIE
+  if (/^[A-Z]\d{7}[A-Z0-9]$/.test(c)) return { valido: true }; // CIF variantes
+
+  // Prefijo ES (España VAT)
+  if (/^ES[A-Z0-9]\d{7}[A-Z0-9]$/.test(c)) return { valido: true };
+
+  // VAT europeo genérico: 2 letras + 2-13 alfanuméricos
+  if (/^[A-Z]{2}[A-Z0-9]{2,13}$/.test(c)) return { valido: true };
+
+  // Aceptar si tiene al menos letras y numeros mezclados (formato internacional)
+  if (/[A-Z]/.test(c) && /\d/.test(c) && c.length >= 7) return { valido: true };
+
+  return { valido: false, motivo: `Formato CIF no reconocido: ${c}` };
+}
+
+function validarCoherenciaImportes(datos) {
+  const avisos = [];
+  const total     = Number(datos.total_factura)  || 0;
+  const sinIva    = Number(datos.total_sin_iva)  || 0;
+  const totalIva  = Number(datos.total_iva)      || 0;
+  const iva = Array.isArray(datos.iva) ? datos.iva : [];
+
+  if (total === 0) return avisos; // No validar facturas sin importe
+
+  // Coherencia base + IVA = total (tolerancia 0.05€)
+  if (sinIva && totalIva) {
+    const suma = round2(sinIva + totalIva);
+    const diff = Math.abs(suma - Math.abs(total));
+    if (diff > 0.05) {
+      avisos.push(`Base (${sinIva}) + IVA (${totalIva}) = ${suma}, pero total es ${total} (diff: ${round2(diff)})`);
+    }
+  }
+
+  // Coherencia IVA desglosado vs totales
+  if (iva.length > 0) {
+    const sumaBase  = round2(iva.reduce((s, e) => s + (Number(e.base) || 0), 0));
+    const sumaCuota = round2(iva.reduce((s, e) => s + (Number(e.cuota) || 0), 0));
+
+    if (sinIva && Math.abs(sumaBase - sinIva) > 0.05) {
+      avisos.push(`Suma bases IVA (${sumaBase}) != total_sin_iva (${sinIva})`);
+    }
+    if (totalIva && Math.abs(sumaCuota - totalIva) > 0.05) {
+      avisos.push(`Suma cuotas IVA (${sumaCuota}) != total_iva (${totalIva})`);
+    }
+
+    // Verificar que cuota ≈ base × tipo/100 por cada línea
+    for (const linea of iva) {
+      const tipo = Number(linea.tipo) || 0;
+      const base = Number(linea.base) || 0;
+      const cuota = Number(linea.cuota) || 0;
+      if (tipo > 0 && base > 0 && cuota > 0) {
+        const esperado = round2(base * tipo / 100);
+        if (Math.abs(esperado - cuota) > 0.10) {
+          avisos.push(`IVA ${tipo}%: cuota ${cuota} esperada ${esperado} (base: ${base})`);
+        }
+      }
+    }
+  }
+
+  return avisos;
+}
+
+function validarDatosExtraidos(datos) {
+  const avisos = [];
+
+  // Validar CIF emisor
+  if (datos.cif_emisor) {
+    const r = validarCIF(datos.cif_emisor);
+    if (!r.valido) avisos.push(`CIF emisor: ${r.motivo}`);
+  }
+
+  // Validar CIF receptor
+  if (datos.cif_receptor) {
+    const r = validarCIF(datos.cif_receptor);
+    if (!r.valido) avisos.push(`CIF receptor: ${r.motivo}`);
+  }
+
+  // Validar fecha (formato YYYY-MM-DD y rango razonable)
+  if (datos.fecha_emision) {
+    const d = new Date(datos.fecha_emision);
+    if (isNaN(d.getTime())) {
+      avisos.push(`Fecha emision invalida: ${datos.fecha_emision}`);
+    } else {
+      const year = d.getFullYear();
+      if (year < 2000 || year > new Date().getFullYear() + 1) {
+        avisos.push(`Fecha emision fuera de rango: ${datos.fecha_emision}`);
+      }
+    }
+  }
+
+  // Validar coherencia de importes
+  avisos.push(...validarCoherenciaImportes(datos));
+
+  return avisos;
+}
+
 function validarDatos(datos) {
   const faltantes = CAMPOS_CRITICOS.filter(c => datos[c] == null);
-  return { valido: faltantes.length === 0, faltantes };
+  // Ejecutar validaciones de calidad
+  const avisos = validarDatosExtraidos(datos);
+  if (avisos.length > 0) {
+    datos._avisos_validacion = avisos;
+  }
+  return { valido: faltantes.length === 0, faltantes, avisos };
 }
 
 async function guardarResultado(id, estado, datos, error) {
@@ -254,7 +389,7 @@ async function procesarArchivo(drive, model, archivo, prompt) {
     const datos = await llamarGemini(model, tmpPath, prompt);
     const ms = Date.now() - t0;
 
-    const { valido, faltantes } = validarDatos(datos);
+    const { valido, faltantes, avisos } = validarDatos(datos);
     const datosN = normalizarTotales(datos);
 
     if (!valido) {
@@ -264,8 +399,12 @@ async function procesarArchivo(drive, model, archivo, prompt) {
       return { estado: 'REVISION_MANUAL', datos: datosN, error: motivo };
     }
 
-    console.log(`[Gemini] OK ${archivo.nombre_archivo} (${sizeKB}KB, ${ms}ms) — ${datos.numero_factura || '?'}`);
-    await guardarResultado(archivo.id, 'PROCESADA', datosN, null);
+    if (avisos.length > 0) {
+      console.log(`[Gemini] OK (con avisos) ${archivo.nombre_archivo} (${sizeKB}KB, ${ms}ms) — ${avisos.length} aviso(s): ${avisos[0]}`);
+    } else {
+      console.log(`[Gemini] OK ${archivo.nombre_archivo} (${sizeKB}KB, ${ms}ms) — ${datos.numero_factura || '?'}`);
+    }
+    await guardarResultado(archivo.id, 'PROCESADA', datosN, avisos.length > 0 ? `Avisos: ${avisos.join(' | ')}` : null);
     return { estado: 'PROCESADA', datos: datosN };
 
   } catch (err) {
