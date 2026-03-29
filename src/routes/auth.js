@@ -3,6 +3,7 @@ const router  = express.Router();
 
 const { login, signToken } = require('../services/authService');
 const { resolveUser, requireAuth } = require('../middleware/auth');
+const { loginLimiter } = require('../middleware/rateLimiter');
 const { getDb }      = require('../config/database');
 const { getSistemaConfig } = require('../services/sistemaConfigService');
 
@@ -37,7 +38,7 @@ async function getPermisos(rolNombre) {
 
 // ─── POST /api/auth/login ─────────────────────────────────────────────────────
 
-router.post('/login', async (req, res) => {
+router.post('/login', loginLimiter, async (req, res) => {
   const { email, password } = req.body;
   if (!email || !password) {
     return res.status(400).json({ ok: false, error: 'Email y contraseña requeridos' });

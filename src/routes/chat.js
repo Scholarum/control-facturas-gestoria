@@ -3,6 +3,7 @@ const Anthropic = require('@anthropic-ai/sdk').default;
 const fs = require('fs');
 const path = require('path');
 const { resolveUser, requireAuth } = require('../middleware/auth');
+const { chatLimiter } = require('../middleware/rateLimiter');
 
 const router = express.Router();
 
@@ -89,7 +90,7 @@ function loadAgentPrompt(agentId) {
 
 const MAX_TOOL_ROUNDS = 5;
 
-router.post('/', resolveUser, requireAuth, async (req, res) => {
+router.post('/', resolveUser, requireAuth, chatLimiter, async (req, res) => {
   const { messages, agentId } = req.body;
 
   if (!messages || !Array.isArray(messages) || messages.length === 0) {

@@ -7,6 +7,7 @@ const fs                = require('fs');
 const { initDb }        = require('./config/database');
 const { runMigrations } = require('./config/migrate');
 const { attachRequestMeta } = require('./middleware/audit');
+const { apiLimiter }       = require('./middleware/rateLimiter');
 const { ensurePromptSeeded } = require('./services/extractorService');
 const { iniciarCrons }       = require('./services/cronService');
 
@@ -23,6 +24,7 @@ app.use(cors({
   credentials: true,
 }));
 app.use(express.json());
+app.use('/api', apiLimiter);
 app.use(attachRequestMeta);
 
 // API routes
