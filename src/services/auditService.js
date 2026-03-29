@@ -17,6 +17,7 @@ const EVENTOS = {
   ELIMINAR_FACTURA:      'ELIMINAR_FACTURA',
   EDICION_DATOS_FACTURA: 'EDICION_DATOS_FACTURA',
   EXPORT_SAGE:           'EXPORT_SAGE',
+  ASIGNAR_CG:            'ASIGNAR_CG',
 };
 
 async function registrarEvento({ evento, facturaId, usuarioId, ip, userAgent, tokenUsado, detalle }) {

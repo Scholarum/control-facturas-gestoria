@@ -798,8 +798,9 @@ function HistorialFactura({ facturaId }) {
     EDICION_DATOS_FACTURA: { label: 'Datos editados', color: 'bg-blue-500' },
     ELIMINAR_FACTURA: { label: 'Eliminada', color: 'bg-red-500' },
     EXPORT_EXCEL: { label: 'Exportada Excel', color: 'bg-purple-500' },
-    ASIGNAR_CG: { label: 'Cuenta asignada', color: 'bg-purple-500' },
-    DESCARGA_ZIP: { label: 'Descargada', color: 'bg-blue-500' },
+    ASIGNAR_CG: { label: 'Cta. Gasto asignada', color: 'bg-purple-500' },
+    DOWNLOAD: { label: 'Descargada', color: 'bg-blue-500' },
+    EXPORT_SAGE: { label: 'Exportada SAGE', color: 'bg-orange-500' },
   };
 
   return (

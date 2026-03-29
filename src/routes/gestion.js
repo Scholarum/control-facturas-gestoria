@@ -326,6 +326,15 @@ router.put('/cg-masivo', express.json(), async (req, res) => {
     [cgId, nuevoEstado, ids]
   );
 
+  const usuarioId = req.usuario?.id;
+  for (const a of archivos.filter(x => x.estado_gestion !== 'CONTABILIZADA')) {
+    registrarEvento({
+      evento: 'ASIGNAR_CG', usuarioId,
+      ip: req.clientIp, userAgent: req.userAgent,
+      detalle: { drive_id: a.id, cuenta_gasto_id: cgId, estado_previo: a.estado_gestion, estado_nuevo: nuevoEstado },
+    }).catch(() => {});
+  }
+
   res.json({ ok: true, data: { actualizadas: ids.length, cg_efectiva_id: cgId, estado_gestion: nuevoEstado } });
 });
 
@@ -407,10 +416,19 @@ router.put('/:id/cg', express.json(), async (req, res) => {
     if (nuevoEstado === 'CC_ASIGNADA') nuevoEstado = 'PENDIENTE';
   }
 
+  const estadoPrevio = archivo.estado_gestion || 'PENDIENTE';
   await db.query(
     'UPDATE drive_archivos SET cuenta_gasto_id = $1, estado_gestion = $2 WHERE id = $3',
     [cgId, nuevoEstado, id]
   );
+
+  if (estadoPrevio !== nuevoEstado) {
+    registrarEvento({
+      evento: 'ASIGNAR_CG', usuarioId: req.usuario?.id,
+      ip: req.clientIp, userAgent: req.userAgent,
+      detalle: { drive_id: id, cuenta_gasto_id: cgId, estado_previo: estadoPrevio, estado_nuevo: nuevoEstado },
+    }).catch(() => {});
+  }
 
   res.json({ ok: true, data: { id, cg_efectiva_id: cgId, estado_gestion: nuevoEstado } });
 });
@@ -917,6 +935,13 @@ router.put('/aplicar-cuentas-proveedor', requireAuth, async (req, res) => {
         [idsActualizar]
       );
       actualizadas = r.rowCount;
+      for (const id of idsActualizar) {
+        registrarEvento({
+          evento: 'ASIGNAR_CG', usuarioId: req.usuario?.id,
+          ip: req.clientIp, userAgent: req.userAgent,
+          detalle: { drive_id: id, estado_previo: 'PENDIENTE', estado_nuevo: 'CC_ASIGNADA', via: 'aplicar-cuentas-proveedor' },
+        }).catch(() => {});
+      }
     }
 
     res.json({ ok: true, data: { actualizadas, pendientes_sin_mover: motivos.length, motivos } });

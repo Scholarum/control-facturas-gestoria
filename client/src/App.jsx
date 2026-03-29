@@ -211,14 +211,16 @@ function AppInner() {
   async function handleVincularProveedores() {
     setVinculandoProvs(true); setError('');
     try {
-      const result = await vincularProveedores(empresaActiva?.id);
+      const vincResult = await vincularProveedores(empresaActiva?.id);
+      // Encadenar: aplicar cuentas para mover a CC_ASIGNADA las que cumplan requisitos
+      const cuentasResult = await aplicarCuentasProveedor(empresaActiva?.id);
       const nuevas = await fetchFacturas();
       setTodasFacturas(nuevas);
-      let texto = `${result.carpetas_rellenadas} carpeta(s) vinculada(s)`;
-      if (result.sin_proveedor > 0) {
-        texto += ` · ${result.sin_proveedor} factura(s) sin proveedor en el sistema`;
-      }
-      setSyncMsg({ ok: true, texto });
+      const partes = [];
+      if (vincResult.carpetas_rellenadas) partes.push(`${vincResult.carpetas_rellenadas} vinculada(s)`);
+      if (cuentasResult.actualizadas) partes.push(`${cuentasResult.actualizadas} pasada(s) a Cta. Gasto`);
+      if (vincResult.sin_proveedor) partes.push(`${vincResult.sin_proveedor} sin proveedor`);
+      setSyncMsg({ ok: true, texto: partes.join(' · ') || 'Sin cambios' });
       setTimeout(() => setSyncMsg(null), 8000);
     } catch (e) { setError(e.message); }
     finally { setVinculandoProvs(false); }
@@ -307,13 +309,13 @@ function AppInner() {
 
       {/* Barra de empresa + sync global */}
       {empresas.length > 0 && (
-        <div className="bg-slate-800 text-white py-1.5 px-3 sm:px-6 flex items-center gap-2 sm:gap-3 sticky top-0 z-50">
+        <div className="bg-slate-800 text-white py-2 px-3 sm:px-6 flex items-center gap-2 sm:gap-3 sticky top-0 z-50 flex-wrap">
           {empresas.length > 1 && (
             <>
-              <span className="text-xs text-slate-400">Empresa:</span>
+              <span className="text-xs text-slate-400 hidden sm:inline">Empresa:</span>
               {empresas.map(e => (
                 <button key={e.id} onClick={() => cambiarEmpresa(e)}
-                  className={`px-3 py-0.5 rounded text-xs font-medium transition-colors ${
+                  className={`px-3 py-1 rounded text-xs font-medium transition-colors ${
                     empresaActiva?.id === e.id
                       ? 'bg-white text-slate-800'
                       : 'text-slate-300 hover:text-white hover:bg-slate-700'
@@ -326,10 +328,18 @@ function AppInner() {
           {empresas.length === 1 && (
             <span className="text-xs text-slate-300">{empresas[0].nombre}</span>
           )}
+
+          {/* Búsqueda global */}
+          <BusquedaGlobal
+            empresaId={empresaActiva?.id}
+            onSelectFactura={() => setTab('facturas')}
+            onSelectProveedor={() => setTab('proveedores')}
+          />
+
           <div className="ml-auto flex items-center gap-2">
             {esAdmin && (
               <button onClick={handleSyncManual} disabled={sincronizando}
-                className="flex items-center gap-1.5 px-3 py-0.5 rounded text-xs font-medium text-slate-300 hover:text-white hover:bg-slate-700 transition-colors disabled:opacity-50">
+                className="flex items-center gap-1.5 px-3 py-1 rounded text-xs font-medium text-slate-300 hover:text-white hover:bg-slate-700 transition-colors disabled:opacity-50">
                 {sincronizando ? (
                   <svg className="h-3 w-3 animate-spin" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/></svg>
                 ) : (
@@ -395,13 +405,6 @@ function AppInner() {
 
           {/* Spacer en móvil */}
           <div className="flex-1 md:hidden" />
-
-          {/* Búsqueda global */}
-          <BusquedaGlobal
-            empresaId={empresaActiva?.id}
-            onSelectFactura={() => setTab('facturas')}
-            onSelectProveedor={() => setTab('proveedores')}
-          />
 
           {/* Dropdown Administración */}
           {hayMenuAdmin && (

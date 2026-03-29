@@ -56,9 +56,9 @@ export default function BusquedaGlobal({ empresaId, onSelectFactura, onSelectPro
   const noResults = results && results.facturas.length === 0 && results.proveedores.length === 0;
 
   return (
-    <div ref={ref} className="relative w-56 lg:w-72 flex-shrink-0 hidden sm:block">
+    <div ref={ref} className="relative w-48 sm:w-56 lg:w-72 flex-shrink-0 hidden sm:block">
       <div className="relative">
-        <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+        <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
         </svg>
         <input
@@ -67,7 +67,7 @@ export default function BusquedaGlobal({ empresaId, onSelectFactura, onSelectPro
           onChange={handleChange}
           onFocus={() => results && setOpen(true)}
           placeholder="Buscar facturas, proveedores..."
-          className="w-full pl-8 pr-3 py-1.5 rounded-lg border border-gray-200 text-sm bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+          className="w-full pl-8 pr-3 py-1.5 rounded-lg border border-slate-600 text-sm bg-slate-700 text-white placeholder-slate-400 focus:bg-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-transparent"
         />
         {loading && (
           <svg className="absolute right-2.5 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-gray-400" viewBox="0 0 24 24" fill="none">
