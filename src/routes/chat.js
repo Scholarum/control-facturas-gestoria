@@ -120,24 +120,30 @@ router.post('/', resolveUser, requireAuth, chatLimiter, async (req, res) => {
   try {
     const conversation = messages.map(m => ({ role: m.role, content: m.content }));
 
-    // ─── Rondas de tool_use (sin streaming) ─────────────────────────────
-    let response = await anthropic.messages.create({
-      model: 'claude-sonnet-4-20250514',
-      max_tokens: 1024,
-      system: systemPrompt,
-      tools,
-      messages: conversation,
-    });
-
+    // ─── Rondas de tool_use (sin streaming — necesitamos respuesta completa) ─
+    let needsStreaming = true;
     let rounds = 0;
-    while (response.stop_reason === 'tool_use' && rounds < MAX_TOOL_ROUNDS) {
-      rounds++;
 
+    while (rounds <= MAX_TOOL_ROUNDS) {
+      // Primera llamada y rondas intermedias: sin streaming
+      const response = await anthropic.messages.create({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 1024,
+        system: systemPrompt,
+        tools,
+        messages: conversation,
+      });
+
+      if (response.stop_reason !== 'tool_use') {
+        // No hay más herramientas — preparar conversación para streaming final
+        // Descartamos esta respuesta y la rehacemos con streaming
+        break;
+      }
+
+      rounds++;
       conversation.push({ role: 'assistant', content: response.content });
 
       const toolUseBlocks = response.content.filter(b => b.type === 'tool_use');
-
-      // Notificar al frontend qué herramientas se están ejecutando
       for (const block of toolUseBlocks) {
         sendEvent('tool_call', { name: block.name, input: block.input });
       }
@@ -146,51 +152,22 @@ router.post('/', resolveUser, requireAuth, chatLimiter, async (req, res) => {
         toolUseBlocks.map(async (block) => {
           try {
             const result = await executeTool(block.name, block.input);
-            return {
-              type: 'tool_result',
-              tool_use_id: block.id,
-              content: JSON.stringify(result),
-            };
+            return { type: 'tool_result', tool_use_id: block.id, content: JSON.stringify(result) };
           } catch (err) {
-            return {
-              type: 'tool_result',
-              tool_use_id: block.id,
-              is_error: true,
-              content: `Error al ejecutar ${block.name}: ${err.message}`,
-            };
+            return { type: 'tool_result', tool_use_id: block.id, is_error: true, content: `Error: ${err.message}` };
           }
         })
       );
 
       conversation.push({ role: 'user', content: toolResults });
-
-      // Si hay más tool_use posibles, seguir sin streaming
-      response = await anthropic.messages.create({
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: 1024,
-        system: systemPrompt,
-        tools,
-        messages: conversation,
-      });
     }
 
-    // ─── Respuesta final: si ya tenemos texto, enviarlo ─────────────────
-    // Verificar si la respuesta ya tiene texto (de la última ronda no-streaming)
-    const textBlocks = response.content.filter(b => b.type === 'text');
-    if (textBlocks.length > 0) {
-      // Ya tenemos la respuesta completa — enviar como stream simulado para mantener el protocolo
-      const fullText = textBlocks.map(b => b.text).join('');
-      sendEvent('delta', { text: fullText });
-      sendEvent('done', { ok: true });
-      res.end();
-      return;
-    }
-
-    // Si no hay texto aún, hacer una última llamada con streaming real
+    // ─── Respuesta final: siempre streaming real ────────────────────────
     const stream = anthropic.messages.stream({
       model: 'claude-sonnet-4-20250514',
       max_tokens: 1024,
       system: systemPrompt,
+      tools,
       messages: conversation,
     });
 
