@@ -274,6 +274,13 @@ export async function exportarExcel(ids) {
 
 // ─── Chat / Conversaciones ───────────────────────────────────────────────────
 
+export async function fetchChatConfig() {
+  const res = await fetch(`${API_BASE}/api/chat/conversaciones/config`, { headers: authHeaders() });
+  if (!res.ok) return {};
+  const { data } = await res.json();
+  return data;
+}
+
 export async function fetchConversaciones(agenteId) {
   const q = agenteId ? `?agente=${agenteId}` : '';
   const res = await fetch(`${API_BASE}/api/chat/conversaciones${q}`, { headers: authHeaders() });

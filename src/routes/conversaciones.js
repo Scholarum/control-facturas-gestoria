@@ -1,9 +1,23 @@
 const express = require('express');
 const { getDb } = require('../config/database');
 const { resolveUser, requireAuth } = require('../middleware/auth');
+const { getSistemaConfig } = require('../services/sistemaConfigService');
 
 const router = express.Router();
 router.use(resolveUser, requireAuth);
+
+// GET /api/chat/conversaciones/config — config pública del chat
+router.get('/config', async (_req, res) => {
+  const config = await getSistemaConfig();
+  res.json({
+    ok: true,
+    data: {
+      mensaje_bienvenida: config.chat_mensaje_bienvenida || '',
+      agente_defecto: config.chat_agente_defecto || 'atc',
+      max_mensajes_dia: parseInt(config.chat_max_mensajes_dia) || 100,
+    },
+  });
+});
 
 // GET /api/chat/conversaciones?agente=atc — listar conversaciones del usuario
 router.get('/', async (req, res) => {

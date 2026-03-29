@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { getStoredToken } from '../../api.js';
 
 const API_BASE = (import.meta.env.VITE_API_URL ?? '').replace(/\/$/, '');
@@ -8,9 +8,24 @@ const AGENTES_DISPONIBLES = [
   { id: 'atc', label: 'ATC Scholarum' },
 ];
 
+function SaveIndicator({ visible }) {
+  if (!visible) return null;
+  return (
+    <span className="inline-flex items-center gap-1 text-xs text-emerald-600 font-medium animate-fade-in">
+      <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+      </svg>
+      Guardado
+    </span>
+  );
+}
+
 export default function PanelChat({ config, onChange }) {
   const [usuarios, setUsuarios] = useState([]);
   const [loadingUsers, setLoadingUsers] = useState(true);
+  const [bienvenida, setBienvenida] = useState('');
+  const [savedFlag, setSavedFlag] = useState(null); // key del campo guardado
+  const debounceRef = useRef(null);
 
   useEffect(() => {
     fetch(`${API_BASE}/api/usuarios`, {
@@ -22,23 +37,43 @@ export default function PanelChat({ config, onChange }) {
       .finally(() => setLoadingUsers(false));
   }, []);
 
+  // Sync bienvenida con config cuando llega del servidor
+  useEffect(() => {
+    if (config?.chat_mensaje_bienvenida != null) setBienvenida(config.chat_mensaje_bienvenida);
+  }, [config?.chat_mensaje_bienvenida]);
+
+  // Guardar con feedback visual
+  const saveWithFeedback = useCallback((updates) => {
+    onChange(updates);
+    const key = Object.keys(updates)[0];
+    setSavedFlag(key);
+    setTimeout(() => setSavedFlag(prev => prev === key ? null : prev), 2000);
+  }, [onChange]);
+
+  // Debounce para textarea
+  function handleBienvenidaChange(e) {
+    const val = e.target.value;
+    setBienvenida(val);
+    clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => saveWithFeedback({ chat_mensaje_bienvenida: val }), 800);
+  }
+
   if (!config) return null;
 
   const chatActivo = config.chat_activo === 'true';
   const rolesActivos = (config.chat_roles || '').split(',').map(r => r.trim()).filter(Boolean);
   const agenteDefecto = config.chat_agente_defecto || 'atc';
   const maxMensajes = parseInt(config.chat_max_mensajes_dia) || 100;
-  const mensajeBienvenida = config.chat_mensaje_bienvenida || '';
 
   function toggleActivo() {
-    onChange({ chat_activo: chatActivo ? 'false' : 'true' });
+    saveWithFeedback({ chat_activo: chatActivo ? 'false' : 'true' });
   }
 
   function toggleRol(rol) {
     const next = rolesActivos.includes(rol)
       ? rolesActivos.filter(r => r !== rol)
       : [...rolesActivos, rol];
-    onChange({ chat_roles: next.join(',') });
+    saveWithFeedback({ chat_roles: next.join(',') });
   }
 
   async function toggleBloqueoUsuario(userId, bloqueado) {
@@ -57,7 +92,10 @@ export default function PanelChat({ config, onChange }) {
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-sm font-semibold text-gray-900">Chat Asistente</p>
+            <div className="flex items-center gap-2">
+              <p className="text-sm font-semibold text-gray-900">Chat Asistente</p>
+              <SaveIndicator visible={savedFlag === 'chat_activo'} />
+            </div>
             <p className="text-xs text-gray-500 mt-0.5">Activa o desactiva el widget de chat para todos los usuarios</p>
           </div>
           <button
@@ -71,7 +109,7 @@ export default function PanelChat({ config, onChange }) {
 
       {/* Roles con acceso */}
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
-        <p className="text-sm font-semibold text-gray-900 mb-1">Perfiles con acceso al chat</p>
+        <div className="flex items-center gap-2 mb-1"><p className="text-sm font-semibold text-gray-900">Perfiles con acceso al chat</p><SaveIndicator visible={savedFlag === 'chat_roles'} /></div>
         <p className="text-xs text-gray-500 mb-3">Selecciona que roles pueden ver y usar el widget del asistente</p>
         <div className="flex flex-wrap gap-2">
           {ROLES_DISPONIBLES.map(rol => (
@@ -89,11 +127,11 @@ export default function PanelChat({ config, onChange }) {
 
       {/* Agente por defecto */}
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
-        <p className="text-sm font-semibold text-gray-900 mb-1">Agente por defecto</p>
+        <div className="flex items-center gap-2 mb-1"><p className="text-sm font-semibold text-gray-900">Agente por defecto</p><SaveIndicator visible={savedFlag === 'chat_agente_defecto'} /></div>
         <p className="text-xs text-gray-500 mb-3">El agente que se selecciona automaticamente al abrir el chat</p>
         <select
           value={agenteDefecto}
-          onChange={e => onChange({ chat_agente_defecto: e.target.value })}
+          onChange={e => saveWithFeedback({ chat_agente_defecto: e.target.value })}
           className="rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-800 w-full sm:w-auto"
         >
           {AGENTES_DISPONIBLES.map(a => (
@@ -104,12 +142,12 @@ export default function PanelChat({ config, onChange }) {
 
       {/* Límite de mensajes diarios */}
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
-        <p className="text-sm font-semibold text-gray-900 mb-1">Limite de mensajes por usuario/dia</p>
+        <div className="flex items-center gap-2 mb-1"><p className="text-sm font-semibold text-gray-900">Limite de mensajes por usuario/dia</p><SaveIndicator visible={savedFlag === 'chat_max_mensajes_dia'} /></div>
         <p className="text-xs text-gray-500 mb-3">Controla el uso de la API de Anthropic estableciendo un maximo diario por usuario</p>
         <div className="flex items-center gap-3">
           <input
             type="number" min="1" max="1000" value={maxMensajes}
-            onChange={e => onChange({ chat_max_mensajes_dia: e.target.value })}
+            onChange={e => saveWithFeedback({ chat_max_mensajes_dia: e.target.value })}
             className="rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-800 w-24"
           />
           <span className="text-xs text-gray-500">mensajes/dia por usuario</span>
@@ -118,11 +156,11 @@ export default function PanelChat({ config, onChange }) {
 
       {/* Mensaje de bienvenida */}
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
-        <p className="text-sm font-semibold text-gray-900 mb-1">Mensaje de bienvenida</p>
+        <div className="flex items-center gap-2 mb-1"><p className="text-sm font-semibold text-gray-900">Mensaje de bienvenida</p><SaveIndicator visible={savedFlag === 'chat_mensaje_bienvenida'} /></div>
         <p className="text-xs text-gray-500 mb-3">Se muestra al abrir una nueva conversacion. Dejalo vacio para no mostrar nada.</p>
         <textarea
-          value={mensajeBienvenida}
-          onChange={e => onChange({ chat_mensaje_bienvenida: e.target.value })}
+          value={bienvenida}
+          onChange={handleBienvenidaChange}
           placeholder="Ej: Hola, soy el asistente de Scholarum. ¿En qué puedo ayudarte?"
           rows={3}
           className="rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-800 w-full resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"

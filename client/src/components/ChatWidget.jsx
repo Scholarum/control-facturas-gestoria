@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { getStoredToken, fetchConversaciones, crearConversacion, fetchMensajes, guardarMensaje } from '../api.js';
+import { getStoredToken, fetchChatConfig, fetchConversaciones, crearConversacion, fetchMensajes, guardarMensaje } from '../api.js';
 
 const API_BASE = (import.meta.env.VITE_API_URL ?? '').replace(/\/$/, '');
 
@@ -16,6 +16,7 @@ export default function ChatWidget() {
   const [convId, setConvId] = useState(null);
   const [convList, setConvList] = useState([]);
   const [showHistory, setShowHistory] = useState(false);
+  const [chatConfig, setChatConfig] = useState({});
   const bottomRef = useRef(null);
 
   // Auto-scroll
@@ -23,9 +24,10 @@ export default function ChatWidget() {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, loading]);
 
-  // Cargar última conversación al abrir
+  // Cargar config y conversaciones al abrir
   useEffect(() => {
     if (!open) return;
+    fetchChatConfig().then(setChatConfig);
     loadConversaciones();
   }, [open, agentId]);
 
@@ -51,7 +53,13 @@ export default function ChatWidget() {
   async function startNewConversation() {
     const conv = await crearConversacion(agentId, window.location.pathname);
     setConvId(conv.id);
-    setMessages([]);
+    const bienvenida = chatConfig.mensaje_bienvenida;
+    if (bienvenida) {
+      setMessages([{ role: 'assistant', content: bienvenida, html: bienvenida }]);
+      guardarMensaje(conv.id, 'assistant', bienvenida);
+    } else {
+      setMessages([]);
+    }
     setShowHistory(false);
     setConvList(prev => [conv, ...prev]);
   }
@@ -211,20 +219,24 @@ export default function ChatWidget() {
             ))}
           </select>
         </div>
-        <div className="flex items-center gap-2">
-          <button onClick={() => setShowHistory(h => !h)} title="Historial de conversaciones"
-            className="text-white/70 hover:text-white transition-colors">
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+        <div className="flex items-center gap-1.5">
+          <button onClick={() => setShowHistory(h => !h)}
+            className={`flex items-center gap-1 px-2 py-1 rounded text-xs font-medium transition-colors ${
+              showHistory ? 'bg-white text-blue-700' : 'bg-blue-500 text-white hover:bg-blue-400'
+            }`}>
+            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
+            Historial
           </button>
-          <button onClick={startNewConversation} title="Nueva conversación"
-            className="text-white/70 hover:text-white transition-colors">
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <button onClick={startNewConversation}
+            className="flex items-center gap-1 px-2 py-1 rounded bg-blue-500 text-white text-xs font-medium hover:bg-blue-400 transition-colors">
+            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
             </svg>
+            Nuevo
           </button>
-          <button onClick={() => setOpen(false)} className="text-white/80 hover:text-white text-xl leading-none">&times;</button>
+          <button onClick={() => setOpen(false)} className="text-white/80 hover:text-white text-xl leading-none ml-1">&times;</button>
         </div>
       </div>
 
