@@ -198,7 +198,7 @@ export default function Empresas() {
                           <div className="flex justify-center py-4"><svg className="h-5 w-5 animate-spin text-blue-400" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/></svg></div>
                         ) : (
                           <div className="space-y-4">
-                            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-xs">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-xs">
                               <div>
                                 <p className="text-gray-400 mb-1">Telefono</p>
                                 <p className="text-gray-800">{detalleData.telefono || '-'}</p>
@@ -277,7 +277,7 @@ export default function Empresas() {
       {/* Modal crear/editar */}
       {modal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md mx-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-[calc(100%-2rem)] sm:max-w-md mx-4">
             <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
               <h3 className="font-semibold text-gray-900">{modal === 'nueva' ? 'Nueva empresa' : 'Editar empresa'}</h3>
               <button onClick={() => setModal(null)} className="text-gray-400 hover:text-gray-600 text-xl">x</button>

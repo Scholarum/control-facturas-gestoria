@@ -12,7 +12,7 @@ export default function Filtros({ filtros, onChange, proveedores }) {
       <div className="flex flex-wrap gap-3 items-end">
 
         {/* Proveedor */}
-        <div className="flex flex-col gap-1 min-w-[180px]">
+        <div className="flex flex-col gap-1 w-full sm:w-auto sm:min-w-[180px]">
           <label className="text-xs font-medium text-gray-500">Proveedor</label>
           <select value={filtros.proveedor} onChange={e => set('proveedor', e.target.value)} className={inputCls}>
             <option value="">Todos los proveedores</option>
@@ -21,7 +21,7 @@ export default function Filtros({ filtros, onChange, proveedores }) {
         </div>
 
         {/* Estado gestión */}
-        <div className="flex flex-col gap-1 min-w-[150px]">
+        <div className="flex flex-col gap-1 w-full sm:w-auto sm:min-w-[150px]">
           <label className="text-xs font-medium text-gray-500">Estado</label>
           <select value={filtros.estado} onChange={e => set('estado', e.target.value)} className={inputCls}>
             <option value="">Todos los estados</option>
@@ -32,13 +32,13 @@ export default function Filtros({ filtros, onChange, proveedores }) {
         </div>
 
         {/* Fecha desde */}
-        <div className="flex flex-col gap-1">
+        <div className="flex flex-col gap-1 w-[calc(50%-0.375rem)] sm:w-auto">
           <label className="text-xs font-medium text-gray-500">Fecha emisión desde</label>
           <input type="date" value={filtros.fechaDesde} onChange={e => set('fechaDesde', e.target.value)} className={inputCls} />
         </div>
 
         {/* Fecha hasta */}
-        <div className="flex flex-col gap-1">
+        <div className="flex flex-col gap-1 w-[calc(50%-0.375rem)] sm:w-auto">
           <label className="text-xs font-medium text-gray-500">hasta</label>
           <input type="date" value={filtros.fechaHasta} onChange={e => set('fechaHasta', e.target.value)} className={inputCls} />
         </div>

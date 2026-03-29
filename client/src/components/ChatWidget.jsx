@@ -87,7 +87,7 @@ export default function ChatWidget() {
 
   // ─── Panel abierto ───────────────────────────────────────────────────────
   return (
-    <div className="fixed bottom-6 right-6 z-50 w-[360px] h-[480px] flex flex-col bg-white rounded-xl shadow-2xl border border-gray-200 overflow-hidden">
+    <div className="fixed inset-0 sm:inset-auto sm:bottom-6 sm:right-6 z-50 w-full h-full sm:w-[360px] sm:h-[480px] flex flex-col bg-white sm:rounded-xl shadow-2xl sm:border sm:border-gray-200 overflow-hidden">
 
       {/* Cabecera */}
       <div className="bg-blue-600 text-white px-4 py-3 flex items-center justify-between shrink-0">

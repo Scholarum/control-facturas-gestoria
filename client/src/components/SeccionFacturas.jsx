@@ -11,24 +11,24 @@ function FiltrosSeccion({ filtros, onChange, proveedores, totalFacturas, totalFi
   function set(k, v) { onChange({ ...filtros, [k]: v }); }
 
   return (
-    <div className="flex flex-wrap gap-3 items-end">
-      <div className="flex flex-col gap-1">
+    <div className="flex flex-wrap gap-2 sm:gap-3 items-end">
+      <div className="flex flex-col gap-1 w-[calc(50%-0.25rem)] sm:w-auto">
         <label className="text-xs font-medium text-gray-500">Proveedor</label>
         <select value={filtros.proveedor} onChange={e => set('proveedor', e.target.value)}
-          className={`${inputCls} min-w-[160px]`}>
+          className={`${inputCls} sm:min-w-[160px]`}>
           <option value="">Todos</option>
           {proveedores.map(p => <option key={p.nombre_carpeta ?? p} value={p.nombre_carpeta ?? p}>{p.label ?? p}</option>)}
         </select>
       </div>
-      <div className="flex flex-col gap-1">
+      <div className="flex flex-col gap-1 w-[calc(50%-0.25rem)] sm:w-auto">
         <label className="text-xs font-medium text-gray-500">Fecha desde</label>
         <input type="date" value={filtros.fechaDesde} onChange={e => set('fechaDesde', e.target.value)} className={inputCls} />
       </div>
-      <div className="flex flex-col gap-1">
+      <div className="flex flex-col gap-1 w-[calc(50%-0.25rem)] sm:w-auto">
         <label className="text-xs font-medium text-gray-500">Fecha hasta</label>
         <input type="date" value={filtros.fechaHasta} onChange={e => set('fechaHasta', e.target.value)} className={inputCls} />
       </div>
-      <div className="flex flex-col gap-1">
+      <div className="flex flex-col gap-1 w-[calc(50%-0.25rem)] sm:w-auto">
         <label className="text-xs font-medium text-gray-500">Extraccion</label>
         <select value={filtros.estadoExtraccion || ''} onChange={e => set('estadoExtraccion', e.target.value)} className={inputCls}>
           <option value="">Todos</option>
@@ -37,19 +37,19 @@ function FiltrosSeccion({ filtros, onChange, proveedores, totalFacturas, totalFi
           <option value="REVISION_MANUAL">Revision manual</option>
         </select>
       </div>
-      <div className="flex flex-col gap-1">
+      <div className="flex flex-col gap-1 w-[calc(50%-0.25rem)] sm:w-auto">
         <label className="text-xs font-medium text-gray-500">Datos</label>
         <select value={filtros.soloIncidencias || ''} onChange={e => set('soloIncidencias', e.target.value)}
-          className={`${inputCls} min-w-[130px] ${filtros.soloIncidencias === 'si' ? 'text-red-600 font-medium' : filtros.soloIncidencias === 'no' ? 'text-emerald-600 font-medium' : ''}`}>
+          className={`${inputCls} sm:min-w-[130px] ${filtros.soloIncidencias === 'si' ? 'text-red-600 font-medium' : filtros.soloIncidencias === 'no' ? 'text-emerald-600 font-medium' : ''}`}>
           <option value="">Todos</option>
           <option value="si">Incompletos ({numIncidencias})</option>
           <option value="no">Completos ({totalFacturas - numIncidencias})</option>
         </select>
       </div>
-      <div className="flex flex-col gap-1">
+      <div className="flex flex-col gap-1 w-full sm:w-auto">
         <label className="text-xs font-medium text-gray-500">Proveedor</label>
         <select value={filtros.soloSinProveedor || ''} onChange={e => set('soloSinProveedor', e.target.value)}
-          className={`${inputCls} min-w-[140px] ${filtros.soloSinProveedor === 'si' ? 'text-orange-600 font-medium' : filtros.soloSinProveedor === 'no' ? 'text-emerald-600 font-medium' : ''}`}>
+          className={`${inputCls} sm:min-w-[140px] ${filtros.soloSinProveedor === 'si' ? 'text-orange-600 font-medium' : filtros.soloSinProveedor === 'no' ? 'text-emerald-600 font-medium' : ''}`}>
           <option value="">Todos</option>
           <option value="si">Sin proveedor/cta ({numSinProveedor})</option>
           <option value="no">Con proveedor ({totalFacturas - numSinProveedor})</option>
@@ -125,7 +125,7 @@ function ComboboxCuentaMasiva({ cuentas, value, onChange }) {
         onChange={e => setQ(e.target.value)}
         onFocus={() => { setQ(''); setAbierto(true); }}
         placeholder="Selecciona cuenta de gasto..."
-        className="rounded-lg border border-white/30 bg-white/10 text-white placeholder-white/50 px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-white/50 w-72 pr-6"
+        className="rounded-lg border border-white/30 bg-white/10 text-white placeholder-white/50 px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-white/50 w-full sm:w-72 pr-6"
         autoComplete="off"
       />
       {value && (
@@ -136,7 +136,7 @@ function ComboboxCuentaMasiva({ cuentas, value, onChange }) {
         >✕</button>
       )}
       {abierto && (
-        <div className="absolute z-50 top-full left-0 w-80 mt-1 bg-white border border-gray-200 rounded-lg shadow-xl max-h-48 overflow-y-auto">
+        <div className="absolute z-50 top-full left-0 w-full sm:w-80 mt-1 bg-white border border-gray-200 rounded-lg shadow-xl max-h-48 overflow-y-auto">
           {filtradas.length === 0 ? (
             <p className="px-3 py-2 text-xs text-gray-400">Sin resultados</p>
           ) : filtradas.map(c => (
@@ -458,7 +458,7 @@ export default function SeccionFacturas({
         const fmt     = v => new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format(v);
         return (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setModalA3Open(false)}>
-            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 overflow-hidden" onClick={e => e.stopPropagation()}>
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-[calc(100%-2rem)] sm:max-w-md mx-4 overflow-hidden" onClick={e => e.stopPropagation()}>
               <div className="px-6 py-5 border-b border-gray-100">
                 <h2 className="text-base font-semibold text-gray-900">Exportar Lote a A3</h2>
                 <p className="text-sm text-gray-500 mt-0.5">Se generará el fichero CSV y las facturas pasarán a <strong>Contabilizadas</strong>.</p>
@@ -503,7 +503,7 @@ export default function SeccionFacturas({
       {/* Modal configuracion exportacion SAGE */}
       {modalSageOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setModalSageOpen(false)}>
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4" onClick={e => e.stopPropagation()}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-[calc(100%-2rem)] sm:max-w-lg mx-4" onClick={e => e.stopPropagation()}>
             <div className="px-6 py-4 border-b border-gray-100">
               <h3 className="text-sm font-semibold text-gray-900">Exportar a SAGE ContaPlus</h3>
               <p className="text-xs text-gray-400 mt-0.5">{seleccionados.size} factura(s) de {sageProveedores.length} proveedor(es)</p>

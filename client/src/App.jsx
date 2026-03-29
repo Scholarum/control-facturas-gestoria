@@ -44,6 +44,7 @@ function AppInner() {
   const [alertaProveedores, setAlertaProveedores] = useState([]); // proveedores sin cuentas
   const [adminMenuOpen,   setAdminMenuOpen]   = useState(false);
   const [userMenuOpen,    setUserMenuOpen]    = useState(false);
+  const [mobileMenuOpen,  setMobileMenuOpen]  = useState(false);
   const adminMenuRef = useRef(null);
   const userMenuRef  = useRef(null);
 
@@ -302,7 +303,7 @@ function AppInner() {
 
       {/* Barra de empresa + sync global */}
       {empresas.length > 0 && (
-        <div className="bg-slate-800 text-white py-1.5 px-6 flex items-center gap-3 sticky top-0 z-50">
+        <div className="bg-slate-800 text-white py-1.5 px-3 sm:px-6 flex items-center gap-2 sm:gap-3 sticky top-0 z-50">
           {empresas.length > 1 && (
             <>
               <span className="text-xs text-slate-400">Empresa:</span>
@@ -359,7 +360,16 @@ function AppInner() {
 
       {/* Header */}
       <header className={`bg-white border-b border-gray-200 sticky z-40 shadow-sm`} style={{ top: (empresas.length > 0 ? 34 : 0) + (estaEmulando ? 34 : 0) }}>
-        <div className="max-w-screen-xl mx-auto px-6 h-14 flex items-center gap-4">
+        <div className="max-w-screen-xl mx-auto px-3 sm:px-6 h-14 flex items-center gap-2 sm:gap-4">
+
+          {/* Hamburguesa (solo móvil) */}
+          <button onClick={() => setMobileMenuOpen(o => !o)} className="md:hidden flex-shrink-0 p-2 -ml-1 rounded-lg text-gray-600 hover:bg-gray-100">
+            <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              {mobileMenuOpen
+                ? <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                : <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />}
+            </svg>
+          </button>
 
           {/* Logo */}
           <div className="flex items-center gap-2 flex-shrink-0">
@@ -367,8 +377,8 @@ function AppInner() {
             <span className="font-semibold text-gray-900 text-sm hidden sm:block">Control de Facturas</span>
           </div>
 
-          {/* Pestañas principales */}
-          <nav className="flex gap-1 flex-1">
+          {/* Pestañas principales (ocultas en móvil) */}
+          <nav className="hidden md:flex gap-1 flex-1">
             {tabs.map(t => (
               <button key={t.id} onClick={() => setTab(t.id)}
                 className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors whitespace-nowrap ${
@@ -378,6 +388,9 @@ function AppInner() {
               </button>
             ))}
           </nav>
+
+          {/* Spacer en móvil */}
+          <div className="flex-1 md:hidden" />
 
           {/* Dropdown Administración */}
           {hayMenuAdmin && (
@@ -490,9 +503,40 @@ function AppInner() {
           </div>
 
         </div>
+
+        {/* Menú móvil desplegable */}
+        {mobileMenuOpen && (
+          <div className="md:hidden border-t border-gray-200 bg-white px-3 py-2 space-y-1">
+            {tabs.map(t => (
+              <button key={t.id} onClick={() => { setTab(t.id); setMobileMenuOpen(false); }}
+                className={`block w-full text-left px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+                  tab === t.id ? 'bg-blue-600 text-white' : 'text-gray-700 hover:bg-gray-100'
+                }`}>
+                {t.label}
+              </button>
+            ))}
+            {hayMenuAdmin && (
+              <>
+                <div className="border-t border-gray-100 my-1" />
+                {[
+                  { id: 'empresas',      icon: '🏛️', label: 'Empresas',       visible: puedeVer('configuracion') },
+                  { id: 'usuarios',      icon: '👥', label: 'Usuarios',       visible: puedeVer('usuarios')      },
+                  { id: 'configuracion', icon: '⚙️',  label: 'Configuracion', visible: puedeVer('configuracion') },
+                ].filter(i => i.visible).map(item => (
+                  <button key={item.id} onClick={() => { setTab(item.id); setMobileMenuOpen(false); }}
+                    className={`block w-full text-left px-3 py-2.5 rounded-lg text-sm font-medium flex items-center gap-2.5 transition-colors ${
+                      tab === item.id ? 'bg-blue-600 text-white' : 'text-gray-700 hover:bg-gray-100'
+                    }`}>
+                    <span>{item.icon}</span> {item.label}
+                  </button>
+                ))}
+              </>
+            )}
+          </div>
+        )}
       </header>
 
-      <main className="max-w-screen-xl mx-auto px-6 py-6 space-y-4">
+      <main className="max-w-screen-xl mx-auto px-3 sm:px-6 py-4 sm:py-6 space-y-4">
 
         {/* ── Banner: proveedores detectados sin cuentas ── */}
         {alertaProveedores.length > 0 && esAdmin && (
@@ -556,7 +600,7 @@ function AppInner() {
           <div className="space-y-4">
 
             {/* Stats */}
-            <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
               <StatCard label="Total"          value={stats.total}          color="text-gray-900" />
               <StatCard label="Pendientes"     value={stats.pendientes}     color="text-amber-600" />
               <StatCard label="Descargadas"    value={stats.descargadas}    color="text-blue-600" />

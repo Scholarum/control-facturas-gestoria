@@ -79,8 +79,8 @@ function ComboboxCuenta({ cuentas, value, onChange, disabled }) {
     const spaceBelow = window.innerHeight - rect.bottom;
     const openUp = spaceBelow < dropdownH && rect.top > dropdownH;
     setPos({
-      left:  rect.left,
-      width: Math.max(rect.width, 288), // w-72 = 18rem = 288px
+      left:  Math.min(rect.left, window.innerWidth - Math.min(Math.max(rect.width, 288), window.innerWidth - 16) - 8),
+      width: Math.min(Math.max(rect.width, 288), window.innerWidth - 16),
       ...(openUp
         ? { bottom: window.innerHeight - rect.top + 4, top: undefined }
         : { top: rect.bottom + 4, bottom: undefined }),
@@ -490,7 +490,7 @@ function FilaCcPreview({ f, planContable, onAsignarCG, selected, esPar = true, o
       {/* Modal crear proveedor al vuelo */}
       {modalProv && createPortal(
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => setModalProv(false)}>
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-4" onClick={e => e.stopPropagation()}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-[calc(100%-2rem)] sm:max-w-md p-6 space-y-4" onClick={e => e.stopPropagation()}>
             <h3 className="text-sm font-semibold text-gray-900">Crear proveedor</h3>
             {provError && <p className="text-xs text-red-600 bg-red-50 rounded px-2 py-1">{provError}</p>}
             <div className="space-y-3">
@@ -634,7 +634,7 @@ function PanelDetalleFiscal({ f, onDatosActualizados }) {
     <tr>
       <td colSpan={100} className={`px-0 pb-0 border-b ${hayIncidencia ? 'bg-red-50/60 border-red-100' : 'bg-blue-50/60 border-blue-100'}`}>
         {hayIncidencia && (
-          <div className="px-6 pt-3 pb-1">
+          <div className="px-3 sm:px-6 pt-3 pb-1">
             <p className="text-xs font-semibold text-red-600 flex items-center gap-1.5">
               <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z"/>
@@ -643,7 +643,7 @@ function PanelDetalleFiscal({ f, onDatosActualizados }) {
             </p>
           </div>
         )}
-        <div className="px-6 py-4 grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="px-3 sm:px-6 py-4 grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-6">
 
           {/* Datos fiscales */}
           <div>
@@ -828,7 +828,7 @@ export default function TablaFacturas({
                   className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
                 />
               </th>
-              <Th>Proveedor</Th>
+              <Th className="sticky left-0 bg-gray-50 z-10">Proveedor</Th>
               <Th>Nº Factura</Th>
               <Th>Fecha emisión</Th>
               <Th className="text-right">Total</Th>
@@ -904,7 +904,7 @@ export default function TablaFacturas({
                         className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
                       />
                     </td>
-                    <td className="px-4 py-3 font-medium text-gray-900 max-w-[180px] truncate" title={incProv ? tooltipProv : f.proveedor}>
+                    <td className="px-4 py-3 font-medium text-gray-900 max-w-[180px] truncate sticky left-0 bg-white z-10" title={incProv ? tooltipProv : f.proveedor}>
                       <span className="flex items-center gap-1">
                         {incProv && (
                           <span title={tooltipProv} className="flex-shrink-0 cursor-help">
