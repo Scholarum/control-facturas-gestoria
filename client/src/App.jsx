@@ -211,16 +211,14 @@ function AppInner() {
   async function handleVincularProveedores() {
     setVinculandoProvs(true); setError('');
     try {
-      const vincResult = await vincularProveedores(empresaActiva?.id);
-      // Encadenar: aplicar cuentas para mover a CC_ASIGNADA las que cumplan requisitos
-      const cuentasResult = await aplicarCuentasProveedor(empresaActiva?.id);
+      const result = await vincularProveedores(empresaActiva?.id);
       const nuevas = await fetchFacturas();
       setTodasFacturas(nuevas);
-      const partes = [];
-      if (vincResult.carpetas_rellenadas) partes.push(`${vincResult.carpetas_rellenadas} vinculada(s)`);
-      if (cuentasResult.actualizadas) partes.push(`${cuentasResult.actualizadas} pasada(s) a Cta. Gasto`);
-      if (vincResult.sin_proveedor) partes.push(`${vincResult.sin_proveedor} sin proveedor`);
-      setSyncMsg({ ok: true, texto: partes.join(' · ') || 'Sin cambios' });
+      let texto = `${result.carpetas_rellenadas} carpeta(s) vinculada(s)`;
+      if (result.sin_proveedor > 0) {
+        texto += ` · ${result.sin_proveedor} factura(s) sin proveedor en el sistema`;
+      }
+      setSyncMsg({ ok: true, texto });
       setTimeout(() => setSyncMsg(null), 8000);
     } catch (e) { setError(e.message); }
     finally { setVinculandoProvs(false); }
@@ -636,6 +634,7 @@ function AppInner() {
                     <button
                       onClick={handleVincularProveedores}
                       disabled={vinculandoProvs || sincronizando}
+                      title="Asocia facturas con proveedores existentes comparando el CIF del emisor y el nombre de carpeta. No cambia el estado de las facturas."
                       className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg shadow-sm transition-colors disabled:opacity-60"
                     >
                       {vinculandoProvs ? (
@@ -653,6 +652,7 @@ function AppInner() {
                     <button
                       onClick={handleAplicarCuentasProveedor}
                       disabled={aplicandoCuentas || sincronizando}
+                      title="Mueve a 'Cta. Gasto' las facturas pendientes que tienen proveedor vinculado, cuenta contable, cuenta de gasto y datos completos."
                       className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-purple-700 bg-purple-50 hover:bg-purple-100 border border-purple-200 rounded-lg shadow-sm transition-colors disabled:opacity-60"
                     >
                       {aplicandoCuentas ? (
