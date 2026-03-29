@@ -19,7 +19,7 @@ router.get('/', async (req, res) => {
       SELECT
         to_char(date_trunc('month', COALESCE(
           CASE WHEN datos_extraidos ~ '^\\s*\\{' THEN (datos_extraidos::jsonb->>'fecha_emision')::date END,
-          created_at::date
+          fecha_subida::date
         )), 'YYYY-MM') AS mes,
         COUNT(*)::int AS total,
         SUM(CASE WHEN datos_extraidos ~ '^\\s*\\{' THEN (datos_extraidos::jsonb->>'total_factura')::numeric ELSE 0 END) AS importe
@@ -35,7 +35,7 @@ router.get('/', async (req, res) => {
       SELECT COALESCE(estado_gestion, 'PENDIENTE') AS estado, COUNT(*)::int AS total
       FROM drive_archivos
       WHERE 1=1 ${empFilter}
-      GROUP BY estado
+      GROUP BY COALESCE(estado_gestion, 'PENDIENTE')
       ORDER BY total DESC
     `, params),
 

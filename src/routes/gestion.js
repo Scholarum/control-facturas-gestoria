@@ -281,6 +281,7 @@ router.put('/contabilizar', async (req, res) => {
   );
 
   if (archivos.length > 0) {
+    // Registrar evento global + uno por factura para el historial individual
     registrarEvento({
       evento:    EVENTOS.CONTABILIZAR_MASIVO,
       usuarioId,
@@ -288,6 +289,13 @@ router.put('/contabilizar', async (req, res) => {
       userAgent: req.userAgent,
       detalle:   { count: archivos.length, facturas: archivos },
     }).catch(e => console.error('[audit]', e.message));
+    for (const a of archivos) {
+      registrarEvento({
+        evento: EVENTOS.CONTABILIZAR_MASIVO, facturaId: a.id, usuarioId,
+        ip: req.clientIp, userAgent: req.userAgent,
+        detalle: { nombre: a.nombre_archivo, proveedor: a.proveedor },
+      }).catch(() => {});
+    }
   }
 
   const { broadcast } = require('../services/sseService');
@@ -428,6 +436,7 @@ router.put('/:id/revertir', requireAdmin, async (req, res) => {
 
   await registrarEvento({
     evento:    EVENTOS.REVERTIR_ESTADO,
+    facturaId: archivo.id,
     usuarioId: req.usuario.id,
     ip:        req.clientIp,
     userAgent: req.userAgent,
@@ -943,6 +952,7 @@ router.delete('/:id', requireAdmin, async (req, res) => {
 
   await registrarEvento({
     evento:    'ELIMINAR_FACTURA',
+    facturaId: archivo.id,
     usuarioId: req.usuario.id,
     ip:        req.clientIp,
     userAgent: req.userAgent,
@@ -1002,6 +1012,7 @@ router.put('/:id/datos', requireAuth, express.json(), async (req, res) => {
 
   await registrarEvento({
     evento:    'EDICION_DATOS_FACTURA',
+    facturaId: id,
     usuarioId: req.usuario?.id ?? null,
     ip:        req.clientIp,
     userAgent: req.userAgent,

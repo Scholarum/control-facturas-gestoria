@@ -381,13 +381,6 @@ function AppInner() {
             <span className="font-semibold text-gray-900 text-sm hidden sm:block">Control de Facturas</span>
           </div>
 
-          {/* Búsqueda global */}
-          <BusquedaGlobal
-            empresaId={empresaActiva?.id}
-            onSelectFactura={() => setTab('facturas')}
-            onSelectProveedor={() => setTab('proveedores')}
-          />
-
           {/* Pestañas principales (ocultas en móvil) */}
           <nav className="hidden md:flex gap-1 flex-1">
             {tabs.map(t => (
@@ -402,6 +395,13 @@ function AppInner() {
 
           {/* Spacer en móvil */}
           <div className="flex-1 md:hidden" />
+
+          {/* Búsqueda global */}
+          <BusquedaGlobal
+            empresaId={empresaActiva?.id}
+            onSelectFactura={() => setTab('facturas')}
+            onSelectProveedor={() => setTab('proveedores')}
+          />
 
           {/* Dropdown Administración */}
           {hayMenuAdmin && (
