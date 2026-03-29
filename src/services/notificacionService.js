@@ -1,6 +1,7 @@
 const Mailjet              = require('node-mailjet');
 const { getDb }            = require('../config/database');
 const { getSistemaConfig } = require('./sistemaConfigService');
+const logger               = require('../config/logger');
 
 // ─── Sustitución de variables en plantillas ───────────────────────────────────
 
@@ -24,7 +25,7 @@ async function enviarNotificaciones({ forzar = false, origen = 'MANUAL' } = {}) 
   const apiKey    = process.env.MAILJET_API_KEY;
   const apiSecret = process.env.MAILJET_API_SECRET;
   if (!apiKey || !apiSecret) {
-    console.warn('[Notificaciones] MAILJET_API_KEY / MAILJET_API_SECRET no configurados');
+    logger.warn('Notificaciones: MAILJET_API_KEY / MAILJET_API_SECRET no configurados');
     return { error: 'Credenciales Mailjet no configuradas' };
   }
 
@@ -45,12 +46,12 @@ async function enviarNotificaciones({ forzar = false, origen = 'MANUAL' } = {}) 
     || process.env.MAILJET_FROM_EMAIL
     || '';
   if (!fromEmail) {
-    console.warn('[Notificaciones] email_remitente no configurado (ni en BD ni en MAILJET_FROM_EMAIL)');
+    logger.warn('Notificaciones: email_remitente no configurado (ni en BD ni en MAILJET_FROM_EMAIL)');
     return { error: 'Email remitente no configurado. Ajústalo en Configuración → Notificaciones.' };
   }
   const fromName = 'Control de Facturas';
   const mj       = Mailjet.apiConnect(apiKey, apiSecret);
-  console.log(`[Notificaciones] Iniciando envío — from: ${fromEmail}, destinatarios: ${usuarios.map(u => u.email).join(', ')}, facturas pendientes: ${total}`);
+  logger.info({ from: fromEmail, destinatarios: usuarios.map(u => u.email), facturasPendientes: total }, 'Notificaciones iniciando envio');
 
   const s        = total === 1 ? '' : 's';
   const tplVars  = { total, s, url: appUrl };
@@ -108,7 +109,7 @@ async function enviarNotificaciones({ forzar = false, origen = 'MANUAL' } = {}) 
         uuid:    msgRes?.To?.[0]?.MessageUUID ?? null,
         rawBody: JSON.stringify(fullBody).slice(0, 800),
       });
-      console.log(`[Notificaciones] OK → ${u.email} | status: ${msgRes?.Status} | id: ${logEntry.mj_id} | uuid: ${msgRes?.To?.[0]?.MessageUUID}`);
+      logger.info({ email: u.email, status: msgRes?.Status, id: logEntry.mj_id, uuid: msgRes?.To?.[0]?.MessageUUID }, 'Notificaciones enviado OK');
       enviados++;
     } catch (e) {
       // Captura el cuerpo completo de la respuesta de Mailjet para diagnóstico
@@ -118,7 +119,7 @@ async function enviarNotificaciones({ forzar = false, origen = 'MANUAL' } = {}) 
         : (e.message || 'Error desconocido');
       logEntry.error = errorDetail;
       respuestasMj.push({ email: u.email, httpStatus: e.statusCode ?? e.response?.status, error: errorDetail });
-      console.error(`[Notificaciones] ERROR → ${u.email} | HTTP ${e.statusCode ?? e.response?.status} |`, mjBody || e.message);
+      logger.error({ email: u.email, httpStatus: e.statusCode ?? e.response?.status, err: e, mjBody }, 'Notificaciones error enviando');
       errores++;
     }
     destinatariosLog.push(logEntry);

@@ -7,6 +7,7 @@ const os   = require('os');
 
 const { getDb }            = require('../config/database');
 const { buildDriveClient } = require('./driveService');
+const logger               = require('../config/logger');
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const GEMINI_MODEL   = process.env.GEMINI_MODEL || 'gemini-2.0-flash';
@@ -181,7 +182,7 @@ async function llamarGemini(model, pdfPath, prompt) {
     } catch (err) {
       if (attempt < MAX_RETRIES && isRetriable(err)) {
         const delay = Math.min(1000 * Math.pow(2, attempt) + Math.random() * 500, 30000);
-        console.log(`[Gemini] Retry ${attempt + 1}/${MAX_RETRIES} en ${(delay/1000).toFixed(1)}s — ${err.message.slice(0, 80)}`);
+        logger.info({ attempt: attempt + 1, maxRetries: MAX_RETRIES, delaySec: (delay/1000).toFixed(1), err }, 'Gemini retry');
         await sleep(delay);
         continue;
       }
@@ -394,15 +395,15 @@ async function procesarArchivo(drive, model, archivo, prompt) {
 
     if (!valido) {
       const motivo = `Campos criticos ausentes: ${faltantes.join(', ')}`;
-      console.log(`[Gemini] REVISION ${archivo.nombre_archivo} (${sizeKB}KB, ${ms}ms) — ${motivo}`);
+      logger.info({ archivo: archivo.nombre_archivo, sizeKB, ms, motivo }, 'Gemini revision manual');
       await guardarResultado(archivo.id, 'REVISION_MANUAL', datosN, motivo);
       return { estado: 'REVISION_MANUAL', datos: datosN, error: motivo };
     }
 
     if (avisos.length > 0) {
-      console.log(`[Gemini] OK (con avisos) ${archivo.nombre_archivo} (${sizeKB}KB, ${ms}ms) — ${avisos.length} aviso(s): ${avisos[0]}`);
+      logger.info({ archivo: archivo.nombre_archivo, sizeKB, ms, avisos: avisos.length, primerAviso: avisos[0] }, 'Gemini OK con avisos');
     } else {
-      console.log(`[Gemini] OK ${archivo.nombre_archivo} (${sizeKB}KB, ${ms}ms) — ${datos.numero_factura || '?'}`);
+      logger.info({ archivo: archivo.nombre_archivo, sizeKB, ms, factura: datos.numero_factura || '?' }, 'Gemini OK');
     }
     await guardarResultado(archivo.id, 'PROCESADA', datosN, avisos.length > 0 ? `Avisos: ${avisos.join(' | ')}` : null);
     return { estado: 'PROCESADA', datos: datosN };
@@ -410,7 +411,7 @@ async function procesarArchivo(drive, model, archivo, prompt) {
   } catch (err) {
     const ms = Date.now() - t0;
     const motivo = err.message.slice(0, 300);
-    console.error(`[Gemini] ERROR ${archivo.nombre_archivo} (${ms}ms) — ${motivo}`);
+    logger.error({ archivo: archivo.nombre_archivo, ms, err }, 'Gemini error procesando archivo');
     await guardarResultado(archivo.id, 'REVISION_MANUAL', null, motivo);
     return { estado: 'REVISION_MANUAL', error: motivo };
   } finally {
@@ -448,7 +449,7 @@ async function ejecutarExtraccion(ids, onProgress = () => {}) {
   const drive  = await buildDriveClient();
   const model  = buildGeminiModel();
 
-  console.log(`[Extraccion] Iniciando ${total} facturas con modelo ${process.env.GEMINI_MODEL || 'gemini-2.5-flash'}`);
+  logger.info({ total, modelo: process.env.GEMINI_MODEL || 'gemini-2.5-flash' }, 'Extraccion iniciando');
   const tInicio = Date.now();
 
   const CONCURRENCY = parseInt(process.env.GEMINI_CONCURRENCY, 10) || 3;
@@ -478,7 +479,7 @@ async function ejecutarExtraccion(ids, onProgress = () => {}) {
         loteErrors++;
         erroresConsecutivos++;
         const errMsg = r.reason?.message || 'Error desconocido';
-        console.error(`[Extraccion] ERROR ${archivo.nombre_archivo}: ${errMsg}`);
+        logger.error({ archivo: archivo.nombre_archivo, err: r.reason }, 'Extraccion error en archivo');
         onProgress({ tipo: 'resultado', done, total, id: archivo.id, nombre: archivo.nombre_archivo, estado: 'REVISION_MANUAL', error: errMsg });
       }
     }
@@ -486,12 +487,12 @@ async function ejecutarExtraccion(ids, onProgress = () => {}) {
     // Log de progreso cada 10 lotes
     if (done % (CONCURRENCY * 10) < CONCURRENCY) {
       const elapsed = ((Date.now() - tInicio) / 1000).toFixed(0);
-      console.log(`[Extraccion] Progreso: ${done}/${total} (${resumen.procesada} OK, ${resumen.revision} revision, ${resumen.error || 0} error) — ${elapsed}s`);
+      logger.info({ done, total, procesada: resumen.procesada, revision: resumen.revision, error: resumen.error || 0, elapsed }, 'Extraccion progreso');
     }
 
     // Si hay muchos errores consecutivos (rate limit), esperar mas tiempo
     if (erroresConsecutivos >= 5) {
-      console.warn(`[Extraccion] ${erroresConsecutivos} errores consecutivos — posible rate limit. Esperando 10s...`);
+      logger.warn({ erroresConsecutivos }, 'Extraccion posible rate limit, esperando 10s');
       await new Promise(resolve => setTimeout(resolve, 10000));
       erroresConsecutivos = 0; // reset para dar otra oportunidad
     } else if (loteErrors > 0) {
@@ -503,7 +504,7 @@ async function ejecutarExtraccion(ids, onProgress = () => {}) {
   }
 
   const tTotal = ((Date.now() - tInicio) / 1000).toFixed(1);
-  console.log(`[Extraccion] COMPLETADA en ${tTotal}s — ${resumen.procesada} OK, ${resumen.revision} revision, ${resumen.error || 0} error de ${total} total`);
+  logger.info({ duracion: tTotal, procesada: resumen.procesada, revision: resumen.revision, error: resumen.error || 0, total }, 'Extraccion completada');
   onProgress({ tipo: 'fin', resumen, total });
   return resumen;
 }

@@ -8,6 +8,7 @@
  *   await db.run(sql, params)     → { rowCount }
  */
 const { Pool } = require('pg');
+const logger = require('./logger');
 
 const connectionString = process.env.DATABASE_URL || 'postgresql://localhost/control_facturas';
 
@@ -43,7 +44,7 @@ const db = {
 
 async function initDb() {
   await pool.query('SELECT 1');
-  console.log('PostgreSQL conectado');
+  logger.info('PostgreSQL conectado');
 }
 
 function getDb() {

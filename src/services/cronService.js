@@ -3,6 +3,7 @@ const { ejecutarSync }       = require('./syncService');
 const { enviarNotificaciones } = require('./notificacionService');
 const { getSistemaConfig }   = require('./sistemaConfigService');
 const { getDb }              = require('../config/database');
+const logger                 = require('../config/logger');
 
 let syncTask   = null;
 let notifyTask = null;
@@ -42,7 +43,7 @@ async function iniciarCrons() {
   try {
     config = await getSistemaConfig();
   } catch (e) {
-    console.warn('[Cron] No se pudo leer configuracion:', e.message);
+    logger.warn({ err: e }, 'Cron no se pudo leer configuracion');
     return;
   }
 
@@ -53,10 +54,10 @@ async function iniciarCrons() {
     const expr = buildCronExpr(config.sync_hora, config.sync_frecuencia);
     if (expr && cron.validate(expr)) {
       syncTask = cron.schedule(expr, () => {
-        console.log('[Cron] Iniciando sincronizacion automatica...');
-        ejecutarSync('CRON').catch(e => console.error('[Cron] Error sync:', e.message));
+        logger.info('Cron iniciando sincronizacion automatica');
+        ejecutarSync('CRON').catch(e => logger.error({ err: e }, 'Cron error sync'));
       }, { timezone });
-      console.log(`[Cron] Sync programada -> ${expr} (${config.sync_frecuencia} a las ${config.sync_hora} ${timezone})`);
+      logger.info({ expr, frecuencia: config.sync_frecuencia, hora: config.sync_hora, timezone }, 'Cron sync programada');
     }
 
     // Catch-up desactivado: usar cron externo (cron-job.org) para fiabilidad
@@ -68,15 +69,15 @@ async function iniciarCrons() {
     const expr = buildCronExpr(config.notify_hora, config.notify_frecuencia);
     if (expr && cron.validate(expr)) {
       notifyTask = cron.schedule(expr, async () => {
-        console.log('[Cron] Iniciando envio de notificaciones automaticas...');
+        logger.info('Cron iniciando envio de notificaciones automaticas');
         try {
           const result = await enviarNotificaciones({ forzar: true, origen: 'CRON' });
-          console.log('[Cron] Notificaciones resultado:', JSON.stringify(result));
+          logger.info({ result }, 'Cron notificaciones resultado');
         } catch (e) {
-          console.error('[Cron] Error notificaciones:', e.message);
+          logger.error({ err: e }, 'Cron error notificaciones');
         }
       }, { timezone });
-      console.log(`[Cron] Notificaciones programadas -> ${expr} (${config.notify_frecuencia} a las ${config.notify_hora} ${timezone})`);
+      logger.info({ expr, frecuencia: config.notify_frecuencia, hora: config.notify_hora, timezone }, 'Cron notificaciones programadas');
     }
 
     // Catch-up desactivado: usar cron externo para fiabilidad
@@ -103,12 +104,12 @@ async function catchup(tipo, hora, timezone) {
   }
 
   if (tipo === 'sync') {
-    console.log(`[Cron] Catch-up: sync diaria de las ${hora} no ejecutada hoy. Lanzando...`);
-    ejecutarSync('CRON').catch(e => console.error('[Cron] Error catch-up sync:', e.message));
+    logger.info({ hora }, 'Cron catch-up sync diaria no ejecutada hoy, lanzando');
+    ejecutarSync('CRON').catch(e => logger.error({ err: e }, 'Cron error catch-up sync'));
   } else {
-    console.log(`[Cron] Catch-up: notificacion diaria de las ${hora} no ejecutada hoy. Lanzando...`);
+    logger.info({ hora }, 'Cron catch-up notificacion diaria no ejecutada hoy, lanzando');
     enviarNotificaciones({ forzar: true, origen: 'CRON' }).catch(e =>
-      console.error('[Cron] Error catch-up notificacion:', e.message)
+      logger.error({ err: e }, 'Cron error catch-up notificacion')
     );
   }
 }

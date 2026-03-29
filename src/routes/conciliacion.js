@@ -2,6 +2,7 @@ const express   = require('express');
 const multer    = require('multer');
 const XLSX      = require('xlsx');
 const router    = express.Router();
+const logger    = require('../config/logger');
 
 const { getDb }                                       = require('../config/database');
 const { parsearSage }                                 = require('../services/sageParser');
@@ -118,7 +119,7 @@ router.post('/', resolveUser, upload.single('archivo'), async (req, res) => {
       }
     }
   } catch (e) {
-    console.error('[Conciliacion] Error guardando historial:', e.message);
+    logger.error({ err: e.message }, 'Conciliacion: error guardando historial');
   }
 
   registrarEvento({
@@ -432,7 +433,7 @@ router.post('/v2/ejecutar', resolveUser, express.json({ limit: '5mb' }), async (
       }
     }
   } catch (e) {
-    console.error('[ConciliacionV2] Error guardando historial:', e.message);
+    logger.error({ err: e.message }, 'ConciliacionV2: error guardando historial');
   }
 
   registrarEvento({
@@ -495,7 +496,7 @@ async function actualizarContadoresHistorial(db, conciliacionId) {
       [conciliadas, Math.max(sinMatch, 0), parciales, totalManuales, conciliacionId]
     );
   } catch (e) {
-    console.error('[Conciliacion] Error actualizando contadores:', e.message);
+    logger.error({ err: e.message }, 'Conciliacion: error actualizando contadores');
   }
 }
 

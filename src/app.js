@@ -1,6 +1,7 @@
 require('dotenv').config();
 
 const express           = require('express');
+const logger            = require('./config/logger');
 const cors              = require('cors');
 const path              = require('path');
 const fs                = require('fs');
@@ -60,7 +61,7 @@ if (fs.existsSync(clientDist)) {
 }
 
 app.use((err, _req, res, _next) => {
-  console.error(err);
+  logger.error(err, 'Error interno del servidor');
   res.status(500).json({ ok: false, error: 'Error interno del servidor' });
 });
 
@@ -69,9 +70,9 @@ async function start() {
   await runMigrations();
   await ensurePromptSeeded();
   await iniciarCrons();
-  app.listen(PORT, () => console.log(`Servidor arrancado en http://localhost:${PORT}`));
+  app.listen(PORT, () => logger.info({ port: PORT }, 'Servidor arrancado'));
 }
 
-start().catch(err => { console.error('Error al arrancar:', err); process.exit(1); });
+start().catch(err => { logger.error(err, 'Error al arrancar'); process.exit(1); });
 
 module.exports = app;

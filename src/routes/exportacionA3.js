@@ -1,5 +1,6 @@
 const express = require('express');
 const router  = express.Router();
+const logger  = require('../config/logger');
 
 const { getDb }                    = require('../config/database');
 const { registrarEvento, EVENTOS } = require('../services/auditService');
@@ -111,7 +112,7 @@ router.post('/exportar', async (req, res) => {
 
     res.json({ ok: true, data: { lote, nombre_fichero: nombreFichero, contenido_csv: contenidoCsv, totales } });
   } catch (e) {
-    console.error('[exportacionA3]', e);
+    logger.error({ err: e }, 'exportacionA3 error en exportar');
     res.status(500).json({ ok: false, error: e.message });
   }
 });

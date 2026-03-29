@@ -1,4 +1,5 @@
 const express = require('express');
+const logger = require('../config/logger');
 const Anthropic = require('@anthropic-ai/sdk').default;
 const fs = require('fs');
 const path = require('path');
@@ -168,7 +169,7 @@ router.post('/', resolveUser, requireAuth, chatLimiter, async (req, res) => {
 
     res.json({ ok: true, reply });
   } catch (err) {
-    console.error('Error al llamar a Anthropic:', err.message);
+    logger.error({ err: err.message }, 'Error al llamar a Anthropic');
     res.status(502).json({ ok: false, error: 'Error al comunicar con la API de Anthropic' });
   }
 });

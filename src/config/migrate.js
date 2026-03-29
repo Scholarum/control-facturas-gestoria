@@ -1,4 +1,5 @@
 const { getDb } = require('./database');
+const logger = require('./logger');
 
 // ─── Schema ───────────────────────────────────────────────────────────────────
 
@@ -581,7 +582,7 @@ async function runMigrations() {
 
   // historial_sincronizaciones es global (no se filtra por empresa)
 
-  console.log('Migración PostgreSQL completada.');
+  logger.info('Migración PostgreSQL completada');
 }
 
 module.exports = { runMigrations };

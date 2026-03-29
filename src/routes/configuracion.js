@@ -1,5 +1,6 @@
 const express = require('express');
 const router  = express.Router();
+const logger  = require('../config/logger');
 
 const { resolveUser, requireAdmin }                       = require('../middleware/auth');
 const { getPrompt, savePrompt, resetPromptToDefault,
@@ -78,7 +79,7 @@ router.put('/sistema', requireAdmin, async (req, res) => {
     if (req.body[k] !== undefined) updates[k] = req.body[k];
   }
   await setSistemaConfig(updates);
-  iniciarCrons().catch(e => console.error('[Cron]', e.message));
+  iniciarCrons().catch(e => logger.error({ err: e }, 'Cron error al reiniciar'));
   const data = await getSistemaConfig();
   res.json({ ok: true, data });
 });

@@ -2,6 +2,7 @@ const express = require('express');
 const JSZip   = require('jszip');
 const XLSX    = require('xlsx');
 const router  = express.Router();
+const logger  = require('../config/logger');
 
 const multer  = require('multer');
 const { getDb }                     = require('../config/database');
@@ -285,7 +286,7 @@ router.post('/descargar-zip', async (req, res) => {
         estado_previo: archivo.estado_gestion,
         google_id:     archivo.google_id,
       },
-    }).catch(e => console.error('[audit]', e.message));
+    }).catch(e => logger.error({ err: e.message }, 'audit error'));
   }
 
   // STORE sin comprimir: los PDFs ya están comprimidos, DEFLATE es lento y no reduce tamaño
@@ -1140,7 +1141,7 @@ router.get('/carpetas', requireAdmin, async (req, res) => {
 
     res.json({ ok: true, data: resultado });
   } catch (err) {
-    console.error('[Drive] Error listando carpetas:', err.message);
+    logger.error({ err: err.message }, 'Drive: error listando carpetas');
     res.status(500).json({ ok: false, error: err.message });
   }
 });
@@ -1166,7 +1167,7 @@ router.post('/carpetas', requireAdmin, async (req, res) => {
     const carpeta = await crearCarpeta(drive, nombre.trim());
     res.json({ ok: true, data: { ...carpeta, archivos: 0 } });
   } catch (err) {
-    console.error('[Drive] Error creando carpeta:', err.message);
+    logger.error({ err: err.message }, 'Drive: error creando carpeta');
     res.status(500).json({ ok: false, error: err.message });
   }
 });
@@ -1213,7 +1214,7 @@ router.post('/upload-universal', requireAuth, upload.array('archivos', 20), asyn
 
         resultados.push({ nombre: file.originalname, id: row.id, google_id: driveFile.id, ok: true });
       } catch (e) {
-        console.error(`[Upload] Error subiendo ${file.originalname}:`, e.message);
+        logger.error({ archivo: file.originalname, err: e.message }, 'Upload: error subiendo archivo');
         resultados.push({ nombre: file.originalname, ok: false, error: e.message });
       }
     }
@@ -1224,7 +1225,7 @@ router.post('/upload-universal', requireAuth, upload.array('archivos', 20), asyn
     if (idsSubidos.length > 0) {
       setImmediate(async () => {
         try {
-          console.log(`[Upload] Extrayendo ${idsSubidos.length} facturas con Gemini...`);
+          logger.info({ facturas: idsSubidos.length }, 'Upload: extrayendo facturas con Gemini');
           await ejecutarExtraccion(idsSubidos);
 
           // 4. Asignar empresa_id por CIF receptor
@@ -1290,11 +1291,11 @@ router.post('/upload-universal', requireAuth, upload.array('archivos', 20), asyn
               )
           `, [idsSubidos]);
 
-          console.log(`[Upload] Procesamiento completado para ${idsSubidos.length} facturas`);
+          logger.info({ facturas: idsSubidos.length }, 'Upload: procesamiento completado');
           const { broadcast } = require('../services/sseService');
           broadcast('upload_complete', { count: idsSubidos.length });
         } catch (e) {
-          console.error('[Upload] Error en procesamiento post-subida:', e.message);
+          logger.error({ err: e.message }, 'Upload: error en procesamiento post-subida');
         }
       });
     }
@@ -1311,7 +1312,7 @@ router.post('/upload-universal', requireAuth, upload.array('archivos', 20), asyn
       },
     });
   } catch (err) {
-    console.error('[Upload] Error general:', err.message);
+    logger.error({ err: err.message }, 'Upload: error general');
     res.status(500).json({ ok: false, error: err.message });
   }
 });

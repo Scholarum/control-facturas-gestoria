@@ -1,6 +1,7 @@
 const { getDb }              = require('../config/database');
 const { buildDriveClient, ROOT_FOLDER_ID } = require('./driveService');
 const { ejecutarExtraccion } = require('./extractorService');
+const logger                 = require('../config/logger');
 
 // ─── Escaneo recursivo de Drive (con concurrencia limitada) ─────────────────
 
@@ -60,9 +61,9 @@ async function ejecutarSync(origen = 'MANUAL') {
   try {
     const drive    = await buildDriveClient();
     const archivos = [];
-    console.log('[Sync] Escaneando Drive...');
+    logger.info('Sync escaneando Drive');
     await escanearCarpeta(drive, ROOT_FOLDER_ID, '', null, archivos);
-    console.log(`[Sync] ${archivos.length} PDFs encontrados en Drive`);
+    logger.info({ count: archivos.length }, 'Sync PDFs encontrados en Drive');
 
     // ─── Upsert en lotes (en vez de uno a uno) ───────────────────────────
     let facturas_nuevas = 0;
@@ -90,7 +91,7 @@ async function ejecutarSync(origen = 'MANUAL') {
         if (!existentesSet.has(a.google_id)) facturas_nuevas++;
       }
     }
-    console.log(`[Sync] ${facturas_nuevas} facturas nuevas insertadas`);
+    logger.info({ facturas_nuevas }, 'Sync facturas nuevas insertadas');
 
     // ─── Extraccion con Gemini (solo las SINCRONIZADA) ───────────────────
     const sincRows = await db.all(
@@ -103,13 +104,13 @@ async function ejecutarSync(origen = 'MANUAL') {
     let detalleDuplicadas = [];
 
     if (idsParaExtraer.length > 0) {
-      console.log(`[Sync] Extrayendo ${idsParaExtraer.length} facturas con Gemini...`);
+      logger.info({ count: idsParaExtraer.length }, 'Sync extrayendo facturas con Gemini');
       try {
         extraccion = await ejecutarExtraccion(idsParaExtraer);
       } catch (e) {
-        console.error('[Sync] Error en extraccion:', e.message);
+        logger.error({ err: e }, 'Sync error en extraccion');
       }
-      console.log(`[Sync] Extraccion completada: ${extraccion.procesada} OK, ${extraccion.revision} revision`);
+      logger.info({ procesada: extraccion.procesada, revision: extraccion.revision }, 'Sync extraccion completada');
 
       // Asignar empresa_id por CIF receptor
       try {
@@ -142,9 +143,9 @@ async function ejecutarSync(origen = 'MANUAL') {
               `INSERT INTO empresas (nombre, cif) VALUES ($1, $2) ON CONFLICT (cif) DO NOTHING`,
               [nombre?.trim() || cif, cif]
             );
-            console.log(`[Sync] Empresa creada al vuelo: ${nombre || cif} (${cif})`);
+            logger.info({ nombre: nombre || cif, cif }, 'Sync empresa creada al vuelo');
           } catch (e) {
-            console.error(`[Sync] Error creando empresa ${cif}:`, e.message);
+            logger.error({ err: e, cif }, 'Sync error creando empresa');
           }
         }
 
@@ -160,7 +161,7 @@ async function ejecutarSync(origen = 'MANUAL') {
           `, [idsParaExtraer]);
         }
       } catch (e) {
-        console.error('[Sync] Error asignando empresa_id:', e.message);
+        logger.error({ err: e }, 'Sync error asignando empresa_id');
       }
 
       // Detectar duplicados
@@ -199,7 +200,7 @@ async function ejecutarSync(origen = 'MANUAL') {
           facturas_duplicadas = duplicadas.length;
         }
       } catch (e) {
-        console.error('[Sync] Error duplicados:', e.message);
+        logger.error({ err: e }, 'Sync error duplicados');
       }
 
       // Auto-asignar CC_ASIGNADA
@@ -223,7 +224,7 @@ async function ejecutarSync(origen = 'MANUAL') {
           [idsParaExtraer]
         );
       } catch (e) {
-        console.error('[Sync] Error CC_ASIGNADA:', e.message);
+        logger.error({ err: e }, 'Sync error CC_ASIGNADA');
       }
 
       // Vinculacion carpeta-proveedor: se gestiona manualmente desde Proveedores
@@ -241,14 +242,14 @@ async function ejecutarSync(origen = 'MANUAL') {
        JSON.stringify({ total_escaneadas: archivos.length, extraccion, duplicadas: detalleDuplicadas })]
     );
 
-    console.log(`[Sync] Completada en ${(duracion_ms/1000).toFixed(1)}s — ${facturas_nuevas} nuevas, ${facturas_error} error, ${facturas_duplicadas} duplicadas`);
+    logger.info({ duracion: (duracion_ms/1000).toFixed(1), facturas_nuevas, facturas_error, facturas_duplicadas }, 'Sync completada');
     const { broadcast } = require('./sseService');
     broadcast('sync_complete', { facturas_nuevas, facturas_error, facturas_duplicadas, duracion_ms, extraccion });
     return { facturas_nuevas, facturas_error, facturas_duplicadas, duracion_ms, extraccion };
 
   } catch (err) {
     const duracion_ms = Date.now() - inicio;
-    console.error(`[Sync] ERROR tras ${(duracion_ms/1000).toFixed(1)}s:`, err.message);
+    logger.error({ err, duracion: (duracion_ms/1000).toFixed(1) }, 'Sync error');
     const { broadcast } = require('./sseService');
     broadcast('sync_error', { error: err.message, duracion_ms });
     await db.query(
