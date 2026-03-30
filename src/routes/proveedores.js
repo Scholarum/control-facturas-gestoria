@@ -374,17 +374,25 @@ router.post('/importar', requireAdmin, upload.single('archivo'), async (req, res
 
 router.put('/:id/cuentas-empresa', requireAuth, express.json(), async (req, res) => {
   const proveedorId = parseInt(req.params.id, 10);
-  const { empresa_id, cuenta_contable_id, cuenta_gasto_id } = req.body;
+  const { empresa_id } = req.body;
   if (!empresa_id) return res.status(400).json({ ok: false, error: 'empresa_id requerido' });
 
   const db = getDb();
+  // Permitir null explícito para desvincular cuentas
+  const ccId = 'cuenta_contable_id' in req.body ? (req.body.cuenta_contable_id ?? null) : undefined;
+  const cgId = 'cuenta_gasto_id' in req.body ? (req.body.cuenta_gasto_id ?? null) : undefined;
+
+  // Upsert: campos no enviados mantienen su valor actual
+  const ccSet = ccId !== undefined ? 'EXCLUDED.cuenta_contable_id' : 'proveedor_empresa.cuenta_contable_id';
+  const cgSet = cgId !== undefined ? 'EXCLUDED.cuenta_gasto_id' : 'proveedor_empresa.cuenta_gasto_id';
+
   await db.query(
     `INSERT INTO proveedor_empresa (proveedor_id, empresa_id, cuenta_contable_id, cuenta_gasto_id)
      VALUES ($1, $2, $3, $4)
      ON CONFLICT (proveedor_id, empresa_id) DO UPDATE SET
-       cuenta_contable_id = COALESCE(EXCLUDED.cuenta_contable_id, proveedor_empresa.cuenta_contable_id),
-       cuenta_gasto_id    = COALESCE(EXCLUDED.cuenta_gasto_id, proveedor_empresa.cuenta_gasto_id)`,
-    [proveedorId, parseInt(empresa_id, 10), cuenta_contable_id || null, cuenta_gasto_id || null]
+       cuenta_contable_id = ${ccSet},
+       cuenta_gasto_id    = ${cgSet}`,
+    [proveedorId, parseInt(empresa_id, 10), ccId ?? null, cgId ?? null]
   );
   res.json({ ok: true });
 });

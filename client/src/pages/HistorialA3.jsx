@@ -189,8 +189,8 @@ export default function HistorialA3() {
                                   <td className="px-3 py-1.5 text-right text-gray-700">{f.total_sin_iva ? fmtEuro(parseFloat(f.total_sin_iva)) : '-'}</td>
                                   <td className="px-3 py-1.5 text-right text-gray-700">{f.total_iva ? fmtEuro(parseFloat(f.total_iva)) : '-'}</td>
                                   <td className="px-3 py-1.5 text-right font-semibold text-gray-900">{f.total_factura ? fmtEuro(parseFloat(f.total_factura)) : '-'}</td>
-                                  <td className="px-3 py-1.5 font-mono text-gray-500">{f.cta_proveedor || '-'}</td>
-                                  <td className="px-3 py-1.5 font-mono text-gray-500">{f.cta_gasto || '-'}</td>
+                                  <td className="px-3 py-1.5 font-mono text-gray-500" title={f.cta_proveedor_desc}>{f.cta_proveedor || '-'}</td>
+                                  <td className="px-3 py-1.5 font-mono text-gray-500" title={f.cta_gasto_desc}>{f.cta_gasto || <span className="text-red-400 italic">sin cuenta</span>}</td>
                                 </tr>
                               ))}
                             </tbody>

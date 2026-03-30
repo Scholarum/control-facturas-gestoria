@@ -77,7 +77,7 @@ router.post('/google', async (req, res) => {
     }
 
     const db   = getDb();
-    const user = await db.oneOrNone(
+    const user = await db.one(
       "SELECT id, nombre, email, rol, activo, chat_bloqueado, created_at FROM usuarios WHERE email = $1",
       [email]
     );

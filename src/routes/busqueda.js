@@ -15,22 +15,31 @@ router.get('/', async (req, res) => {
   const like = `%${q}%`;
 
   const [facturas, proveedores] = await Promise.all([
-    // Buscar en facturas: nombre_archivo, proveedor, datos_extraidos (num factura, CIF)
+    // Buscar en facturas: nombre_archivo, proveedor (carpeta y razon_social), num factura, CIF
     db.all(`
-      SELECT id, nombre_archivo, proveedor, estado_gestion,
-             CASE WHEN datos_extraidos ~ '^\\s*\\{' THEN datos_extraidos::jsonb->>'numero_factura' END AS numero_factura,
-             CASE WHEN datos_extraidos ~ '^\\s*\\{' THEN datos_extraidos::jsonb->>'total_factura'  END AS total_factura
-      FROM drive_archivos
-      WHERE ($2::int IS NULL OR empresa_id = $2)
+      SELECT da.id, da.nombre_archivo, da.proveedor, da.estado_gestion,
+             COALESCE(p.razon_social, da.datos_extraidos::jsonb->>'nombre_emisor', da.proveedor) AS proveedor_nombre,
+             CASE WHEN da.datos_extraidos ~ '^\\s*\\{' THEN da.datos_extraidos::jsonb->>'numero_factura' END AS numero_factura,
+             CASE WHEN da.datos_extraidos ~ '^\\s*\\{' THEN da.datos_extraidos::jsonb->>'total_factura'  END AS total_factura
+      FROM drive_archivos da
+      LEFT JOIN LATERAL (
+        SELECT p2.razon_social FROM proveedores p2
+        WHERE p2.activo = true AND p2.cif IS NOT NULL
+          AND da.datos_extraidos ~ '^\\s*\\{'
+          AND normalizar_cif((da.datos_extraidos::jsonb)->>'cif_emisor') = normalizar_cif(p2.cif)
+        LIMIT 1
+      ) p ON true
+      WHERE ($2::int IS NULL OR da.empresa_id = $2)
         AND (
-          nombre_archivo ILIKE $1
-          OR proveedor ILIKE $1
-          OR (datos_extraidos ~ '^\\s*\\{' AND (
-            datos_extraidos::jsonb->>'numero_factura' ILIKE $1
-            OR datos_extraidos::jsonb->>'cif_emisor' ILIKE $1
+          da.nombre_archivo ILIKE $1
+          OR da.proveedor ILIKE $1
+          OR p.razon_social ILIKE $1
+          OR (da.datos_extraidos ~ '^\\s*\\{' AND (
+            da.datos_extraidos::jsonb->>'numero_factura' ILIKE $1
+            OR da.datos_extraidos::jsonb->>'cif_emisor' ILIKE $1
           ))
         )
-      ORDER BY id DESC
+      ORDER BY da.id DESC
       LIMIT 10
     `, [like, empresaId || null]),
 

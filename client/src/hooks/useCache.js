@@ -13,7 +13,7 @@ const cache = new Map(); // key -> { data, timestamp }
  */
 export default function useCache(key, fetcher, { ttl = 5 * 60 * 1000, enabled = true } = {}) {
   const cached = cache.get(key);
-  const [data, setData]       = useState(cached?.data ?? null);
+  const [data, setData]       = useState(cached?.data ?? undefined);
   const [loading, setLoading] = useState(!cached);
   const [error, setError]     = useState(null);
   const fetcherRef = useRef(fetcher);

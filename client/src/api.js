@@ -110,16 +110,44 @@ export async function desactivarUsuario(id) {
 
 // ─── Facturas ─────────────────────────────────────────────────────────────────
 
-export async function fetchFacturas(empresaId, { estado, page = 1, limit = 50 } = {}) {
+export async function fetchFacturas(empresaId, { estado, page = 1, limit = 50, filtros = {} } = {}) {
   const params = new URLSearchParams();
   if (empresaId) params.set('empresa', empresaId);
   if (estado)    params.set('estado', estado);
   params.set('page', page);
   params.set('limit', limit);
+  // Filtros server-side
+  if (filtros.proveedor)        params.set('proveedor', filtros.proveedor);
+  if (filtros.numFactura)       params.set('numFactura', filtros.numFactura);
+  if (filtros.cif)              params.set('cif', filtros.cif);
+  if (filtros.fechaDesde)       params.set('fechaDesde', filtros.fechaDesde);
+  if (filtros.fechaHasta)       params.set('fechaHasta', filtros.fechaHasta);
+  if (filtros.estadoExtraccion) params.set('estadoExtraccion', filtros.estadoExtraccion);
+  if (filtros.soloIncidencias)  params.set('soloIncidencias', filtros.soloIncidencias);
+  if (filtros.soloSinProveedor) params.set('soloSinProveedor', filtros.soloSinProveedor);
   const res = await fetch(`${API_BASE}/api/drive?${params}`, { headers: authHeaders() });
   if (!res.ok) throw new Error('Error al cargar facturas');
   const json = await res.json();
   return { data: json.data, pagination: json.pagination };
+}
+
+export async function fetchFacturaIds(empresaId, { estado, filtros = {} } = {}) {
+  const params = new URLSearchParams();
+  if (empresaId) params.set('empresa', empresaId);
+  if (estado)    params.set('estado', estado);
+  params.set('solo_ids', '1');
+  if (filtros.proveedor)        params.set('proveedor', filtros.proveedor);
+  if (filtros.numFactura)       params.set('numFactura', filtros.numFactura);
+  if (filtros.cif)              params.set('cif', filtros.cif);
+  if (filtros.fechaDesde)       params.set('fechaDesde', filtros.fechaDesde);
+  if (filtros.fechaHasta)       params.set('fechaHasta', filtros.fechaHasta);
+  if (filtros.estadoExtraccion) params.set('estadoExtraccion', filtros.estadoExtraccion);
+  if (filtros.soloIncidencias)  params.set('soloIncidencias', filtros.soloIncidencias);
+  if (filtros.soloSinProveedor) params.set('soloSinProveedor', filtros.soloSinProveedor);
+  const res = await fetch(`${API_BASE}/api/drive?${params}`, { headers: authHeaders() });
+  if (!res.ok) throw new Error('Error al cargar IDs');
+  const json = await res.json();
+  return json.ids;
 }
 
 export async function fetchStats(empresaId) {
