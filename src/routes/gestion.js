@@ -17,7 +17,9 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 
 
 function parsearArchivo(a) {
   const datos = a.datos_extraidos ? JSON.parse(a.datos_extraidos) : null;
-  return { ...a, datos_extraidos: datos };
+  // Nombre del proveedor: razon_social (por CIF) > nombre_emisor (extraído) > carpeta Drive
+  const proveedor_nombre = a.razon_social || datos?.nombre_emisor || a.proveedor || null;
+  return { ...a, datos_extraidos: datos, proveedor_nombre };
 }
 
 const CAMPOS_OBLIGATORIOS = [
@@ -126,7 +128,10 @@ router.get('/', async (req, res) => {
       conditions.push(`da.estado_gestion = $${idx++}`); params.push(estado);
     }
   }
-  if (proveedor) { conditions.push(`da.proveedor ILIKE $${idx++}`); params.push(`%${proveedor}%`); }
+  // El filtro proveedor debe buscar tanto en la carpeta Drive como en la razon_social del proveedor vinculado
+  // Se aplica después del JOIN, usando provFilter
+  let provNombreFilter = '';
+  if (proveedor) { provNombreFilter = `AND (da.proveedor ILIKE $${idx} OR p.razon_social ILIKE $${idx})`; params.push(`%${proveedor}%`); idx++; }
   if (numFactura) {
     conditions.push(`da.datos_extraidos IS NOT NULL AND da.datos_extraidos ~ '^\\s*\\{' AND (da.datos_extraidos::jsonb)->>'numero_factura' ILIKE $${idx++}`);
     params.push(`%${numFactura}%`);
@@ -175,7 +180,7 @@ router.get('/', async (req, res) => {
     LEFT JOIN plan_contable cgd     ON cgd.id = da.cuenta_gasto_id
     LEFT JOIN plan_contable pec     ON pec.id = pe.cuenta_contable_id
     LEFT JOIN lotes_exportacion_a3 la ON la.id = da.lote_a3_id
-    WHERE ${whereClause} ${provFilter}`;
+    WHERE ${whereClause} ${provFilter} ${provNombreFilter}`;
 
   // Modo solo_ids: devolver únicamente los IDs (para select all)
   if (soloIds) {
@@ -614,8 +619,8 @@ router.post('/exportar-excel', async (req, res) => {
 
     return {
       'ID':                   a.id,
-      'Proveedor':            a.proveedor || '',
-      'Razón Social':         a.razon_social || '',
+      'Proveedor':            a.razon_social || d.nombre_emisor || a.proveedor || '',
+      'Carpeta Drive':        a.proveedor || '',
       'Cta. Contable':        a.cuenta_contable_codigo || '',
       'Cta. Gasto':           a.cuenta_gasto_codigo || '',
       'Archivo':              a.nombre_archivo,

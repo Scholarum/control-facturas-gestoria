@@ -103,7 +103,7 @@ export default function BusquedaGlobal({ empresaId, onSelectFactura, onSelectPro
                       {f.numero_factura || f.nombre_archivo}
                     </p>
                     <p className="text-xs text-gray-500 truncate">
-                      {f.proveedor || 'Sin proveedor'}{f.total_factura ? ` — ${Number(f.total_factura).toFixed(2)}€` : ''}
+                      {f.proveedor_nombre || f.proveedor || 'Sin proveedor'}{f.total_factura ? ` — ${Number(f.total_factura).toFixed(2)}€` : ''}
                     </p>
                   </div>
                   <span className={`text-xs px-1.5 py-0.5 rounded font-medium flex-shrink-0 ${

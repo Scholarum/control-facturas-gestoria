@@ -1001,7 +1001,7 @@ export default function TablaFacturas({
                         className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
                       />
                     </td>
-                    <td className="px-4 py-3 font-medium text-gray-900 max-w-[180px] truncate sticky left-0 bg-white z-10" title={incProv ? tooltipProv : f.proveedor}>
+                    <td className="px-4 py-3 font-medium text-gray-900 max-w-[180px] truncate sticky left-0 bg-white z-10" title={incProv ? tooltipProv : (f.proveedor_nombre || f.proveedor)}>
                       <span className="flex items-center gap-1">
                         {incProv && (
                           <span title={tooltipProv} className="flex-shrink-0 cursor-help">
@@ -1010,7 +1010,7 @@ export default function TablaFacturas({
                             </svg>
                           </span>
                         )}
-                        <span title={f.proveedor}>{f.proveedor || '—'}</span>
+                        <span title={f.proveedor_nombre || f.proveedor}>{f.proveedor_nombre || f.proveedor || '—'}</span>
                       </span>
                     </td>
                     <td className="px-4 py-3 text-gray-700 font-mono text-xs" title={incidencia ? tooltipDatos : ''}>
