@@ -227,9 +227,9 @@ function mapearRespuestaGemini(raw) {
     nombre_receptor:   raw.receiverName    ?? null,
     cif_receptor:      raw.receiverCif     ?? null,
     iva,
-    total_sin_iva:     Number(raw.totalExcludingVat) || null,
-    total_iva:         Number(raw.totalVat)          || null,
-    total_factura:     Number(raw.totalIncludingVat) || null,
+    total_sin_iva:     raw.totalExcludingVat != null ? Number(raw.totalExcludingVat) : null,
+    total_iva:         raw.totalVat != null          ? Number(raw.totalVat)          : null,
+    total_factura:     raw.totalIncludingVat != null  ? Number(raw.totalIncludingVat) : null,
     forma_pago:        raw.paymentMethod   ?? null,
     fecha_vencimiento: parseFechaFlexible(raw.paymentDate),
   };
