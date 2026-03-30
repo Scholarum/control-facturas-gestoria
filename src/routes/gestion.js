@@ -105,10 +105,14 @@ router.get('/stats', async (req, res) => {
 router.get('/', async (req, res) => {
   const db = getDb();
   const empresaId = parseInt(req.query.empresa, 10) || null;
-  const estado    = req.query.estado || null;  // PENDIENTE, DESCARGADA, CC_ASIGNADA, CONTABILIZADA
+  const estado    = req.query.estado || null;
   const page      = Math.max(1, parseInt(req.query.page, 10) || 1);
   const limit     = Math.min(10000, Math.max(1, parseInt(req.query.limit, 10) || 25));
   const offset    = (page - 1) * limit;
+  const soloIds   = req.query.solo_ids === '1'; // Devolver solo IDs (para select all)
+
+  // Filtros
+  const { proveedor, numFactura, cif, fechaDesde, fechaHasta, estadoExtraccion, soloIncidencias, soloSinProveedor } = req.query;
 
   const conditions = ['1=1'];
   const params = [];
@@ -122,8 +126,62 @@ router.get('/', async (req, res) => {
       conditions.push(`da.estado_gestion = $${idx++}`); params.push(estado);
     }
   }
+  if (proveedor) { conditions.push(`da.proveedor ILIKE $${idx++}`); params.push(`%${proveedor}%`); }
+  if (numFactura) {
+    conditions.push(`da.datos_extraidos IS NOT NULL AND da.datos_extraidos ~ '^\\s*\\{' AND (da.datos_extraidos::jsonb)->>'numero_factura' ILIKE $${idx++}`);
+    params.push(`%${numFactura}%`);
+  }
+  if (cif) {
+    conditions.push(`da.datos_extraidos IS NOT NULL AND da.datos_extraidos ~ '^\\s*\\{' AND (da.datos_extraidos::jsonb)->>'cif_emisor' ILIKE $${idx++}`);
+    params.push(`%${cif}%`);
+  }
+  if (fechaDesde) {
+    conditions.push(`da.datos_extraidos IS NOT NULL AND da.datos_extraidos ~ '^\\s*\\{' AND (da.datos_extraidos::jsonb)->>'fecha_emision' >= $${idx++}`);
+    params.push(fechaDesde);
+  }
+  if (fechaHasta) {
+    conditions.push(`da.datos_extraidos IS NOT NULL AND da.datos_extraidos ~ '^\\s*\\{' AND (da.datos_extraidos::jsonb)->>'fecha_emision' <= $${idx++}`);
+    params.push(fechaHasta);
+  }
+  if (estadoExtraccion) { conditions.push(`da.estado = $${idx++}`); params.push(estadoExtraccion); }
+  if (soloIncidencias === 'si') { conditions.push(tieneIncidenciaSQL('da')); }
+  if (soloIncidencias === 'no') { conditions.push(`NOT ${tieneIncidenciaSQL('da')}`); }
 
   const whereClause = conditions.join(' AND ');
+  // soloSinProveedor se aplica como HAVING después del JOIN (necesita p.id)
+
+  // Filtro soloSinProveedor requiere el JOIN con proveedores
+  let provFilter = '';
+  if (soloSinProveedor === 'si') provFilter = 'AND (p.id IS NULL OR pec.codigo IS NULL)';
+  if (soloSinProveedor === 'no') provFilter = 'AND p.id IS NOT NULL AND pec.codigo IS NOT NULL';
+
+  const joinBlock = `
+    FROM drive_archivos da
+    LEFT JOIN LATERAL (
+      SELECT p2.*
+      FROM proveedores p2
+      WHERE p2.activo = true
+        AND (
+          (p2.cif IS NOT NULL AND da.datos_extraidos IS NOT NULL AND da.datos_extraidos ~ '^\\s*\\{'
+           AND normalizar_cif((da.datos_extraidos::jsonb)->>'cif_emisor') = normalizar_cif(p2.cif))
+          OR p2.nombre_carpeta = da.proveedor
+        )
+      ORDER BY (p2.cif IS NOT NULL AND da.datos_extraidos IS NOT NULL AND da.datos_extraidos ~ '^\\s*\\{'
+               AND normalizar_cif((da.datos_extraidos::jsonb)->>'cif_emisor') = normalizar_cif(p2.cif)) DESC NULLS LAST
+      LIMIT 1
+    ) p ON true
+    LEFT JOIN proveedor_empresa pe  ON pe.proveedor_id = p.id AND pe.empresa_id = da.empresa_id
+    LEFT JOIN plan_contable peg     ON peg.id = pe.cuenta_gasto_id
+    LEFT JOIN plan_contable cgd     ON cgd.id = da.cuenta_gasto_id
+    LEFT JOIN plan_contable pec     ON pec.id = pe.cuenta_contable_id
+    LEFT JOIN lotes_exportacion_a3 la ON la.id = da.lote_a3_id
+    WHERE ${whereClause} ${provFilter}`;
+
+  // Modo solo_ids: devolver únicamente los IDs (para select all)
+  if (soloIds) {
+    const rows = await db.all(`SELECT da.id ${joinBlock} ORDER BY da.id DESC`, params);
+    return res.json({ ok: true, ids: rows.map(r => r.id) });
+  }
 
   const [archivos, countRow] = await Promise.all([
     db.all(`
@@ -132,48 +190,19 @@ router.get('/', async (req, res) => {
         da.proveedor, da.fecha_subida, da.estado, da.estado_gestion,
         da.datos_extraidos, da.error_extraccion, da.procesado_at, da.ultima_sync,
         da.lote_a3_id, da.empresa_id,
-        p.id                                                        AS proveedor_id,
-        p.razon_social,
-        p.cif                                                       AS proveedor_cif,
-        da.cuenta_gasto_id                                          AS cg_manual_id,
-        COALESCE(da.cuenta_gasto_id, pe.cuenta_gasto_id)            AS cg_efectiva_id,
-        COALESCE(cgd.codigo,  peg.codigo)                           AS cuenta_gasto_codigo,
-        COALESCE(cgd.descripcion, peg.descripcion)                  AS cuenta_gasto_desc,
-        pec.codigo                                                  AS cta_proveedor_codigo,
-        la.nombre_fichero                                           AS lote_a3_nombre,
-        la.fecha                                                    AS lote_a3_fecha
-      FROM drive_archivos da
-      LEFT JOIN LATERAL (
-        SELECT p2.*
-        FROM proveedores p2
-        WHERE p2.activo = true
-          AND (
-            (
-              p2.cif IS NOT NULL
-              AND da.datos_extraidos IS NOT NULL
-              AND da.datos_extraidos ~ '^\\s*\\{'
-              AND normalizar_cif((da.datos_extraidos::jsonb)->>'cif_emisor') = normalizar_cif(p2.cif)
-            )
-            OR p2.nombre_carpeta = da.proveedor
-          )
-        ORDER BY (p2.cif IS NOT NULL
-                  AND da.datos_extraidos IS NOT NULL
-                  AND da.datos_extraidos ~ '^\\s*\\{'
-                  AND normalizar_cif((da.datos_extraidos::jsonb)->>'cif_emisor') = normalizar_cif(p2.cif)
-                 ) DESC NULLS LAST
-        LIMIT 1
-      ) p ON true
-      LEFT JOIN proveedor_empresa pe  ON pe.proveedor_id = p.id AND pe.empresa_id = da.empresa_id
-      LEFT JOIN plan_contable peg     ON peg.id = pe.cuenta_gasto_id
-      LEFT JOIN plan_contable cgd     ON cgd.id = da.cuenta_gasto_id
-      LEFT JOIN plan_contable pec     ON pec.id = pe.cuenta_contable_id
-      LEFT JOIN lotes_exportacion_a3 la ON la.id = da.lote_a3_id
-      WHERE ${whereClause}
+        p.id AS proveedor_id, p.razon_social, p.cif AS proveedor_cif,
+        da.cuenta_gasto_id AS cg_manual_id,
+        COALESCE(da.cuenta_gasto_id, pe.cuenta_gasto_id) AS cg_efectiva_id,
+        COALESCE(cgd.codigo, peg.codigo) AS cuenta_gasto_codigo,
+        COALESCE(cgd.descripcion, peg.descripcion) AS cuenta_gasto_desc,
+        pec.codigo AS cta_proveedor_codigo,
+        la.nombre_fichero AS lote_a3_nombre, la.fecha AS lote_a3_fecha
+      ${joinBlock}
       ORDER BY da.id DESC
       LIMIT $${idx++} OFFSET $${idx++}
     `, [...params, limit, offset]),
 
-    db.one(`SELECT COUNT(*)::int AS total FROM drive_archivos da WHERE ${whereClause}`, params),
+    db.one(`SELECT COUNT(*)::int AS total ${joinBlock}`, params),
   ]);
 
   res.json({

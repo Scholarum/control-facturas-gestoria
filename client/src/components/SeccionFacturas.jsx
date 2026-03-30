@@ -1,6 +1,6 @@
-import { useState, useMemo, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import TablaFacturas, { tieneIncidencia, tieneIncidenciaProveedor } from './TablaFacturas.jsx';
-import { fetchFacturas, descargarZip, contabilizar, revertirEstado, eliminarFactura, asignarCGMasivo, exportarLoteA3, exportarSage, sagePreview } from '../api.js';
+import { fetchFacturas, fetchFacturaIds, descargarZip, contabilizar, revertirEstado, eliminarFactura, asignarCGMasivo, exportarLoteA3, exportarSage, sagePreview } from '../api.js';
 
 // ─── Filtros compactos por sección ────────────────────────────────────────────
 
@@ -204,22 +204,43 @@ export default function SeccionFacturas({
   const [pageSize,      setPageSize]     = useState(DEFAULT_PAGE_SIZE);
   const [totalPages,    setTotalPages]   = useState(1);
   const [totalFacturas, setTotalFacturas] = useState(0);
-  const [filtros,       setFiltros]       = useState({ proveedor: '', numFactura: '', cif: '', fechaDesde: '', fechaHasta: '', soloIncidencias: '', soloSinProveedor: '', estadoExtraccion: '' });
+  const [filtros,       setFiltrosRaw]   = useState({ proveedor: '', numFactura: '', cif: '', fechaDesde: '', fechaHasta: '', soloIncidencias: '', soloSinProveedor: '', estadoExtraccion: '' });
+  const [filtrosActivos, setFiltrosActivos] = useState(filtros); // los que se envían al servidor
+  const debounceRef = useRef(null);
 
-  // Cargar facturas paginadas
-  const loadFacturas = useCallback(async (p = 1, size = pageSize) => {
+  // Debounce de filtros: selects aplican inmediatamente, texto espera 400ms
+  function setFiltros(nuevos) {
+    setFiltrosRaw(nuevos);
+    clearTimeout(debounceRef.current);
+    // Si cambió un select (soloIncidencias, soloSinProveedor, estadoExtraccion) aplica ya
+    const textoIgual = nuevos.proveedor === filtros.proveedor && nuevos.numFactura === filtros.numFactura && nuevos.cif === filtros.cif;
+    if (textoIgual) {
+      setFiltrosActivos(nuevos);
+      setSeleccionados(new Set());
+    } else {
+      debounceRef.current = setTimeout(() => {
+        setFiltrosActivos(nuevos);
+        setSeleccionados(new Set());
+      }, 400);
+    }
+  }
+
+  // Cargar facturas paginadas con filtros server-side
+  const loadFacturas = useCallback(async (p = 1, size = pageSize, f = filtrosActivos) => {
     if (!empresaId) return;
     setLoading(true);
     try {
       const limit = size === 'all' ? 10000 : size;
-      const { data, pagination } = await fetchFacturas(empresaId, { estado: TIPO_ESTADO[tipo], page: size === 'all' ? 1 : p, limit });
+      const { data, pagination } = await fetchFacturas(empresaId, {
+        estado: TIPO_ESTADO[tipo], page: size === 'all' ? 1 : p, limit, filtros: f,
+      });
       setFacturas(data);
       setPage(pagination.page);
       setTotalPages(pagination.totalPages);
       setTotalFacturas(pagination.total);
     } catch { /* silenciar */ }
     setLoading(false);
-  }, [empresaId, tipo, pageSize]);
+  }, [empresaId, tipo, pageSize, filtrosActivos]);
 
   useEffect(() => { loadFacturas(1); }, [loadFacturas, refreshKey]);
   const [seleccionados, setSeleccionados] = useState(new Set());
@@ -235,29 +256,14 @@ export default function SeccionFacturas({
   const [ccMasiva,           setCcMasiva]           = useState('');
   const [error,              setError]              = useState('');
 
-  const filtradas = useMemo(() => facturas.filter(f => {
-    const d = f.datos_extraidos;
-    if (filtros.proveedor && !(f.proveedor || '').toLowerCase().includes(filtros.proveedor.toLowerCase())) return false;
-    if (filtros.numFactura && !(d?.numero_factura || '').toLowerCase().includes(filtros.numFactura.toLowerCase())) return false;
-    if (filtros.cif && !(d?.cif_emisor || '').toLowerCase().includes(filtros.cif.toLowerCase())) return false;
-    if (filtros.fechaDesde && d?.fecha_emision && d.fecha_emision < filtros.fechaDesde) return false;
-    if (filtros.fechaHasta && d?.fecha_emision && d.fecha_emision > filtros.fechaHasta) return false;
-    if (filtros.estadoExtraccion && f.estado !== filtros.estadoExtraccion) return false;
-    if (filtros.soloIncidencias === 'si' && !tieneIncidencia(f)) return false;
-    if (filtros.soloIncidencias === 'no' && tieneIncidencia(f)) return false;
-    if (filtros.soloSinProveedor === 'si' && !tieneIncidenciaProveedor(f)) return false;
-    if (filtros.soloSinProveedor === 'no' && tieneIncidenciaProveedor(f)) return false;
-    return true;
-  }), [facturas, filtros]);
-
-  // Limpiar selecciones huérfanas cuando facturas salen de la sección
+  // Limpiar selecciones cuando cambian las facturas visibles
   useEffect(() => {
-    const ids = new Set(filtradas.map(f => f.id));
+    const ids = new Set(facturas.map(f => f.id));
     setSeleccionados(prev => {
       const next = new Set([...prev].filter(id => ids.has(id)));
       return next.size !== prev.size ? next : prev;
     });
-  }, [filtradas]);
+  }, [facturas]);
 
   function toggleSeleccion(id) {
     setSeleccionados(prev => {
@@ -267,10 +273,19 @@ export default function SeccionFacturas({
     });
   }
 
-  function toggleTodo() {
-    setSeleccionados(prev =>
-      prev.size === filtradas.length ? new Set() : new Set(filtradas.map(f => f.id))
-    );
+  // Select all: pide todos los IDs al servidor (no solo la página visible)
+  async function toggleTodo() {
+    if (seleccionados.size > 0) {
+      setSeleccionados(new Set());
+      return;
+    }
+    try {
+      const ids = await fetchFacturaIds(empresaId, { estado: TIPO_ESTADO[tipo], filtros: filtrosActivos });
+      setSeleccionados(new Set(ids));
+    } catch {
+      // Fallback: seleccionar solo la página visible
+      setSeleccionados(new Set(facturas.map(f => f.id)));
+    }
   }
 
   async function handleDescargar() {
@@ -397,7 +412,7 @@ export default function SeccionFacturas({
       {/* Barra de filtros */}
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm px-4 py-3">
         <FiltrosSeccion filtros={filtros} onChange={setFiltros} proveedores={proveedores}
-          totalFacturas={facturas.length} totalFiltradas={filtradas.length}
+          totalFacturas={totalFacturas} totalFiltradas={facturas.length}
           numIncidencias={facturas.filter(f => tieneIncidencia(f)).length}
           numSinProveedor={facturas.filter(f => tieneIncidenciaProveedor(f)).length} />
       </div>
@@ -489,7 +504,7 @@ export default function SeccionFacturas({
 
       {/* Modal confirmación exportación A3 */}
       {modalA3Open && (() => {
-        const sel = filtradas.filter(f => seleccionados.has(f.id));
+        const sel = facturas.filter(f => seleccionados.has(f.id));
         const base    = sel.reduce((s, f) => s + parseFloat(f.datos_extraidos?.total_sin_iva ?? f.datos_extraidos?.total_factura ?? 0), 0);
         const cuota   = sel.reduce((s, f) => s + (Array.isArray(f.datos_extraidos?.iva) ? f.datos_extraidos.iva.reduce((x, e) => x + parseFloat(e.cuota ?? 0), 0) : 0), 0);
         const factura = sel.reduce((s, f) => s + parseFloat(f.datos_extraidos?.total_factura ?? 0), 0);
@@ -606,7 +621,7 @@ export default function SeccionFacturas({
 
       {/* Tabla */}
       <TablaFacturas
-        facturas={filtradas}
+        facturas={facturas}
         seleccionados={seleccionados}
         onToggle={toggleSeleccion}
         onToggleTodo={toggleTodo}
