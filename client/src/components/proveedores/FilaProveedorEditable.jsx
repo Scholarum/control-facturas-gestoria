@@ -125,12 +125,31 @@ export function CeldaCuenta({ valor, valorDesc, cuentas, onGuardar, onCuentaCrea
     } catch {} finally { setGuardando(false); }
   }
 
+  async function desvincular() {
+    setGuardando(true);
+    try {
+      await onGuardar(null);
+    } catch {} finally { setGuardando(false); }
+  }
+
   // ─── Vista: no editando ─────────────────────────────────────────────
   if (!editando) {
     return (
-      <td className={`px-3 py-2 cursor-pointer hover:bg-blue-50/50 ${className}`} onClick={() => setEditando(true)}>
+      <td className={`px-3 py-2 cursor-pointer hover:bg-blue-50/50 group ${className}`} onClick={() => setEditando(true)}>
         {valor ? (
-          <span className="text-xs"><span className="font-mono font-semibold text-gray-800">{valor}</span> <span className="text-gray-400">{valorDesc}</span></span>
+          <span className="text-xs flex items-center gap-1">
+            <span className="font-mono font-semibold text-gray-800">{valor}</span>
+            <span className="text-gray-400 truncate">{valorDesc}</span>
+            <button
+              onClick={e => { e.stopPropagation(); desvincular(); }}
+              title="Quitar cuenta"
+              className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-red-500 transition-opacity ml-auto flex-shrink-0"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </span>
         ) : <span className="text-xs text-gray-300">—</span>}
       </td>
     );
