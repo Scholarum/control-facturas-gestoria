@@ -876,14 +876,14 @@ function EmptyState({ hayFiltros, colspan }) {
 // ─── Tabla principal ──────────────────────────────────────────────────────────
 
 export default function TablaFacturas({
-  facturas, seleccionados, onToggle, onToggleTodo,
+  facturas, seleccionados, onToggle, onToggleTodo, seleccionandoTodo = false,
   loading, hayFiltros, esAdmin = false, onRevertir, onEliminar,
   planContable = [], onAsignarCG, onDatosActualizados, onProveedorActualizado, modoGestoria = 'v2',
   focusFacturaId, onClearFocus,
 }) {
   const [expandidos, setExpandidos] = useState(new Set());
   const focusRef = useRef(null);
-  const todosSeleccionados = facturas.length > 0 && seleccionados.size === facturas.length;
+  const todosSeleccionados = facturas.length > 0 && seleccionados.size >= facturas.length;
   const algunoSeleccionado = seleccionados.size > 0 && !todosSeleccionados;
   const colspan = esAdmin ? 11 : 10;
 
@@ -915,13 +915,20 @@ export default function TablaFacturas({
             <tr>
               <th className="px-3 py-3 w-8" />
               <th className="px-4 py-3 w-10">
-                <input
-                  type="checkbox"
-                  checked={todosSeleccionados}
-                  ref={el => { if (el) el.indeterminate = algunoSeleccionado; }}
-                  onChange={onToggleTodo}
-                  className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
-                />
+                {seleccionandoTodo ? (
+                  <svg className="h-4 w-4 animate-spin text-blue-500" viewBox="0 0 24 24" fill="none">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
+                  </svg>
+                ) : (
+                  <input
+                    type="checkbox"
+                    checked={todosSeleccionados}
+                    ref={el => { if (el) el.indeterminate = algunoSeleccionado; }}
+                    onChange={onToggleTodo}
+                    className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                  />
+                )}
               </th>
               <Th className="sticky left-0 bg-gray-50 z-10">Proveedor</Th>
               <Th>Nº Factura</Th>

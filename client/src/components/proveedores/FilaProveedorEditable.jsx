@@ -96,11 +96,14 @@ export function CeldaCuenta({ valor, valorDesc, cuentas, onGuardar, onCuentaCrea
     setCuentaBase(null); setQ('');
   }
 
-  // Asignar cuenta base directamente (sin subcuenta)
-  function asignarCuentaBase() {
+  // Asignar cuenta base directamente (sin subcuenta) — guarda inmediatamente
+  async function asignarCuentaBase() {
     if (!cuentaBase) return;
-    setPendiente({ id: cuentaBase.id, codigo: cuentaBase.codigo, descripcion: cuentaBase.descripcion });
-    setCuentaBase(null);
+    setGuardando(true);
+    try {
+      await onGuardar(cuentaBase.id);
+      cerrar();
+    } catch {} finally { setGuardando(false); }
   }
 
   async function confirmarGuardado() {

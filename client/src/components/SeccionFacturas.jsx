@@ -273,18 +273,22 @@ export default function SeccionFacturas({
     });
   }
 
+  const [seleccionandoTodo, setSeleccionandoTodo] = useState(false);
+
   // Select all: pide todos los IDs al servidor (no solo la página visible)
   async function toggleTodo() {
     if (seleccionados.size > 0) {
       setSeleccionados(new Set());
       return;
     }
+    setSeleccionandoTodo(true);
     try {
       const ids = await fetchFacturaIds(empresaId, { estado: TIPO_ESTADO[tipo], filtros: filtrosActivos });
       setSeleccionados(new Set(ids));
     } catch {
-      // Fallback: seleccionar solo la página visible
       setSeleccionados(new Set(facturas.map(f => f.id)));
+    } finally {
+      setSeleccionandoTodo(false);
     }
   }
 
@@ -625,6 +629,7 @@ export default function SeccionFacturas({
         seleccionados={seleccionados}
         onToggle={toggleSeleccion}
         onToggleTodo={toggleTodo}
+        seleccionandoTodo={seleccionandoTodo}
         loading={loading}
         hayFiltros={hayFiltros}
         esAdmin={esAdmin}

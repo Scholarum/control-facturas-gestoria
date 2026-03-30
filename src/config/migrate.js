@@ -324,6 +324,10 @@ const tablas = [
   `CREATE INDEX IF NOT EXISTS idx_chat_msg_conv     ON chat_mensajes(conversacion_id)`,
 
   `ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS chat_bloqueado BOOLEAN NOT NULL DEFAULT false`,
+
+  // Índice para acelerar LATERAL JOIN de proveedores por CIF normalizado
+  `CREATE INDEX IF NOT EXISTS idx_prov_cif_norm ON proveedores (normalizar_cif(cif)) WHERE cif IS NOT NULL AND activo = true`,
+  `CREATE INDEX IF NOT EXISTS idx_drive_estado_gestion ON drive_archivos(estado_gestion, empresa_id)`,
   `ALTER TABLE chat_conversaciones ADD COLUMN IF NOT EXISTS oculta BOOLEAN NOT NULL DEFAULT false`,
 ];
 
