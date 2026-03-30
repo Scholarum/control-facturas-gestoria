@@ -32,7 +32,7 @@ export default function PanelReanalizar({ onFacturasActualizadas }) {
 
   async function cargarFacturas() {
     setCargando(true);
-    try { setFacturas(await fetchFacturas()); } catch (_) {}
+    try { const { data } = await fetchFacturas(undefined, { limit: 10000 }); setFacturas(data); } catch (_) {}
     finally { setCargando(false); }
   }
 
