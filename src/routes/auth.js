@@ -77,8 +77,8 @@ router.post('/google', async (req, res) => {
     }
 
     const db   = getDb();
-    const user = await db.one(
-      "SELECT id, nombre, email, rol, activo, created_at FROM usuarios WHERE email = $1",
+    const user = await db.oneOrNone(
+      "SELECT id, nombre, email, rol, activo, chat_bloqueado, created_at FROM usuarios WHERE email = $1",
       [email]
     );
 
@@ -97,6 +97,7 @@ router.post('/google', async (req, res) => {
     const chatAcceso = config.chat_activo === 'true' && chatRoles.includes(user.rol) && !user.chat_bloqueado;
     res.json({ ok: true, data: { token, user, permisos, modo_gestoria: config.modo_gestoria, empresas, chatAcceso } });
   } catch (err) {
+    logger.error({ err }, 'Error en login Google');
     res.status(500).json({ ok: false, error: 'Error al verificar el token de Google' });
   }
 });
