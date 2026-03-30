@@ -81,11 +81,13 @@ function AppInner() {
 
   useEffect(() => {
     if (!user || !empresaActiva) return;
+    let cancelled = false;
     setLoading(true);
     refreshStats()
-      .catch(() => setError('No se pudo conectar con el servidor.'))
-      .finally(() => setLoading(false));
-  }, [user, empresaActiva]);
+      .catch(() => { if (!cancelled) setError('No se pudo conectar con el servidor.'); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [user, empresaActiva, refreshStats]);
 
   // Cerrar dropdowns al clicar fuera
   useEffect(() => {
@@ -764,6 +766,8 @@ function AppInner() {
         )}
 
       </main>
+      <Notificaciones />
+      <ChatGate />
     </div>
   );
 }
@@ -780,8 +784,6 @@ export default function App() {
   return (
     <AuthProvider>
       <AppInner />
-      <Notificaciones />
-      <ChatGate />
     </AuthProvider>
   );
 }
