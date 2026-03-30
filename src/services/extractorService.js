@@ -14,6 +14,12 @@ const GEMINI_MODEL   = process.env.GEMINI_MODEL || 'gemini-2.0-flash';
 
 const CAMPOS_CRITICOS = ['numero_factura', 'fecha_emision', 'total_factura'];
 
+// CIFs de proveedores que envían múltiples facturas en un solo PDF.
+// Se fuerza REVISION_MANUAL para procesamiento humano.
+const CIFS_MULTI_FACTURA = new Set([
+  'B95842522', // PAYCOMET S.L.
+]);
+
 const PROMPT_DEFAULT = `Analiza los documentos PDF que te pidamos.
 Tienes que extraer los datos de la factura con el máximo detalle fiscal posible.
 
@@ -221,9 +227,9 @@ function mapearRespuestaGemini(raw) {
     nombre_receptor:   raw.receiverName    ?? null,
     cif_receptor:      raw.receiverCif     ?? null,
     iva,
-    total_sin_iva:     Number(raw.totalExcludingVat) || null,
-    total_iva:         Number(raw.totalVat)          || null,
-    total_factura:     Number(raw.totalIncludingVat) || null,
+    total_sin_iva:     raw.totalExcludingVat != null ? Number(raw.totalExcludingVat) : null,
+    total_iva:         raw.totalVat != null          ? Number(raw.totalVat)          : null,
+    total_factura:     raw.totalIncludingVat != null  ? Number(raw.totalIncludingVat) : null,
     forma_pago:        raw.paymentMethod   ?? null,
     fecha_vencimiento: parseFechaFlexible(raw.paymentDate),
   };
@@ -396,6 +402,15 @@ async function procesarArchivo(drive, model, archivo, prompt) {
     if (!valido) {
       const motivo = `Campos criticos ausentes: ${faltantes.join(', ')}`;
       logger.info({ archivo: archivo.nombre_archivo, sizeKB, ms, motivo }, 'Gemini revision manual');
+      await guardarResultado(archivo.id, 'REVISION_MANUAL', datosN, motivo);
+      return { estado: 'REVISION_MANUAL', datos: datosN, error: motivo };
+    }
+
+    // Proveedores con múltiples facturas por PDF → revisión manual obligatoria
+    const cifNorm = (datosN.cif_emisor || '').replace(/[^A-Z0-9]/gi, '').toUpperCase();
+    if (CIFS_MULTI_FACTURA.has(cifNorm)) {
+      const motivo = `Proveedor multi-factura (${cifNorm}): este PDF puede contener varias facturas. Requiere revisión manual.`;
+      logger.info({ archivo: archivo.nombre_archivo, sizeKB, ms, cif: cifNorm }, 'Multi-factura detectada, forzando revision manual');
       await guardarResultado(archivo.id, 'REVISION_MANUAL', datosN, motivo);
       return { estado: 'REVISION_MANUAL', datos: datosN, error: motivo };
     }
