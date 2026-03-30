@@ -158,8 +158,7 @@ function AppInner() {
     try {
       const result = await triggerSyncManual();
       setSyncMsg({ ok: true, texto: `Sync: ${result.facturas_nuevas} nuevas` });
-      const nuevas = await fetchFacturas(empresaActiva?.id);
-      setTodasFacturas(nuevas);
+      invalidate();
     } catch (e) {
       setSyncMsg({ ok: false, texto: e.message });
     } finally {
