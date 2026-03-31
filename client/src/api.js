@@ -635,12 +635,30 @@ export async function crearCuentaContable(datos) {
   return json.data;
 }
 
+export async function editarCuentaContable(id, datos) {
+  const res = await fetch(`${API_BASE}/api/plan-contable/${id}`, {
+    method:  'PUT',
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
+    body:    JSON.stringify(datos),
+  });
+  const json = await res.json();
+  if (!json.ok) throw new Error(json.error || 'Error al editar cuenta');
+  return json.data;
+}
+
 export async function eliminarCuentaContable(id) {
   const res = await fetch(`${API_BASE}/api/plan-contable/${id}`, {
     method: 'DELETE', headers: authHeaders(),
   });
   const json = await res.json();
   if (!json.ok) throw new Error(json.error || 'Error al eliminar cuenta');
+}
+
+export async function fetchProveedoresCuenta(id) {
+  const res = await fetch(`${API_BASE}/api/plan-contable/${id}/proveedores`, { headers: authHeaders() });
+  const json = await res.json();
+  if (!json.ok) throw new Error(json.error || 'Error al cargar proveedores');
+  return json.data;
 }
 
 // ─── Proveedores ──────────────────────────────────────────────────────────────

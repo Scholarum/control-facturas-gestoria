@@ -8,13 +8,15 @@ import PanelEmailTemplate from '../components/configuracion/PanelEmailTemplate.j
 import PanelHistorialNotificaciones from '../components/configuracion/PanelHistorialNotificaciones.jsx';
 import DriveManager from '../components/configuracion/DriveManager.jsx';
 import PanelChat from '../components/configuracion/PanelChat.jsx';
+import PanelCuentasGasto from '../components/configuracion/PanelCuentasGasto.jsx';
 import { Spinner } from '../components/configuracion/helpers.jsx';
 
 const TABS = [
-  { id: 'drive', label: 'Drive y Subida' },
-  { id: 'sync',  label: 'Sincronizacion' },
-  { id: 'notif', label: 'Notificaciones' },
-  { id: 'chat',  label: 'Chat Asistente' },
+  { id: 'drive',   label: 'Drive y Subida' },
+  { id: 'sync',    label: 'Sincronizacion' },
+  { id: 'notif',   label: 'Notificaciones' },
+  { id: 'chat',    label: 'Chat Asistente' },
+  { id: 'cuentas', label: 'Cuentas Gasto' },
 ];
 
 export default function Configuracion({ onFacturasActualizadas }) {
@@ -193,6 +195,9 @@ export default function Configuracion({ onFacturasActualizadas }) {
       {activeTab === 'chat' && (
         <PanelChat config={sistemaConfig} onChange={handleSaveSistema} />
       )}
+
+      {/* Pestana: Cuentas de Gasto */}
+      {activeTab === 'cuentas' && <PanelCuentasGasto />}
     </div>
   );
 }

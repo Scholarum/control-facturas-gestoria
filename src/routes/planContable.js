@@ -197,6 +197,46 @@ router.get('/plantilla', async (req, res) => {
   res.send(buffer);
 });
 
+// PUT /:id - editar descripcion de una cuenta
+router.put('/:id', requireAdmin, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const { descripcion } = req.body;
+    if (!descripcion?.trim()) {
+      return res.status(400).json({ ok: false, error: 'descripcion requerida' });
+    }
+    const db = getDb();
+    const row = await db.one(
+      'UPDATE plan_contable SET descripcion = $1 WHERE id = $2 RETURNING *',
+      [descripcion.trim(), id]
+    );
+    if (!row) return res.status(404).json({ ok: false, error: 'Cuenta no encontrada' });
+    res.json({ ok: true, data: row });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// GET /:id/proveedores - listar proveedores asignados a esta cuenta de gasto
+router.get('/:id/proveedores', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const db = getDb();
+    const rows = await db.all(
+      `SELECT p.id, p.razon_social, p.nombre_carpeta, p.cif, e.nombre AS empresa_nombre, pe.empresa_id
+       FROM proveedor_empresa pe
+       JOIN proveedores p ON p.id = pe.proveedor_id
+       LEFT JOIN empresas e ON e.id = pe.empresa_id
+       WHERE pe.cuenta_gasto_id = $1
+       ORDER BY p.razon_social`,
+      [id]
+    );
+    res.json({ ok: true, data: rows });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 // DELETE /:id - eliminar subcuenta (solo si es subcuenta y no está en uso)
 router.delete('/:id', requireAdmin, async (req, res) => {
   try {
@@ -210,12 +250,12 @@ router.delete('/:id', requireAdmin, async (req, res) => {
       return res.status(400).json({ ok: false, error: 'No se pueden eliminar cuentas principales del plan contable' });
     }
 
-    // Verificar que no esté en uso
+    // Verificar que no esté en uso (incluye proveedor_empresa, tabla activa de asignaciones)
     const enUso = await db.one(
-      `SELECT EXISTS(
-        SELECT 1 FROM proveedores WHERE cuenta_contable_id = $1 OR cuenta_gasto_id = $1
-      ) OR EXISTS(
-        SELECT 1 FROM drive_archivos WHERE cuenta_gasto_id = $1
+      `SELECT (
+        EXISTS(SELECT 1 FROM proveedor_empresa WHERE cuenta_contable_id = $1 OR cuenta_gasto_id = $1)
+        OR EXISTS(SELECT 1 FROM proveedores WHERE cuenta_contable_id = $1 OR cuenta_gasto_id = $1)
+        OR EXISTS(SELECT 1 FROM drive_archivos WHERE cuenta_gasto_id = $1)
       ) AS en_uso`,
       [id]
     );
