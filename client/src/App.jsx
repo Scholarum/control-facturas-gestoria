@@ -667,12 +667,12 @@ function AppInner() {
             </div>
 
             {/* Sub-tabs */}
-            <div className="flex gap-2 border-b border-gray-200 pb-0">
+            <div className="flex gap-1 sm:gap-2 overflow-x-auto border-b border-gray-200 pb-0">
               {subTabs.map(st => (
                 <button
                   key={st.id}
                   onClick={() => setSubTab(st.id)}
-                  className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium rounded-t-lg border-b-2 transition-colors ${
+                  className={`shrink-0 flex items-center gap-1 sm:gap-2 px-2 sm:px-4 py-2 sm:py-2.5 text-xs sm:text-sm font-medium rounded-t-lg border-b-2 transition-colors ${
                     subTab === st.id
                       ? `border-blue-600 text-blue-700 bg-blue-50`
                       : 'border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-50'
