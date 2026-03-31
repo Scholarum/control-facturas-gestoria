@@ -52,6 +52,12 @@ export function CeldaCuenta({ valor, valorDesc, cuentas, onGuardar, onCuentaCrea
   const inputRef = useRef(null);
   const ignorarCierreRef = useRef(false);
 
+  // Variables derivadas de cuentaBase (para modo crear subcuenta)
+  const esGasto = cuentaBase ? cuentaBase.grupo !== '4' : false;
+  const codigoCompleto = cuentaBase ? cuentaBase.codigo + sufijo : '';
+  const yaExiste = cuentaBase && sufijo.length === 5 ? cuentas.find(c => c.codigo === codigoCompleto) : null;
+  const puedeCrear = cuentaBase && sufijo.length === 5 && (!esGasto || yaExiste || descGasto.trim());
+
   const filtradas = q.trim()
     ? cuentas.filter(c => c.codigo.startsWith(q) || c.descripcion.toLowerCase().includes(q.toLowerCase()))
     : cuentas.filter(c => grupo ? c.grupo === grupo || c.codigo.length > 3 : true).slice(0, 30);
@@ -183,56 +189,50 @@ export function CeldaCuenta({ valor, valorDesc, cuentas, onGuardar, onCuentaCrea
           </div>
         ) : cuentaBase ? (
           /* Modo: crear subcuenta o asignar directamente */
-          (() => {
-            const esGasto = cuentaBase.grupo !== '4';
-            const codigoCompleto = cuentaBase.codigo + sufijo;
-            const yaExiste = sufijo.length === 5 && cuentas.find(c => c.codigo === codigoCompleto);
-            const puedeCrear = sufijo.length === 5 && (!esGasto || yaExiste || descGasto.trim());
-            return (
-              <div className="space-y-1.5">
-                <div className="flex items-center gap-1">
-                  <button onMouseDown={e => { e.preventDefault(); setCuentaBase(null); setSufijo(''); setDescGasto(''); setErrorSub(''); }}
-                    className="text-gray-400 hover:text-gray-600 text-xs px-1">←</button>
-                  <span className="font-mono text-xs font-semibold text-gray-700 bg-gray-100 px-1.5 py-0.5 rounded">{cuentaBase.codigo}</span>
-                  <span className="text-gray-300 text-xs">+</span>
-                  <input type="text" inputMode="numeric" maxLength={5} value={sufijo}
-                    onChange={e => { setSufijo(e.target.value.replace(/\D/g, '')); setErrorSub(''); }}
-                    onKeyDown={e => { if (e.key === 'Enter' && puedeCrear) crearSubcuenta(); if (e.key === 'Escape') cerrar(); }}
-                    placeholder="00001" autoFocus
-                    className="w-16 rounded border border-blue-300 px-1.5 py-0.5 text-xs font-mono text-center focus:outline-none focus:ring-2 focus:ring-blue-400" />
-                  {sufijo.length === 5 && (
-                    <span className="font-mono text-[10px] font-bold text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded">{codigoCompleto}</span>
-                  )}
-                </div>
-                {/* Campo descripcion obligatorio para cuentas de gasto */}
-                {esGasto && sufijo.length === 5 && !yaExiste && (
-                  <input
-                    type="text"
-                    value={descGasto}
-                    onChange={e => { setDescGasto(e.target.value); setErrorSub(''); }}
-                    onKeyDown={e => { if (e.key === 'Enter' && puedeCrear) crearSubcuenta(); if (e.key === 'Escape') cerrar(); }}
-                    placeholder="Descripcion de la cuenta de gasto *"
-                    className="w-full rounded border border-blue-300 px-1.5 py-0.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-400"
-                  />
+          <div className="space-y-1.5">
+            <div className="flex items-center gap-1">
+              <button onMouseDown={e => { e.preventDefault(); setCuentaBase(null); setSufijo(''); setDescGasto(''); setErrorSub(''); }}
+                className="text-gray-400 hover:text-gray-600 text-xs px-1">←</button>
+              <span className="font-mono text-xs font-semibold text-gray-700 bg-gray-100 px-1.5 py-0.5 rounded">{cuentaBase.codigo}</span>
+              <span className="text-gray-300 text-xs">+</span>
+              <input type="text" inputMode="numeric" maxLength={5} value={sufijo}
+                onChange={e => { setSufijo(e.target.value.replace(/\D/g, '')); setErrorSub(''); }}
+                onKeyDown={e => { if (e.key === 'Enter' && puedeCrear) crearSubcuenta(); if (e.key === 'Escape') cerrar(); }}
+                placeholder="00001" autoFocus
+                className="w-16 rounded border border-blue-300 px-1.5 py-0.5 text-xs font-mono text-center focus:outline-none focus:ring-2 focus:ring-blue-400" />
+              {sufijo.length === 5 && (
+                <span className="font-mono text-[10px] font-bold text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded">{codigoCompleto}</span>
+              )}
+            </div>
+            {/* Campo descripcion obligatorio para cuentas de gasto — visible siempre que esGasto */}
+            {esGasto && (
+              <div>
+                <input
+                  type="text"
+                  value={descGasto}
+                  onChange={e => { setDescGasto(e.target.value); setErrorSub(''); }}
+                  onKeyDown={e => { if (e.key === 'Enter' && puedeCrear) crearSubcuenta(); if (e.key === 'Escape') cerrar(); }}
+                  placeholder="Descripcion de la cuenta de gasto (obligatorio)"
+                  className="w-full rounded border border-amber-400 bg-amber-50 px-1.5 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-blue-400"
+                />
+                {sufijo.length === 5 && !yaExiste && !descGasto.trim() && (
+                  <p className="text-[10px] text-amber-600 mt-0.5">Debes introducir una descripcion para crear la cuenta</p>
                 )}
-                <div className="flex items-center gap-1.5 flex-wrap">
-                  <button onMouseDown={e => { e.preventDefault(); crearSubcuenta(); }}
-                    disabled={!puedeCrear || creando}
-                    className="px-2 py-0.5 text-[10px] font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded disabled:opacity-40 transition-colors">
-                    {creando ? '...' : yaExiste ? 'Seleccionar' : 'Crear subcuenta'}
-                  </button>
-                  <button onMouseDown={e => { e.preventDefault(); asignarCuentaBase(); }}
-                    className="px-2 py-0.5 text-[10px] font-semibold text-blue-700 bg-blue-100 hover:bg-blue-200 rounded transition-colors">
-                    Usar {cuentaBase.codigo} directamente
-                  </button>
-                  {esGasto && sufijo.length === 5 && !yaExiste && !descGasto.trim() && (
-                    <span className="text-[10px] text-amber-600">Descripcion obligatoria</span>
-                  )}
-                  {errorSub && <span className="text-[10px] text-red-500 truncate">{errorSub}</span>}
-                </div>
               </div>
-            );
-          })()
+            )}
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <button onMouseDown={e => { e.preventDefault(); crearSubcuenta(); }}
+                disabled={!puedeCrear || creando}
+                className="px-2 py-0.5 text-[10px] font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded disabled:opacity-40 transition-colors">
+                {creando ? '...' : yaExiste ? 'Seleccionar' : 'Crear subcuenta'}
+              </button>
+              <button onMouseDown={e => { e.preventDefault(); asignarCuentaBase(); }}
+                className="px-2 py-0.5 text-[10px] font-semibold text-blue-700 bg-blue-100 hover:bg-blue-200 rounded transition-colors">
+                Usar {cuentaBase.codigo} directamente
+              </button>
+              {errorSub && <span className="text-[10px] text-red-500 truncate">{errorSub}</span>}
+            </div>
+          </div>
         ) : (
           /* Modo: buscar/seleccionar */
           <>
@@ -267,21 +267,26 @@ export function CeldaCuenta({ valor, valorDesc, cuentas, onGuardar, onCuentaCrea
 
   async function crearSubcuenta() {
     if (!cuentaBase || sufijo.length !== 5) return;
-    const codigoCompleto = cuentaBase.codigo + sufijo;
-    const yaExiste = cuentas.find(c => c.codigo === codigoCompleto);
+    const cod = cuentaBase.codigo + sufijo;
+    const existe = cuentas.find(c => c.codigo === cod);
 
-    if (yaExiste) {
-      setPendiente({ id: yaExiste.id, codigo: yaExiste.codigo, descripcion: yaExiste.descripcion });
+    if (existe) {
+      setPendiente({ id: existe.id, codigo: existe.codigo, descripcion: existe.descripcion });
       setCuentaBase(null);
+      return;
+    }
+
+    const esGastoLocal = cuentaBase.grupo !== '4';
+    if (esGastoLocal && !descGasto.trim()) {
+      setErrorSub('Introduce una descripcion para la cuenta de gasto');
       return;
     }
 
     setCreando(true); setErrorSub('');
     try {
-      const esGasto = cuentaBase.grupo !== '4';
       const nueva = await crearCuentaContable({
-        codigo: codigoCompleto,
-        descripcion: esGasto ? descGasto.trim() : (razonSocial || codigoCompleto),
+        codigo: cod,
+        descripcion: esGastoLocal ? descGasto.trim() : (razonSocial || cod),
         grupo: cuentaBase.codigo.charAt(0),
       });
       if (onCuentaCreada) onCuentaCreada(nueva);
