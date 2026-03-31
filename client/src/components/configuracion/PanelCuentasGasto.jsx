@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../../context/AuthContext.jsx';
-import { fetchPlanContable, eliminarCuentaContable, fetchProveedoresCuenta } from '../../api.js';
+import { fetchPlanContable, editarCuentaContable, eliminarCuentaContable, fetchProveedoresCuenta } from '../../api.js';
 import { Spinner } from './helpers.jsx';
 
 export default function PanelCuentasGasto() {
@@ -9,6 +9,12 @@ export default function PanelCuentasGasto() {
   const [cuentas, setCuentas] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error,   setError]   = useState(null);
+
+  // Edicion inline
+  const [editandoId,    setEditandoId]    = useState(null);
+  const [editDesc,      setEditDesc]      = useState('');
+  const [guardandoEdit, setGuardandoEdit] = useState(false);
+  const [errorEdit,     setErrorEdit]     = useState('');
 
   // Proveedores expandidos
   const [provExpand,  setProvExpand]  = useState({});
@@ -29,6 +35,26 @@ export default function PanelCuentasGasto() {
   }, [empresaActiva]);
 
   useEffect(() => { cargar(); }, [cargar]);
+
+  function iniciarEdicion(c) {
+    setEditandoId(c.id);
+    setEditDesc(c.descripcion);
+    setErrorEdit('');
+  }
+
+  async function guardarEdicion(id) {
+    if (!editDesc.trim()) { setErrorEdit('La descripcion no puede estar vacia'); return; }
+    setGuardandoEdit(true); setErrorEdit('');
+    try {
+      await editarCuentaContable(id, { descripcion: editDesc.trim() });
+      setEditandoId(null);
+      await cargar();
+    } catch (e) {
+      setErrorEdit(e.message);
+    } finally {
+      setGuardandoEdit(false);
+    }
+  }
 
   async function handleEliminar(c) {
     if (!confirm(`¿Eliminar la cuenta ${c.codigo} — ${c.descripcion}?\nEsta operacion no se puede deshacer.`)) return;
@@ -63,7 +89,7 @@ export default function PanelCuentasGasto() {
       <div className="px-5 py-4 border-b border-gray-100">
         <p className="text-sm font-semibold text-gray-900">Cuentas de Gasto</p>
         <p className="text-xs text-gray-400 mt-0.5">
-          Subcuentas de gastos (grupos 2 y 6). La descripcion se establece al crear la cuenta desde el menu de Proveedores.
+          Subcuentas de gastos (grupos 2 y 6) utilizadas para clasificar facturas.
         </p>
       </div>
 
@@ -92,19 +118,54 @@ export default function PanelCuentasGasto() {
                 <span className="font-mono text-xs font-semibold text-gray-700 bg-gray-100 px-2 py-1 rounded w-28 flex-shrink-0">
                   {c.codigo}
                 </span>
-                <span className="flex-1 text-sm text-gray-700 truncate">{c.descripcion}</span>
+
+                {editandoId === c.id ? (
+                  <div className="flex-1 flex items-center gap-2 min-w-0">
+                    <input
+                      autoFocus
+                      value={editDesc}
+                      onChange={e => { setEditDesc(e.target.value); setErrorEdit(''); }}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter') guardarEdicion(c.id);
+                        if (e.key === 'Escape') setEditandoId(null);
+                      }}
+                      className="flex-1 rounded-lg border border-blue-300 px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 min-w-0"
+                    />
+                    <button onClick={() => guardarEdicion(c.id)} disabled={guardandoEdit}
+                      className="px-2 py-1 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg disabled:opacity-50 flex-shrink-0">
+                      {guardandoEdit ? '...' : 'Guardar'}
+                    </button>
+                    <button onClick={() => setEditandoId(null)}
+                      className="px-2 py-1 text-xs text-gray-500 bg-gray-100 hover:bg-gray-200 rounded-lg flex-shrink-0">
+                      Cancelar
+                    </button>
+                  </div>
+                ) : (
+                  <span className="flex-1 text-sm text-gray-700 truncate">{c.descripcion}</span>
+                )}
+
                 <div className="flex items-center gap-1 flex-shrink-0">
                   <button
                     onClick={() => toggleProveedores(c.id)}
                     className="px-2 py-1 text-xs text-gray-500 bg-gray-50 hover:bg-gray-100 rounded-lg transition-colors border border-gray-200">
                     {provExpand[c.id] ? 'Ocultar' : 'Proveedores'}
                   </button>
+                  {editandoId !== c.id && (
+                    <button onClick={() => iniciarEdicion(c)}
+                      className="px-2 py-1 text-xs text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors border border-blue-200">
+                      Editar
+                    </button>
+                  )}
                   <button onClick={() => handleEliminar(c)}
                     className="px-2 py-1 text-xs text-red-600 bg-red-50 hover:bg-red-100 rounded-lg transition-colors border border-red-200">
                     Borrar
                   </button>
                 </div>
               </div>
+
+              {errorEdit && editandoId === c.id && (
+                <p className="px-5 pb-2 text-xs text-red-500">{errorEdit}</p>
+              )}
 
               {/* Panel proveedores asignados */}
               {provExpand[c.id] && (
