@@ -208,6 +208,16 @@ CORS_ORIGIN           # Orígenes permitidos (CSV), vacío = todos en dev
 - **Base de datos**: Supabase (PostgreSQL)
 - En producción, Express sirve el build estático del cliente desde `client/dist/`
 
+### Instancias Supabase
+
+| Entorno | Project ID | Rama Git |
+|---------|-----------|----------|
+| **Dev** | `fothahxvwswlmnkssjqf` | `dev` |
+| **Producción** | `drjdkcfygevlnrvzgzan` | `main` |
+
+Dashboard dev: `https://supabase.com/dashboard/project/fothahxvwswlmnkssjqf`
+Dashboard prod: `https://supabase.com/dashboard/project/drjdkcfygevlnrvzgzan`
+
 ## Testing
 
 No hay framework de testing configurado. Las pruebas son manuales.
