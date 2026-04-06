@@ -1033,7 +1033,14 @@ export default function TablaFacturas({
                       {fmtFecha(datos?.fecha_emision)}
                     </td>
                     <td className={`px-4 py-3 text-right font-semibold whitespace-nowrap ${negativo ? 'text-red-600' : 'text-gray-900'}`}>
-                      {fmtEuro(total)}
+                      <span className="flex items-center justify-end gap-1.5">
+                        {negativo && (
+                          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide bg-red-100 text-red-700 ring-1 ring-inset ring-red-200" title="Factura rectificativa / abono">
+                            Rectif.
+                          </span>
+                        )}
+                        {fmtEuro(total)}
+                      </span>
                     </td>
                     <td className="px-4 py-3 font-mono text-xs text-gray-600">
                       {datos?.cif_emisor || '—'}
