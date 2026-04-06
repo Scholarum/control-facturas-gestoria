@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { BadgeGestion, BadgeExtraccion } from './Badge.jsx';
 import { fetchPreviewFactura, editarDatosFactura, asignarCuentaContableProveedor, crearProveedorRapido, crearCuentaContable, eliminarCuentaContable, fetchHistorialFactura } from '../api.js';
 import { useAuth } from '../context/AuthContext.jsx';
+import { formatCurrency, formatCurrencyIva } from '../utils/formatCurrency.js';
 
 // Campos obligatorios para considerar una factura sin incidencia
 const CAMPOS_OBLIGATORIOS = [
@@ -30,16 +31,8 @@ export function tieneIncidenciaProveedor(f) {
   return null;
 }
 
-function fmtEuro(n, { showZero = false } = {}) {
-  if (n == null || n === '') return '—';
-  if (n === 0 && !showZero) return '—';
-  return new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format(n);
-}
-
-function fmtEuroIva(n) {
-  if (n == null || n === '') return '—';
-  return new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format(n);
-}
+const fmtEuro = formatCurrency;
+const fmtEuroIva = formatCurrencyIva;
 
 function fmtFecha(iso) {
   if (!iso) return '—';

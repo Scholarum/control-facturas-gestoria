@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
 import { getStoredToken } from '../api.js';
+import { formatCurrency } from '../utils/formatCurrency.js';
 
 const API_BASE = (import.meta.env.VITE_API_URL ?? '').replace(/\/$/, '');
 
-const fmtEuro = n => Number(n || 0).toLocaleString('es-ES', { style: 'currency', currency: 'EUR' });
+const fmtEuro = n => formatCurrency(n, { showZero: true });
 const MESES = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
 function fmtMes(yyyymm) {
   const [y, m] = yyyymm.split('-');

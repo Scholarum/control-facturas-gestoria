@@ -5,6 +5,7 @@ import {
   actualizarEstadoLineaConciliacion,
   fetchRevisionesConciliacion,
 } from '../api.js';
+import { formatCurrency } from '../utils/formatCurrency.js';
 
 const ESTADO_CFG = {
   OK:               { label: 'OK',             cls: 'bg-emerald-50 text-emerald-700 ring-emerald-200' },
@@ -23,10 +24,7 @@ function fmtFechaHora(iso) {
   return new Date(iso).toLocaleString('es-ES', { dateStyle: 'short', timeStyle: 'short' });
 }
 
-function fmtEuro(n) {
-  if (n == null) return '—';
-  return new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format(n);
-}
+const fmtEuro = formatCurrency;
 
 function motivoError(r) {
   if (r.estado === 'PENDIENTE_EN_SAGE') return 'No localizada en el Mayor';

@@ -53,6 +53,16 @@ function FiltrosSeccion({ filtros, onChange, proveedores, totalFacturas, totalFi
           <option value="no">Completos ({totalFacturas - numIncidencias})</option>
         </select>
       </div>
+      <div className="flex flex-col gap-1 w-[calc(50%-0.25rem)] sm:w-auto">
+        <label className="text-xs font-medium text-gray-500">Importe mín.</label>
+        <input type="number" step="any" value={filtros.importeMin} onChange={e => set('importeMin', e.target.value)}
+          placeholder="0,00" className={`${inputCls} sm:min-w-[100px]`} />
+      </div>
+      <div className="flex flex-col gap-1 w-[calc(50%-0.25rem)] sm:w-auto">
+        <label className="text-xs font-medium text-gray-500">Importe máx.</label>
+        <input type="number" step="any" value={filtros.importeMax} onChange={e => set('importeMax', e.target.value)}
+          placeholder="0,00" className={`${inputCls} sm:min-w-[100px]`} />
+      </div>
       <div className="flex flex-col gap-1 w-full sm:w-auto">
         <label className="text-xs font-medium text-gray-500">Vinculacion</label>
         <select value={filtros.soloSinProveedor || ''} onChange={e => set('soloSinProveedor', e.target.value)}
@@ -63,7 +73,7 @@ function FiltrosSeccion({ filtros, onChange, proveedores, totalFacturas, totalFi
         </select>
       </div>
       {hayFiltros && (
-        <button onClick={() => onChange({ proveedor: '', numFactura: '', cif: '', fechaDesde: '', fechaHasta: '', soloIncidencias: '', soloSinProveedor: '', estadoExtraccion: '' })}
+        <button onClick={() => onChange({ proveedor: '', numFactura: '', cif: '', fechaDesde: '', fechaHasta: '', soloIncidencias: '', soloSinProveedor: '', estadoExtraccion: '', importeMin: '', importeMax: '' })}
           className="self-end px-3 py-1.5 text-sm text-gray-500 hover:text-gray-800 hover:bg-gray-100 rounded-lg transition-colors">
           Limpiar
         </button>
@@ -204,7 +214,7 @@ export default function SeccionFacturas({
   const [pageSize,      setPageSize]     = useState(DEFAULT_PAGE_SIZE);
   const [totalPages,    setTotalPages]   = useState(1);
   const [totalFacturas, setTotalFacturas] = useState(0);
-  const [filtros,       setFiltrosRaw]   = useState({ proveedor: '', numFactura: '', cif: '', fechaDesde: '', fechaHasta: '', soloIncidencias: '', soloSinProveedor: '', estadoExtraccion: '' });
+  const [filtros,       setFiltrosRaw]   = useState({ proveedor: '', numFactura: '', cif: '', fechaDesde: '', fechaHasta: '', soloIncidencias: '', soloSinProveedor: '', estadoExtraccion: '', importeMin: '', importeMax: '' });
   const [filtrosActivos, setFiltrosActivos] = useState(filtros); // los que se envían al servidor
   const debounceRef = useRef(null);
 
@@ -213,7 +223,7 @@ export default function SeccionFacturas({
     setFiltrosRaw(nuevos);
     clearTimeout(debounceRef.current);
     // Si cambió un select (soloIncidencias, soloSinProveedor, estadoExtraccion) aplica ya
-    const textoIgual = nuevos.proveedor === filtros.proveedor && nuevos.numFactura === filtros.numFactura && nuevos.cif === filtros.cif;
+    const textoIgual = nuevos.proveedor === filtros.proveedor && nuevos.numFactura === filtros.numFactura && nuevos.cif === filtros.cif && nuevos.importeMin === filtros.importeMin && nuevos.importeMax === filtros.importeMax;
     if (textoIgual) {
       setFiltrosActivos(nuevos);
       setSeleccionados(new Set());
