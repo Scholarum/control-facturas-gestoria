@@ -14,9 +14,9 @@ const CAMPOS_OBLIGATORIOS = [
 export function detectarIncidencia(datos) {
   if (!datos) return CAMPOS_OBLIGATORIOS.slice(); // todos faltan
   const faltantes = CAMPOS_OBLIGATORIOS.filter(c => datos[c] == null || datos[c] === '');
-  // IVA: al menos un desglose con base
+  // IVA: al menos un desglose con base o cuota distinta de cero (incluye abonos negativos)
   const iva = Array.isArray(datos.iva) ? datos.iva : [];
-  if (!iva.some(e => e.base > 0 || e.cuota > 0)) faltantes.push('iva');
+  if (!iva.some(e => e.base !== 0 || e.cuota !== 0)) faltantes.push('iva');
   return faltantes;
 }
 
@@ -596,7 +596,7 @@ function PanelDetalleFiscal({ f, onDatosActualizados }) {
   const ivaMap = {};
   for (const e of iva) ivaMap[e.tipo] = e;
   const tiposPresentes = TIPOS_IVA.filter(t => ivaMap[t]);
-  const ivaVacio = !iva.some(e => e.base > 0 || e.cuota > 0);
+  const ivaVacio = !iva.some(e => e.base !== 0 || e.cuota !== 0);
 
   // Estado para edición IVA inline
   const [editandoIva, setEditandoIva] = useState(false);
@@ -704,7 +704,11 @@ function PanelDetalleFiscal({ f, onDatosActualizados }) {
             )}
             {!editandoIva && (
               <button onClick={() => setEditandoIva(true)} className={`text-xs hover:underline ${ivaVacio ? 'text-red-400 italic hover:text-red-600' : 'text-blue-500 hover:text-blue-700'}`}>
-                {ivaVacio ? 'Sin desglose disponible' : 'Editar desglose'} <span className="text-gray-300">&#9998;</span>
+                {ivaVacio
+                  ? (d.total_factura != null && Number(d.total_factura) < 0
+                    ? 'Rectificativa sin desglose — detalla bases y cuotas negativas'
+                    : 'Sin desglose disponible')
+                  : 'Editar desglose'} <span className="text-gray-300">&#9998;</span>
               </button>
             )}
             {editandoIva && (

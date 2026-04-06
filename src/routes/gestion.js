@@ -50,7 +50,7 @@ function tieneIncidencia(datos) {
     if (d[c] == null || d[c] === '') return true;
   }
   const iva = Array.isArray(d.iva) ? d.iva : [];
-  if (!iva.some(e => e.base > 0 || e.cuota > 0)) return true;
+  if (!iva.some(e => e.base !== 0 || e.cuota !== 0)) return true;
   return false;
 }
 
