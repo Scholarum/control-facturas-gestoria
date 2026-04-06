@@ -50,7 +50,7 @@ function tieneIncidencia(datos) {
     if (d[c] == null || d[c] === '') return true;
   }
   const iva = Array.isArray(d.iva) ? d.iva : [];
-  if (!iva.some(e => e.base > 0 || e.cuota > 0)) return true;
+  if (!iva.some(e => e.base !== 0 || e.cuota !== 0)) return true;
   return false;
 }
 
@@ -114,7 +114,7 @@ router.get('/', async (req, res) => {
   const soloIds   = req.query.solo_ids === '1'; // Devolver solo IDs (para select all)
 
   // Filtros
-  const { proveedor, numFactura, cif, fechaDesde, fechaHasta, estadoExtraccion, soloIncidencias, soloSinProveedor } = req.query;
+  const { proveedor, numFactura, cif, fechaDesde, fechaHasta, estadoExtraccion, soloIncidencias, soloSinProveedor, importeMin, importeMax } = req.query;
 
   const conditions = ['1=1'];
   const params = [];
@@ -147,6 +147,14 @@ router.get('/', async (req, res) => {
   if (fechaHasta) {
     conditions.push(`da.datos_extraidos IS NOT NULL AND da.datos_extraidos ~ '^\\s*\\{' AND (da.datos_extraidos::jsonb)->>'fecha_emision' <= $${idx++}`);
     params.push(fechaHasta);
+  }
+  if (importeMin !== undefined && importeMin !== '') {
+    conditions.push(`da.datos_extraidos IS NOT NULL AND da.datos_extraidos ~ '^\\s*\\{' AND ((da.datos_extraidos::jsonb)->>'total_factura')::numeric >= $${idx++}`);
+    params.push(parseFloat(importeMin));
+  }
+  if (importeMax !== undefined && importeMax !== '') {
+    conditions.push(`da.datos_extraidos IS NOT NULL AND da.datos_extraidos ~ '^\\s*\\{' AND ((da.datos_extraidos::jsonb)->>'total_factura')::numeric <= $${idx++}`);
+    params.push(parseFloat(importeMax));
   }
   if (estadoExtraccion) { conditions.push(`da.estado = $${idx++}`); params.push(estadoExtraccion); }
   if (soloIncidencias === 'si') { conditions.push(tieneIncidenciaSQL('da')); }

@@ -125,6 +125,8 @@ export async function fetchFacturas(empresaId, { estado, page = 1, limit = 50, f
   if (filtros.estadoExtraccion) params.set('estadoExtraccion', filtros.estadoExtraccion);
   if (filtros.soloIncidencias)  params.set('soloIncidencias', filtros.soloIncidencias);
   if (filtros.soloSinProveedor) params.set('soloSinProveedor', filtros.soloSinProveedor);
+  if (filtros.importeMin !== undefined && filtros.importeMin !== '') params.set('importeMin', filtros.importeMin);
+  if (filtros.importeMax !== undefined && filtros.importeMax !== '') params.set('importeMax', filtros.importeMax);
   const res = await fetch(`${API_BASE}/api/drive?${params}`, { headers: authHeaders() });
   if (!res.ok) throw new Error('Error al cargar facturas');
   const json = await res.json();
@@ -144,6 +146,8 @@ export async function fetchFacturaIds(empresaId, { estado, filtros = {} } = {}) 
   if (filtros.estadoExtraccion) params.set('estadoExtraccion', filtros.estadoExtraccion);
   if (filtros.soloIncidencias)  params.set('soloIncidencias', filtros.soloIncidencias);
   if (filtros.soloSinProveedor) params.set('soloSinProveedor', filtros.soloSinProveedor);
+  if (filtros.importeMin !== undefined && filtros.importeMin !== '') params.set('importeMin', filtros.importeMin);
+  if (filtros.importeMax !== undefined && filtros.importeMax !== '') params.set('importeMax', filtros.importeMax);
   const res = await fetch(`${API_BASE}/api/drive?${params}`, { headers: authHeaders() });
   if (!res.ok) throw new Error('Error al cargar IDs');
   const json = await res.json();

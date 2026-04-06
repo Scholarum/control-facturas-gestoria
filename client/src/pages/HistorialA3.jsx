@@ -1,16 +1,14 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '../context/AuthContext.jsx';
 import { fetchHistorialSage, reDescargarSage, fetchFacturasSageLote } from '../api.js';
+import { formatCurrency } from '../utils/formatCurrency.js';
 
 function fmtFecha(iso) {
   if (!iso) return '';
   return new Date(iso).toLocaleString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
-function fmtEuro(n) {
-  if (n == null) return '-';
-  return new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format(n);
-}
+const fmtEuro = formatCurrency;
 
 function IconoDescarga() {
   return (

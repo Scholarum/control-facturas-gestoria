@@ -6,6 +6,7 @@ import {
   guardarVinculoManual,
   eliminarVinculoManual,
 } from '../api.js';
+import { formatCurrency } from '../utils/formatCurrency.js';
 
 const ESTADO_CFG = {
   CONCILIADA:       { label: 'Conciliada',       cls: 'bg-emerald-50 text-emerald-700 ring-emerald-200' },
@@ -21,10 +22,7 @@ function fmtFecha(iso) {
   return `${d}/${m}/${y}`;
 }
 
-function fmtEuro(n) {
-  if (n == null) return '\u2014';
-  return new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format(n);
-}
+const fmtEuro = formatCurrency;
 
 function Badge({ estado }) {
   const c = ESTADO_CFG[estado] || { label: estado, cls: 'bg-gray-100 text-gray-600 ring-gray-200' };
