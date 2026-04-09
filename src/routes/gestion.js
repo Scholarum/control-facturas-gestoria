@@ -353,29 +353,8 @@ router.put('/contabilizar', async (req, res) => {
   const usuarioId = req.usuario?.id ?? null;
 
   const archivos = await db.all(
-    `SELECT da.id, da.nombre_archivo, da.proveedor,
-            COALESCE(da.cuenta_gasto_id, pe.cuenta_gasto_id, p.cuenta_gasto_id) AS cg_efectiva_id
+    `SELECT da.id, da.nombre_archivo, da.proveedor, da.cuenta_gasto_id AS cg_efectiva_id
      FROM drive_archivos da
-     LEFT JOIN LATERAL (
-       SELECT p2.id AS prov_id, p2.cuenta_gasto_id FROM proveedores p2
-       WHERE p2.activo = true
-         AND (
-           (
-             p2.cif IS NOT NULL
-             AND da.datos_extraidos IS NOT NULL
-             AND da.datos_extraidos ~ '^\\s*\\{'
-             AND normalizar_cif((da.datos_extraidos::jsonb)->>'cif_emisor') = normalizar_cif(p2.cif)
-           )
-           OR p2.nombre_carpeta = da.proveedor
-         )
-       ORDER BY (p2.cif IS NOT NULL
-                 AND da.datos_extraidos IS NOT NULL
-                 AND da.datos_extraidos ~ '^\\s*\\{'
-                 AND normalizar_cif((da.datos_extraidos::jsonb)->>'cif_emisor') = normalizar_cif(p2.cif)
-                ) DESC NULLS LAST
-       LIMIT 1
-     ) p ON true
-     LEFT JOIN proveedor_empresa pe ON pe.proveedor_id = p.prov_id AND pe.empresa_id = da.empresa_id
      WHERE da.id = ANY($1::int[])`,
     [ids]
   );
