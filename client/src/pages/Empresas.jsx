@@ -19,8 +19,15 @@ async function fetchEmpresaDetalle(id) {
   return json.data || {};
 }
 
+async function eliminarEmpresaApi(id) {
+  const res = await fetch(`${API_BASE}/api/empresas/${id}`, { method: 'DELETE', headers: authHeaders() });
+  const json = await res.json();
+  if (!json.ok) throw new Error(json.error || 'Error al eliminar empresa');
+  return json.data;
+}
+
 export default function Empresas() {
-  const { empresas: empresasCtx, cambiarEmpresa, empresaActiva, recargarEmpresas } = useAuth();
+  const { empresas: empresasCtx, cambiarEmpresa, empresaActiva, recargarEmpresas, esAdmin } = useAuth();
   const [empresas,  setEmpresas]  = useState([]);
   const [loading,   setLoading]   = useState(true);
   const [modal,     setModal]     = useState(null);
@@ -29,6 +36,9 @@ export default function Empresas() {
   const [form,      setForm]      = useState({ nombre: '', cif: '', direccion: '', telefono: '', email: '', web: '' });
   const [guardando, setGuardando] = useState(false);
   const [error,     setError]     = useState('');
+  const [eliminar,  setEliminar]  = useState(null);   // empresa a eliminar
+  const [confirTxt, setConfirTxt] = useState('');
+  const [eliminando, setEliminando] = useState(false);
 
   async function cargar() {
     try { setEmpresas(await fetchEmpresas()); }
@@ -105,6 +115,29 @@ export default function Empresas() {
       document.body.appendChild(a); a.click(); document.body.removeChild(a);
       URL.revokeObjectURL(url);
     } catch {}
+  }
+
+  async function handleEliminar() {
+    if (confirTxt !== 'ELIMINAR') return;
+    setEliminando(true); setError('');
+    try {
+      const resultado = await eliminarEmpresaApi(eliminar.id);
+      const e = resultado.eliminados;
+      alert(
+        `Empresa "${resultado.empresa}" eliminada.\n\n` +
+        `Datos borrados:\n` +
+        `- ${e.facturas} facturas\n` +
+        `- ${e.cuentas_contables} cuentas contables\n` +
+        `- ${e.proveedores_vinculados} vínculos de proveedor\n` +
+        `- ${e.lotes_sage} lotes SAGE\n` +
+        `- ${e.conciliaciones} conciliaciones\n\n` +
+        `Recuerda: los archivos en Google Drive deben eliminarse manualmente.`
+      );
+      setEliminar(null); setConfirTxt('');
+      await cargar();
+      await recargarEmpresas();
+    } catch (e) { setError(e.message); }
+    finally { setEliminando(false); }
   }
 
   async function guardar() {
@@ -187,6 +220,9 @@ export default function Empresas() {
                         <button onClick={() => abrirEditar(e)} className="text-xs text-blue-600 hover:text-blue-800 font-medium">Editar</button>
                         {!esActiva && (
                           <button onClick={() => cambiarEmpresa(e)} className="text-xs text-emerald-600 hover:text-emerald-800 font-medium">Activar</button>
+                        )}
+                        {esAdmin && !esActiva && (
+                          <button onClick={() => { setEliminar(e); setConfirTxt(''); setError(''); }} className="text-xs text-red-500 hover:text-red-700 font-medium">Eliminar</button>
                         )}
                       </div>
                     </td>
@@ -323,6 +359,46 @@ export default function Empresas() {
               <button onClick={guardar} disabled={guardando}
                 className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg disabled:opacity-50">
                 {guardando ? 'Guardando...' : 'Guardar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal confirmar eliminación */}
+      {eliminar && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-[calc(100%-2rem)] sm:max-w-md mx-4">
+            <div className="px-6 py-4 border-b border-red-100 flex items-center gap-3">
+              <div className="flex-shrink-0 w-10 h-10 rounded-full bg-red-100 flex items-center justify-center">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z"/>
+                </svg>
+              </div>
+              <h3 className="font-semibold text-red-900">Eliminar empresa</h3>
+            </div>
+            <div className="px-6 py-5 space-y-3">
+              {error && <div className="rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-700">{error}</div>}
+              <p className="text-sm text-gray-700">
+                Esta accion eliminara la empresa <strong>{eliminar.nombre}</strong> ({eliminar.cif}), todas sus facturas asociadas y su configuracion de forma permanente.
+              </p>
+              <div className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-800">
+                Los archivos en Google Drive deben eliminarse manualmente para evitar perdidas de datos accidentales en la nube.
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">
+                  Escribe <span className="font-mono font-bold text-red-600">ELIMINAR</span> para confirmar
+                </label>
+                <input value={confirTxt} onChange={e => setConfirTxt(e.target.value)}
+                  placeholder="ELIMINAR"
+                  className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-red-500" />
+              </div>
+            </div>
+            <div className="px-6 py-4 border-t border-gray-100 flex justify-end gap-3">
+              <button onClick={() => { setEliminar(null); setConfirTxt(''); setError(''); }} className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800">Cancelar</button>
+              <button onClick={handleEliminar} disabled={confirTxt !== 'ELIMINAR' || eliminando}
+                className="px-4 py-2 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed">
+                {eliminando ? 'Eliminando...' : 'Eliminar empresa'}
               </button>
             </div>
           </div>
