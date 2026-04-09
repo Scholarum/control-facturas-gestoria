@@ -13,6 +13,9 @@ const { initDb }       = require('./src/config/database');
 const { runMigrations } = require('./src/config/migrate');
 const { getDb }        = require('./src/config/database');
 
+const fs               = require('fs');
+const os               = require('os');
+
 const ROOT_FOLDER_ID   = '1bJjT-9q4jca4vkhmGNGKyHj7mmFlLjr9';
 const CREDENTIALS_FILE = path.resolve(__dirname, 'credentials..json');
 const DRY_RUN          = !process.argv.includes('--save');
@@ -20,10 +23,28 @@ const DRY_RUN          = !process.argv.includes('--save');
 // ─── Auth ─────────────────────────────────────────────────────────────────────
 
 async function buildDriveClient() {
-  const auth = new google.auth.GoogleAuth({
-    keyFile: CREDENTIALS_FILE,
-    scopes:  ['https://www.googleapis.com/auth/drive.readonly'],
-  });
+  let auth;
+
+  if (process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON) {
+    const credentials = JSON.parse(process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON);
+    auth = new google.auth.GoogleAuth({
+      credentials,
+      scopes: ['https://www.googleapis.com/auth/drive.readonly'],
+    });
+  } else if (process.env.GOOGLE_CREDENTIALS_BASE64) {
+    const tmpPath = path.join(os.tmpdir(), 'gcp-credentials.json');
+    fs.writeFileSync(tmpPath, Buffer.from(process.env.GOOGLE_CREDENTIALS_BASE64, 'base64'));
+    auth = new google.auth.GoogleAuth({
+      keyFile: tmpPath,
+      scopes: ['https://www.googleapis.com/auth/drive.readonly'],
+    });
+  } else {
+    auth = new google.auth.GoogleAuth({
+      keyFile: CREDENTIALS_FILE,
+      scopes: ['https://www.googleapis.com/auth/drive.readonly'],
+    });
+  }
+
   return google.drive({ version: 'v3', auth });
 }
 
