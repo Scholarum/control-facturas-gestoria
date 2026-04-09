@@ -353,7 +353,10 @@ router.put('/contabilizar', async (req, res) => {
   const usuarioId = req.usuario?.id ?? null;
 
   const archivos = await db.all(
-    `SELECT da.id, da.nombre_archivo, da.proveedor,
+    `SELECT da.id, da.nombre_archivo, da.proveedor, da.empresa_id,
+            da.cuenta_gasto_id AS cg_factura,
+            p.id AS prov_id,
+            pe.cuenta_gasto_id AS cg_proveedor_empresa,
             COALESCE(da.cuenta_gasto_id, pe.cuenta_gasto_id) AS cg_efectiva_id
      FROM drive_archivos da
      LEFT JOIN LATERAL (
@@ -377,11 +380,16 @@ router.put('/contabilizar', async (req, res) => {
   if (configCont.modo_gestoria !== 'v1') {
     const sinCG = archivos.filter(a => !a.cg_efectiva_id);
     if (sinCG.length > 0) {
-      const detalle = sinCG.map(a => `"${a.nombre_archivo || 'Sin nombre'}" (${a.proveedor || 'proveedor desconocido'})`).join(', ');
+      // Diagnóstico: mostrar datos reales de las primeras 5 facturas sin CG
+      const muestra = sinCG.slice(0, 5).map(a => ({
+        id: a.id, archivo: a.nombre_archivo, empresa_id: a.empresa_id,
+        cg_factura: a.cg_factura, prov_id: a.prov_id, cg_prov_empresa: a.cg_proveedor_empresa,
+      }));
       return res.status(400).json({
         ok: false,
-        error: `${sinCG.length} factura(s) sin cuenta de gasto: ${detalle}`,
+        error: `${sinCG.length} factura(s) sin cuenta de gasto`,
         ids_sin_cg: sinCG.map(a => a.id),
+        _debug: { total_enviados: ids.length, total_encontrados: archivos.length, con_cg: archivos.filter(a => a.cg_efectiva_id).length, muestra },
       });
     }
   }
