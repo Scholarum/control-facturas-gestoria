@@ -123,11 +123,12 @@ async function ejecutarSync(origen = 'MANUAL') {
             AND normalizar_cif((da.datos_extraidos::jsonb)->>'cif_receptor') = normalizar_cif(e.cif)
         `, [idsParaExtraer]);
 
-        // Facturas con CIF receptor no registrado → crear empresa al vuelo
+        // Facturas con CIF receptor no registrado → cuarentena (pendientes_validacion)
         const sinEmpresa = await db.all(`
-          SELECT DISTINCT
+          SELECT da.id, da.google_id, da.nombre_archivo, da.proveedor,
             UPPER(TRIM((da.datos_extraidos::jsonb)->>'cif_receptor')) AS cif,
-            (da.datos_extraidos::jsonb)->>'nombre_receptor' AS nombre
+            (da.datos_extraidos::jsonb)->>'nombre_receptor' AS nombre,
+            da.datos_extraidos
           FROM drive_archivos da
           WHERE da.id = ANY($1::int[])
             AND da.empresa_id IS NULL
@@ -136,29 +137,20 @@ async function ejecutarSync(origen = 'MANUAL') {
             AND TRIM((da.datos_extraidos::jsonb)->>'cif_receptor') <> ''
         `, [idsParaExtraer]);
 
-        for (const { cif, nombre } of sinEmpresa) {
-          if (!cif) continue;
+        for (const row of sinEmpresa) {
+          if (!row.cif) continue;
           try {
             await db.query(
-              `INSERT INTO empresas (nombre, cif) VALUES ($1, $2) ON CONFLICT (cif) DO NOTHING`,
-              [nombre?.trim() || cif, cif]
+              `INSERT INTO pendientes_validacion (cif_receptor, nombre_receptor, drive_archivo_id, datos_extraidos, google_id, nombre_archivo, proveedor)
+               VALUES ($1, $2, $3, $4, $5, $6, $7)
+               ON CONFLICT DO NOTHING`,
+              [row.cif, row.nombre?.trim() || null, row.id,
+               row.datos_extraidos || '{}', row.google_id, row.nombre_archivo, row.proveedor]
             );
-            logger.info({ nombre: nombre || cif, cif }, 'Sync empresa creada al vuelo');
+            logger.info({ nombre: row.nombre || row.cif, cif: row.cif }, 'Sync factura enviada a cuarentena (CIF receptor desconocido)');
           } catch (e) {
-            logger.error({ err: e, cif }, 'Sync error creando empresa');
+            logger.error({ err: e, cif: row.cif }, 'Sync error guardando en pendientes_validacion');
           }
-        }
-
-        // Reasignar facturas que ahora tienen empresa
-        if (sinEmpresa.length > 0) {
-          await db.query(`
-            UPDATE drive_archivos da SET empresa_id = e.id
-            FROM empresas e
-            WHERE da.id = ANY($1::int[])
-              AND da.empresa_id IS NULL
-              AND da.datos_extraidos IS NOT NULL AND da.datos_extraidos ~ '^\\s*\\{'
-              AND normalizar_cif((da.datos_extraidos::jsonb)->>'cif_receptor') = normalizar_cif(e.cif)
-          `, [idsParaExtraer]);
         }
       } catch (e) {
         logger.error({ err: e }, 'Sync error asignando empresa_id');

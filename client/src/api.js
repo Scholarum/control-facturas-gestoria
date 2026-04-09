@@ -193,8 +193,9 @@ export async function contabilizar(ids) {
     headers: authHeaders({ 'Content-Type': 'application/json' }),
     body:    JSON.stringify({ ids }),
   });
-  if (!res.ok) throw new Error('Error al contabilizar');
-  return res.json();
+  const json = await res.json();
+  if (!json.ok) throw new Error(json.error || 'Error al contabilizar');
+  return json;
 }
 
 export async function asignarCGMasivo(ids, cgId) {
@@ -302,6 +303,59 @@ export async function exportarExcel(ids) {
   a.href = url; a.download = `facturas-${new Date().toISOString().slice(0, 10)}.xlsx`;
   document.body.appendChild(a); a.click(); document.body.removeChild(a);
   URL.revokeObjectURL(url);
+}
+
+// ─── Validación de entidades (cuarentena) ────────────────────────────────────
+
+export async function fetchPendientesValidacion() {
+  const res = await fetch(`${API_BASE}/api/validacion`, { headers: authHeaders() });
+  const json = await res.json();
+  if (!json.ok) throw new Error(json.error || 'Error al obtener pendientes');
+  return json.data;
+}
+
+export async function fetchPendientesCount() {
+  const res = await fetch(`${API_BASE}/api/validacion/count`, { headers: authHeaders() });
+  const json = await res.json();
+  if (!json.ok) return 0;
+  return json.data.count;
+}
+
+export async function confirmarEmpresaValidacion(id, nombre) {
+  const res = await fetch(`${API_BASE}/api/validacion/${id}/confirmar`, {
+    method: 'POST',
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify({ nombre }),
+  });
+  const json = await res.json();
+  if (!json.ok) throw new Error(json.error || 'Error al confirmar empresa');
+  return json.data;
+}
+
+export async function rechazarValidacion(id) {
+  const res = await fetch(`${API_BASE}/api/validacion/${id}`, {
+    method: 'DELETE',
+    headers: authHeaders(),
+  });
+  const json = await res.json();
+  if (!json.ok) throw new Error(json.error || 'Error al rechazar registro');
+  return json.data;
+}
+
+// ─── Dev Upload (solo desarrollo) ────────────────────────────────────────────
+
+export async function devUploadLocal(file, proveedor) {
+  const fd = new FormData();
+  fd.append('archivo', file);
+  if (proveedor) fd.append('proveedor', proveedor);
+  const res = await fetch(`${API_BASE}/api/dev/upload-local`, {
+    method: 'POST',
+    headers: authHeaders(),
+    body: fd,
+  });
+  const json = await res.json();
+  if (!json.ok) throw new Error(json.error || 'Error en subida local');
+  return json.data;
 }
 
 // ─── Chat / Conversaciones ───────────────────────────────────────────────────

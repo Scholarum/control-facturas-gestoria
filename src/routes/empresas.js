@@ -74,4 +74,59 @@ router.put('/:id', requireAdmin, express.json(), async (req, res) => {
   res.json({ ok: true, data: row });
 });
 
+// DELETE /:id — eliminar empresa y todos sus datos asociados (admin)
+router.delete('/:id', requireAdmin, async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const db = getDb();
+
+  const empresa = await db.one('SELECT * FROM empresas WHERE id = $1 AND activo = true', [id]);
+  if (!empresa) return res.status(404).json({ ok: false, error: 'Empresa no encontrada' });
+
+  // Contar datos asociados para informar al usuario
+  const [facturas, cuentas, proveedores, lotesSage, conciliaciones] = await Promise.all([
+    db.one('SELECT COUNT(*) AS n FROM drive_archivos WHERE empresa_id = $1', [id]),
+    db.one('SELECT COUNT(*) AS n FROM plan_contable WHERE empresa_id = $1', [id]),
+    db.one('SELECT COUNT(*) AS n FROM proveedor_empresa WHERE empresa_id = $1', [id]),
+    db.one('SELECT COUNT(*) AS n FROM lotes_exportacion_sage WHERE empresa_id = $1', [id]),
+    db.one('SELECT COUNT(*) AS n FROM historial_conciliaciones WHERE empresa_id = $1', [id]),
+  ]);
+
+  // Borrado en cascada — orden correcto por dependencias FK
+  await db.query('DELETE FROM historial_conciliaciones WHERE empresa_id = $1', [id]);
+  await db.query('DELETE FROM historial_sincronizaciones WHERE empresa_id = $1', [id]);
+  await db.query('DELETE FROM lotes_exportacion_sage WHERE empresa_id = $1', [id]);
+  await db.query('DELETE FROM drive_archivos WHERE empresa_id = $1', [id]);
+  await db.query('DELETE FROM plan_contable WHERE empresa_id = $1', [id]);
+  // proveedor_empresa y usuario_empresa tienen ON DELETE CASCADE, pero eliminamos explícitamente por claridad
+  await db.query('DELETE FROM proveedor_empresa WHERE empresa_id = $1', [id]);
+  await db.query('DELETE FROM usuario_empresa WHERE empresa_id = $1', [id]);
+  await db.query('DELETE FROM empresas WHERE id = $1', [id]);
+
+  const { registrarEvento, EVENTOS } = require('../services/auditService');
+  registrarEvento({
+    evento: EVENTOS.ELIMINAR_EMPRESA || 'ELIMINAR_EMPRESA',
+    usuarioId: req.usuario?.id,
+    ip: req.clientIp, userAgent: req.userAgent,
+    detalle: {
+      empresa_id: id, nombre: empresa.nombre, cif: empresa.cif,
+      facturas_eliminadas: parseInt(facturas.n, 10),
+      cuentas_eliminadas: parseInt(cuentas.n, 10),
+    },
+  }).catch(() => {});
+
+  res.json({
+    ok: true,
+    data: {
+      empresa: empresa.nombre,
+      eliminados: {
+        facturas: parseInt(facturas.n, 10),
+        cuentas_contables: parseInt(cuentas.n, 10),
+        proveedores_vinculados: parseInt(proveedores.n, 10),
+        lotes_sage: parseInt(lotesSage.n, 10),
+        conciliaciones: parseInt(conciliaciones.n, 10),
+      },
+    },
+  });
+});
+
 module.exports = router;
