@@ -193,8 +193,9 @@ export async function contabilizar(ids) {
     headers: authHeaders({ 'Content-Type': 'application/json' }),
     body:    JSON.stringify({ ids }),
   });
-  if (!res.ok) throw new Error('Error al contabilizar');
-  return res.json();
+  const json = await res.json();
+  if (!json.ok) throw new Error(json.error || 'Error al contabilizar');
+  return json;
 }
 
 export async function asignarCGMasivo(ids, cgId) {

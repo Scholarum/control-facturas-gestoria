@@ -383,9 +383,10 @@ router.put('/contabilizar', async (req, res) => {
   if (configCont.modo_gestoria !== 'v1') {
     const sinCG = archivos.filter(a => !a.cg_efectiva_id);
     if (sinCG.length > 0) {
+      const detalle = sinCG.map(a => `"${a.nombre_archivo || 'Sin nombre'}" (${a.proveedor || 'proveedor desconocido'})`).join(', ');
       return res.status(400).json({
         ok: false,
-        error: `${sinCG.length} factura(s) no tienen cuenta de gasto asignada`,
+        error: `${sinCG.length} factura(s) sin cuenta de gasto: ${detalle}`,
         ids_sin_cg: sinCG.map(a => a.id),
       });
     }
