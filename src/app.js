@@ -47,6 +47,7 @@ app.use('/api/chat/conversaciones', require('./routes/conversaciones'));
 app.use('/api/eventos',       require('./routes/eventos'));
 app.use('/api/busqueda',      require('./routes/busqueda'));
 app.use('/api/dashboard',     require('./routes/dashboard'));
+app.use('/api/validacion',    require('./routes/validacion'));
 app.use('/ver',               require('./routes/acceso'));
 app.get('/health', (_req, res) => res.json({ ok: true, uptime: process.uptime() }));
 

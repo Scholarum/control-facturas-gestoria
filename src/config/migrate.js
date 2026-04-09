@@ -329,6 +329,20 @@ const tablas = [
   `CREATE INDEX IF NOT EXISTS idx_prov_cif_norm ON proveedores (normalizar_cif(cif)) WHERE cif IS NOT NULL AND activo = true`,
   `CREATE INDEX IF NOT EXISTS idx_drive_estado_gestion ON drive_archivos(estado_gestion, empresa_id)`,
   `ALTER TABLE chat_conversaciones ADD COLUMN IF NOT EXISTS oculta BOOLEAN NOT NULL DEFAULT false`,
+
+  // ─── Cuarentena de facturas con CIF receptor desconocido ─────────────────
+  `CREATE TABLE IF NOT EXISTS pendientes_validacion (
+    id               SERIAL PRIMARY KEY,
+    cif_receptor     TEXT NOT NULL,
+    nombre_receptor  TEXT,
+    drive_archivo_id INTEGER REFERENCES drive_archivos(id) ON DELETE CASCADE,
+    datos_extraidos  JSONB NOT NULL DEFAULT '{}',
+    google_id        TEXT,
+    nombre_archivo   TEXT,
+    proveedor        TEXT,
+    created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_pendientes_val_cif ON pendientes_validacion(cif_receptor)`,
 ];
 
 // ─── Seeds ────────────────────────────────────────────────────────────────────

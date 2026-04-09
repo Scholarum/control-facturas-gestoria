@@ -11,7 +11,8 @@ import SeccionFacturas from './components/SeccionFacturas.jsx';
 import Dashboard      from './pages/Dashboard.jsx';
 import HistorialA3    from './pages/HistorialA3.jsx';
 import Empresas       from './pages/Empresas.jsx';
-import { fetchFacturas, fetchStats, fetchProveedores, exportarExcel, triggerSyncManual, fetchPlanContable, asignarCuentaGasto, asignarCGMasivo, autodetectarProveedores, aplicarCuentasProveedor, vincularProveedores, fetchRoles } from './api.js';
+import ValidacionEntidades from './pages/ValidacionEntidades.jsx';
+import { fetchFacturas, fetchStats, fetchProveedores, exportarExcel, triggerSyncManual, fetchPlanContable, asignarCuentaGasto, asignarCGMasivo, autodetectarProveedores, aplicarCuentasProveedor, vincularProveedores, fetchRoles, fetchPendientesCount } from './api.js';
 import ChatWidget from './components/ChatWidget.jsx';
 import Notificaciones from './components/Notificaciones.jsx';
 import BusquedaGlobal from './components/BusquedaGlobal.jsx';
@@ -52,6 +53,7 @@ function AppInner() {
     { enabled: !!user && !!empresaActiva }
   );
   const [alertaProveedores, setAlertaProveedores] = useState([]);
+  const [pendientesValidacion, setPendientesValidacion] = useState(0);
   const [stats,           setStats]           = useState({ total: 0, pendientes: 0, descargadas: 0, ccAsignadas: 0, contabilizadas: 0 });
   const [refreshKey,      setRefreshKey]      = useState(0); // incrementar para forzar recarga de secciones
   const [focusFacturaId,  setFocusFacturaId]  = useState(null);
@@ -73,9 +75,13 @@ function AppInner() {
   const refreshStats = useCallback(async () => {
     if (!empresaActiva) return;
     try {
-      const s = await fetchStats(empresaActiva.id);
+      const [s, pvCount] = await Promise.all([
+        fetchStats(empresaActiva.id),
+        fetchPendientesCount().catch(() => 0),
+      ]);
       setStats({ total: s.total, pendientes: s.pendientes, descargadas: s.descargadas, ccAsignadas: s.ccAsignadas, contabilizadas: s.contabilizadas });
       setAlertaProveedores(s.alertaProveedores || []);
+      setPendientesValidacion(pvCount);
     } catch {}
   }, [empresaActiva]);
 
@@ -335,8 +341,24 @@ function AppInner() {
         </div>
       )}
 
+      {/* Banner de pendientes de validación */}
+      {pendientesValidacion > 0 && esAdminReal && (
+        <div className="bg-amber-50 border-b border-amber-200 py-2 px-3 sm:px-6 flex items-center gap-2 text-sm text-amber-800 sticky z-45" style={{ top: (empresas.length > 0 ? 34 : 0) + (estaEmulando ? 34 : 0) }}>
+          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-amber-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z"/>
+          </svg>
+          <span>
+            Hay <strong>{pendientesValidacion}</strong> nueva{pendientesValidacion !== 1 ? 's' : ''} empresa{pendientesValidacion !== 1 ? 's' : ''} detectada{pendientesValidacion !== 1 ? 's' : ''} pendiente{pendientesValidacion !== 1 ? 's' : ''} de validacion.
+          </span>
+          <button onClick={() => { setTab('validacion'); setAdminMenuOpen(false); }}
+            className="ml-1 px-2.5 py-0.5 bg-amber-200 hover:bg-amber-300 rounded text-xs font-semibold transition-colors">
+            Revisar ahora
+          </button>
+        </div>
+      )}
+
       {/* Header */}
-      <header className={`bg-white border-b border-gray-200 sticky z-40 shadow-sm`} style={{ top: (empresas.length > 0 ? 34 : 0) + (estaEmulando ? 34 : 0) }}>
+      <header className={`bg-white border-b border-gray-200 sticky z-40 shadow-sm`} style={{ top: (empresas.length > 0 ? 34 : 0) + (estaEmulando ? 34 : 0) + (pendientesValidacion > 0 && esAdminReal ? 36 : 0) }}>
         <div className="max-w-screen-xl mx-auto px-3 sm:px-6 h-14 flex items-center gap-2 sm:gap-4">
 
           {/* Hamburguesa (solo móvil) */}
@@ -391,6 +413,7 @@ function AppInner() {
                 <div className="absolute right-0 top-full mt-1.5 w-48 bg-white border border-gray-200 rounded-xl shadow-lg py-1 z-50">
                   {[
                     { id: 'empresas',      icon: '🏛️', label: 'Empresas',       visible: puedeVer('configuracion') },
+                    { id: 'validacion',    icon: '🔍', label: 'Validacion',    visible: puedeVer('configuracion'), badge: pendientesValidacion },
                     { id: 'usuarios',      icon: '👥', label: 'Usuarios',       visible: puedeVer('usuarios')      },
                     { id: 'configuracion', icon: '⚙️',  label: 'Configuracion', visible: puedeVer('configuracion') },
                   ].filter(i => i.visible).map(item => (
@@ -403,6 +426,9 @@ function AppInner() {
                     >
                       <span>{item.icon}</span>
                       {item.label}
+                      {item.badge > 0 && (
+                        <span className="ml-auto inline-flex items-center justify-center px-1.5 py-0.5 text-[10px] font-bold text-white bg-amber-500 rounded-full min-w-[18px]">{item.badge}</span>
+                      )}
                     </button>
                   ))}
                 </div>
@@ -552,6 +578,11 @@ function AppInner() {
 
         {/* ── Pestaña Empresas ── */}
         {tab === 'empresas' && puedeVer('configuracion') && <Empresas />}
+
+        {/* ── Pestaña Validación de entidades ── */}
+        {tab === 'validacion' && puedeVer('configuracion') && (
+          <ValidacionEntidades onCountChange={setPendientesValidacion} />
+        )}
 
         {/* ── Pestaña Conciliación ── */}
         {tab === 'conciliacion' && <Conciliacion proveedores={proveedores} />}

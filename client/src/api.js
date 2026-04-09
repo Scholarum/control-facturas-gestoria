@@ -305,6 +305,43 @@ export async function exportarExcel(ids) {
   URL.revokeObjectURL(url);
 }
 
+// ─── Validación de entidades (cuarentena) ────────────────────────────────────
+
+export async function fetchPendientesValidacion() {
+  const res = await fetch(`${API_BASE}/api/validacion`, { headers: authHeaders() });
+  const json = await res.json();
+  if (!json.ok) throw new Error(json.error || 'Error al obtener pendientes');
+  return json.data;
+}
+
+export async function fetchPendientesCount() {
+  const res = await fetch(`${API_BASE}/api/validacion/count`, { headers: authHeaders() });
+  const json = await res.json();
+  if (!json.ok) return 0;
+  return json.data.count;
+}
+
+export async function confirmarEmpresaValidacion(id, nombre) {
+  const res = await fetch(`${API_BASE}/api/validacion/${id}/confirmar`, {
+    method: 'POST',
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify({ nombre }),
+  });
+  const json = await res.json();
+  if (!json.ok) throw new Error(json.error || 'Error al confirmar empresa');
+  return json.data;
+}
+
+export async function rechazarValidacion(id) {
+  const res = await fetch(`${API_BASE}/api/validacion/${id}`, {
+    method: 'DELETE',
+    headers: authHeaders(),
+  });
+  const json = await res.json();
+  if (!json.ok) throw new Error(json.error || 'Error al rechazar registro');
+  return json.data;
+}
+
 // ─── Chat / Conversaciones ───────────────────────────────────────────────────
 
 export async function fetchChatConfig() {
