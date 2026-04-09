@@ -105,6 +105,20 @@ router.post('/upload-local', upload.single('archivo'), async (req, res) => {
 
     const updated = await db.one('SELECT * FROM drive_archivos WHERE id = $1', [row.id]);
 
+    // Si el CIF receptor no coincide con ninguna empresa → cuarentena
+    if (datos?.cif_receptor && !updated.empresa_id) {
+      const cif = datos.cif_receptor.replace(/[^A-Z0-9]/gi, '').toUpperCase();
+      if (cif) {
+        await db.query(
+          `INSERT INTO pendientes_validacion (cif_receptor, nombre_receptor, drive_archivo_id, datos_extraidos, google_id, nombre_archivo, proveedor)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+          [cif, datos.nombre_receptor || null, row.id,
+           JSON.stringify(datos), devFileId, nombreArchivo, proveedor]
+        );
+        logger.info({ cif, nombre: datos.nombre_receptor, drive_id: row.id }, 'DEV upload: CIF desconocido, enviado a cuarentena');
+      }
+    }
+
     // Respuesta compatible con la estructura de Google Drive API
     res.json({
       ok: true,

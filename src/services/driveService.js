@@ -7,20 +7,29 @@ const { Readable } = require('stream');
 const ROOT_FOLDER_ID = process.env.DRIVE_ROOT_FOLDER_ID || '1bJjT-9q4jca4vkhmGNGKyHj7mmFlLjr9';
 
 async function buildDriveClient() {
-  let keyFile;
+  let auth;
 
-  if (process.env.GOOGLE_CREDENTIALS_BASE64) {
+  if (process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON) {
+    // Credenciales como JSON string en variable de entorno (Render, etc.)
+    const credentials = JSON.parse(process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON);
+    auth = new google.auth.GoogleAuth({
+      credentials,
+      scopes: ['https://www.googleapis.com/auth/drive'],
+    });
+  } else if (process.env.GOOGLE_CREDENTIALS_BASE64) {
     const tmpPath = path.join(os.tmpdir(), 'gcp-credentials.json');
     fs.writeFileSync(tmpPath, Buffer.from(process.env.GOOGLE_CREDENTIALS_BASE64, 'base64'));
-    keyFile = tmpPath;
+    auth = new google.auth.GoogleAuth({
+      keyFile: tmpPath,
+      scopes: ['https://www.googleapis.com/auth/drive'],
+    });
   } else {
-    keyFile = path.resolve(__dirname, '../../credentials..json');
+    auth = new google.auth.GoogleAuth({
+      keyFile: path.resolve(__dirname, '../../credentials..json'),
+      scopes: ['https://www.googleapis.com/auth/drive'],
+    });
   }
 
-  const auth = new google.auth.GoogleAuth({
-    keyFile,
-    scopes: ['https://www.googleapis.com/auth/drive'],
-  });
   return google.drive({ version: 'v3', auth });
 }
 
