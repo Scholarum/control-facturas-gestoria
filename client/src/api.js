@@ -342,6 +342,22 @@ export async function rechazarValidacion(id) {
   return json.data;
 }
 
+// ─── Dev Upload (solo desarrollo) ────────────────────────────────────────────
+
+export async function devUploadLocal(file, proveedor) {
+  const fd = new FormData();
+  fd.append('archivo', file);
+  if (proveedor) fd.append('proveedor', proveedor);
+  const res = await fetch(`${API_BASE}/api/dev/upload-local`, {
+    method: 'POST',
+    headers: authHeaders(),
+    body: fd,
+  });
+  const json = await res.json();
+  if (!json.ok) throw new Error(json.error || 'Error en subida local');
+  return json.data;
+}
+
 // ─── Chat / Conversaciones ───────────────────────────────────────────────────
 
 export async function fetchChatConfig() {

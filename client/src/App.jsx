@@ -12,7 +12,7 @@ import Dashboard      from './pages/Dashboard.jsx';
 import HistorialA3    from './pages/HistorialA3.jsx';
 import Empresas       from './pages/Empresas.jsx';
 import ValidacionEntidades from './pages/ValidacionEntidades.jsx';
-import { fetchFacturas, fetchStats, fetchProveedores, exportarExcel, triggerSyncManual, fetchPlanContable, asignarCuentaGasto, asignarCGMasivo, autodetectarProveedores, aplicarCuentasProveedor, vincularProveedores, fetchRoles, fetchPendientesCount } from './api.js';
+import { fetchFacturas, fetchStats, fetchProveedores, exportarExcel, triggerSyncManual, fetchPlanContable, asignarCuentaGasto, asignarCGMasivo, autodetectarProveedores, aplicarCuentasProveedor, vincularProveedores, fetchRoles, fetchPendientesCount, devUploadLocal } from './api.js';
 import ChatWidget from './components/ChatWidget.jsx';
 import Notificaciones from './components/Notificaciones.jsx';
 import BusquedaGlobal from './components/BusquedaGlobal.jsx';
@@ -54,6 +54,7 @@ function AppInner() {
   );
   const [alertaProveedores, setAlertaProveedores] = useState([]);
   const [pendientesValidacion, setPendientesValidacion] = useState(0);
+  const [subiendoDev, setSubiendoDev] = useState(false);
   const [stats,           setStats]           = useState({ total: 0, pendientes: 0, descargadas: 0, ccAsignadas: 0, contabilizadas: 0 });
   const [refreshKey,      setRefreshKey]      = useState(0); // incrementar para forzar recarga de secciones
   const [focusFacturaId,  setFocusFacturaId]  = useState(null);
@@ -170,6 +171,21 @@ function AppInner() {
     } finally {
       setSincronizando(false);
       setTimeout(() => setSyncMsg(null), 5000);
+    }
+  }
+
+  async function handleDevUpload(file) {
+    if (!file) return;
+    setSubiendoDev(true); setSyncMsg(null);
+    try {
+      const result = await devUploadLocal(file);
+      setSyncMsg({ ok: true, texto: `DEV: "${result.nombre_archivo}" → ${result.estado}` });
+      invalidate();
+    } catch (e) {
+      setSyncMsg({ ok: false, texto: e.message });
+    } finally {
+      setSubiendoDev(false);
+      setTimeout(() => setSyncMsg(null), 8000);
     }
   }
 
@@ -316,6 +332,18 @@ function AppInner() {
                 )}
                 {sincronizando ? 'Sincronizando...' : 'Sincronizar Drive'}
               </button>
+            )}
+            {esAdmin && import.meta.env.VITE_ENABLE_DEV_UPLOAD === 'true' && (
+              <label className={`flex items-center gap-1.5 px-3 py-1 rounded text-xs font-medium text-amber-300 hover:text-amber-100 hover:bg-slate-700 transition-colors cursor-pointer ${subiendoDev ? 'opacity-50 pointer-events-none' : ''}`}>
+                {subiendoDev ? (
+                  <svg className="h-3 w-3 animate-spin" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/></svg>
+                ) : (
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>
+                )}
+                {subiendoDev ? 'Subiendo...' : '[DEV] Subida Local'}
+                <input type="file" accept=".pdf" className="hidden" disabled={subiendoDev}
+                  onChange={e => { handleDevUpload(e.target.files[0]); e.target.value = ''; }} />
+              </label>
             )}
             {syncMsg && (
               <span className={`text-xs font-medium ${syncMsg.ok ? 'text-emerald-400' : 'text-red-400'}`}>

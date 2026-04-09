@@ -6,3 +6,4 @@ data/
 *.db-wal
 credentials..json
 credentials.json
+temp_uploads/

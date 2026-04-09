@@ -48,6 +48,9 @@ app.use('/api/eventos',       require('./routes/eventos'));
 app.use('/api/busqueda',      require('./routes/busqueda'));
 app.use('/api/dashboard',     require('./routes/dashboard'));
 app.use('/api/validacion',    require('./routes/validacion'));
+if (process.env.NODE_ENV !== 'production') {
+  app.use('/api/dev', require('./routes/devUpload'));
+}
 app.use('/ver',               require('./routes/acceso'));
 app.get('/health', (_req, res) => res.json({ ok: true, uptime: process.uptime() }));
 
