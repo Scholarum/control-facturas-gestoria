@@ -248,7 +248,7 @@ function lineaCSV(valores) {
 
 // ─── Construir valores por factura ──────────────────────────────────────────
 
-function construirLineasFactura(factura, numAsiento) {
+function construirLineasFactura(factura, numAsiento, documento) {
   const d = factura.datos_extraidos || {};
   const ivaList = Array.isArray(d.iva) ? d.iva.filter(e => e.base > 0 || e.cuota > 0) : [];
 
@@ -264,6 +264,7 @@ function construirLineasFactura(factura, numAsiento) {
   const ctaGasto      = factura.cuenta_gasto_codigo || '';
   const fechaFmt      = fechaEmision ? fechaEmision.replace(/-/g, '') : '';
   const asiento       = String(numAsiento);
+  const doc           = (documento || '').substring(0, 10);
 
   const lineas = []; // cada elemento es un array de 142 valores
 
@@ -271,7 +272,7 @@ function construirLineasFactura(factura, numAsiento) {
   const l1 = new Array(142).fill('');
   l1[0]=asiento; l1[1]=fechaFmt; l1[2]=ctaProveedor; l1[3]=ctaGasto;
   l1[4]=0; l1[5]=concepto; l1[6]=totalFactura;
-  l1[11]=numFactura.substring(0,10); l1[26]='2'; l1[27]=0;
+  l1[11]=doc; l1[26]='2'; l1[27]=0;
   l1[28]=totalFactura; l1[95]=totalFactura; l1[132]=conceptoLargo;
   lineas.push(l1);
 
@@ -279,7 +280,7 @@ function construirLineasFactura(factura, numAsiento) {
   const l2 = new Array(142).fill('');
   l2[0]=asiento; l2[1]=fechaFmt; l2[2]=ctaGasto; l2[3]=ctaProveedor;
   l2[4]=baseSinIva; l2[5]=concepto; l2[6]=0;
-  l2[11]=numFactura.substring(0,10); l2[26]='2';
+  l2[11]=doc; l2[26]='2';
   l2[27]=baseSinIva; l2[28]=0; l2[132]=conceptoLargo;
   lineas.push(l2);
 
@@ -289,7 +290,7 @@ function construirLineasFactura(factura, numAsiento) {
     l[0]=asiento; l[1]=fechaFmt; l[2]=getCuentaIva(tipo); l[3]=ctaProveedor;
     l[4]=cuota; l[5]=concepto; l[6]=0;
     l[7]=numFactura.substring(0,8); l[8]=base;
-    l[9]=tipo; l[10]=0; l[11]=numFactura.substring(0,10);
+    l[9]=tipo; l[10]=0; l[11]=doc;
     l[26]='2'; l[27]=cuota; l[28]=0; l[29]=base;
     l[61]=cifEmisor; l[62]=nombreEmisor.substring(0,15);
     l[63]=nombreEmisor.substring(0,40);
@@ -311,34 +312,47 @@ function construirLineasFactura(factura, numAsiento) {
   return lineas;
 }
 
+// ─── Helpers numerador documento ────────────────────────────────────────────
+
+function construirDocumento(importe, contador) {
+  const prefijo = importe < 0 ? 'A/' : 'F/';
+  return prefijo + String(contador).padStart(4, '0');
+}
+
 // ─── Funcion principal ──────────────────────────────────────────────────────
 
-function generarFicheroSage(facturas, asientosPorProveedor = {}) {
+/**
+ * Genera ficheros SAGE con numeración correlativa global.
+ * @param {Array} facturas — facturas a exportar, procesadas en el orden recibido
+ * @param {Object} opts
+ *   @param {number} opts.asientoInicio   — número de asiento inicial (1 por factura, correlativo global)
+ *   @param {number} opts.documentoInicio — número de documento inicial (F/NNNN o A/NNNN según signo)
+ * @returns {{ contenidoTXT, contenidoCSV, asientoInicio, asientoFin, documentoInicio, documentoFin }}
+ */
+function generarFicheroSage(facturas, opts = {}) {
+  const asientoInicio   = parseInt(opts.asientoInicio, 10)   > 0 ? parseInt(opts.asientoInicio, 10)   : 1;
+  const documentoInicio = parseInt(opts.documentoInicio, 10) > 0 ? parseInt(opts.documentoInicio, 10) : 1;
+
   const registros = []; // array de arrays de 142 valores
+  let numAsiento  = asientoInicio;
+  let numDoc      = documentoInicio;
 
-  const porProveedor = {};
-  for (const f of facturas) {
-    const pid = f.proveedor_id || '_sin';
-    if (!porProveedor[pid]) porProveedor[pid] = [];
-    porProveedor[pid].push(f);
+  for (const factura of facturas) {
+    const d = factura.datos_extraidos || {};
+    const total = parseFloat(d.total_factura) || 0;
+    const documento = construirDocumento(total, numDoc);
+    registros.push(...construirLineasFactura(factura, numAsiento, documento));
+    numAsiento++;
+    numDoc++;
   }
 
-  const asientosFin = {};
+  const asientoFin   = numAsiento - 1;
+  const documentoFin = numDoc - 1;
 
-  for (const [pid, facts] of Object.entries(porProveedor)) {
-    let numAsiento = asientosPorProveedor[pid] || 1;
-    for (const factura of facts) {
-      registros.push(...construirLineasFactura(factura, numAsiento));
-      numAsiento++;
-    }
-    asientosFin[pid] = numAsiento - 1;
-  }
-
-  // Generar ambos formatos
   const contenidoTXT = registros.map(r => lineaTXT(r)).join('\r\n') + '\r\n';
   const contenidoCSV = registros.map(r => lineaCSV(r)).join('\r\n') + '\r\n';
 
-  return { contenidoTXT, contenidoCSV, asientosFin };
+  return { contenidoTXT, contenidoCSV, asientoInicio, asientoFin, documentoInicio, documentoFin };
 }
 
 module.exports = { generarFicheroSage };

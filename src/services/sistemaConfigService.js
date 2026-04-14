@@ -15,6 +15,9 @@ const DEFAULTS = {
   chat_agente_defecto:    'atc',
   chat_max_mensajes_dia:  '100',             // por usuario
   chat_mensaje_bienvenida: '',               // vacío = sin mensaje de bienvenida
+  // SAGE — últimos valores usados (se sugieren al abrir el modal de exportación)
+  sage_ultimo_asiento:    '0',
+  sage_ultimo_documento:  '0',
 };
 
 let _cache = null;

@@ -258,10 +258,12 @@ export default function SeccionFacturas({
   const [contabilizando,     setContabilizando]     = useState(false);
   const [asignandoCC,        setAsignandoCC]        = useState(false);
   const [exportandoA3,       setExportandoA3]       = useState(false);
-  const [exportandoSage,    setExportandoSage]    = useState(false);
-  const [modalSageOpen,     setModalSageOpen]     = useState(false);
-  const [sageProveedores,   setSageProveedores]   = useState([]);
-  const [sageAsientos,      setSageAsientos]      = useState({});
+  const [exportandoSage,     setExportandoSage]     = useState(false);
+  const [modalSageOpen,      setModalSageOpen]      = useState(false);
+  const [sagePreviewData,    setSagePreviewData]    = useState(null);
+  const [sageAsientoInicio,  setSageAsientoInicio]  = useState('');
+  const [sageDocumentoInicio, setSageDocumentoInicio] = useState('');
+  const [sageError,          setSageError]          = useState('');
   const [modalA3Open,        setModalA3Open]        = useState(false);
   const [ccMasiva,           setCcMasiva]           = useState('');
   const [error,              setError]              = useState('');
@@ -368,24 +370,39 @@ export default function SeccionFacturas({
 
   async function abrirModalSage() {
     setError('');
+    setSageError('');
     try {
       const ids = Array.from(seleccionados);
       const data = await sagePreview(ids);
-      setSageProveedores(data.proveedores);
-      const asientos = {};
-      for (const p of data.proveedores) {
-        asientos[p.proveedor_id || 0] = p.siguiente_asiento;
-      }
-      setSageAsientos(asientos);
+      setSagePreviewData(data);
+      setSageAsientoInicio(String(data.siguiente_asiento || 1));
+      setSageDocumentoInicio(String(data.siguiente_documento || 1));
       setModalSageOpen(true);
     } catch (e) { setError(e.message); }
   }
 
+  function validarEnteroPositivo(valor) {
+    return /^\d+$/.test(String(valor).trim()) && parseInt(valor, 10) > 0;
+  }
+
   async function handleExportarSage(marcarContabilizada) {
+    setSageError('');
+    if (!validarEnteroPositivo(sageAsientoInicio)) {
+      setSageError('El asiento de inicio debe ser un número entero positivo');
+      return;
+    }
+    if (!validarEnteroPositivo(sageDocumentoInicio)) {
+      setSageError('El número de documento de inicio debe ser un entero positivo');
+      return;
+    }
     const ids = Array.from(seleccionados);
     setExportandoSage(true); setError(''); setModalSageOpen(false);
     try {
-      const result = await exportarSage(ids, sageAsientos, marcarContabilizada);
+      const result = await exportarSage(
+        ids,
+        { asientoInicio: parseInt(sageAsientoInicio, 10), documentoInicio: parseInt(sageDocumentoInicio, 10) },
+        marcarContabilizada
+      );
       if (result.contabilizada) {
         onEstadoActualizado(ids, 'CONTABILIZADA');
       }
@@ -567,52 +584,70 @@ export default function SeccionFacturas({
         );
       })()}
 
-      {/* Modal configuracion exportacion SAGE */}
-      {modalSageOpen && (
+      {/* Modal configuracion exportacion SAGE — asiento + documento globales */}
+      {modalSageOpen && sagePreviewData && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setModalSageOpen(false)}>
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-[calc(100%-2rem)] sm:max-w-lg mx-4" onClick={e => e.stopPropagation()}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-[calc(100%-2rem)] sm:max-w-md mx-4" onClick={e => e.stopPropagation()}>
             <div className="px-6 py-4 border-b border-gray-100">
-              <h3 className="text-sm font-semibold text-gray-900">Exportar a SAGE ContaPlus</h3>
-              <p className="text-xs text-gray-400 mt-0.5">{seleccionados.size} factura(s) de {sageProveedores.length} proveedor(es)</p>
+              <h3 className="text-sm font-semibold text-gray-900">Exportar a SAGE ContaPlus (R75)</h3>
+              <p className="text-xs text-gray-400 mt-0.5">
+                {sagePreviewData.num_facturas} factura(s) · {sagePreviewData.proveedores.length} proveedor(es)
+              </p>
             </div>
-            <div className="px-6 py-4">
-              <p className="text-xs font-medium text-gray-600 mb-2">Numero de asiento inicial por proveedor</p>
-              <div className="border border-gray-200 rounded-lg overflow-hidden">
-                <table className="w-full text-xs">
-                  <thead className="bg-gray-50 border-b border-gray-200">
-                    <tr>
-                      <th className="px-3 py-2 text-left font-semibold text-gray-500">Proveedor</th>
-                      <th className="px-3 py-2 text-left font-semibold text-gray-500">Cuenta</th>
-                      <th className="px-3 py-2 text-right font-semibold text-gray-500">Facturas</th>
-                      <th className="px-3 py-2 text-right font-semibold text-gray-500">Asiento inicio</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-100">
-                    {sageProveedores.map(p => {
-                      const pid = p.proveedor_id || 0;
-                      const hayError = p.ya_exportadas > 0 || p.sin_cuentas > 0;
-                      return (
-                        <tr key={pid} className={hayError ? 'bg-red-50/40' : ''}>
-                          <td className="px-3 py-2 font-medium text-gray-900 max-w-[180px] truncate">{p.razon_social}</td>
-                          <td className="px-3 py-2 font-mono text-gray-500">{p.cta_proveedor || '-'}</td>
-                          <td className="px-3 py-2 text-right text-gray-700">
-                            {p.num_facturas}
-                            {p.ya_exportadas > 0 && <span className="ml-1 text-red-500">({p.ya_exportadas} dup.)</span>}
-                          </td>
-                          <td className="px-3 py-2 text-right">
-                            <input type="number" min={1}
-                              value={sageAsientos[pid] || 1}
-                              onChange={e => setSageAsientos(prev => ({ ...prev, [pid]: parseInt(e.target.value, 10) || 1 }))}
-                              className="w-20 rounded border border-gray-200 px-2 py-1 text-xs text-right font-mono focus:outline-none focus:ring-2 focus:ring-orange-400" />
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+
+            <div className="px-6 py-5 space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1">
+                  Asiento de Inicio
+                </label>
+                <input
+                  type="number"
+                  min={1}
+                  step={1}
+                  value={sageAsientoInicio}
+                  onChange={e => { setSageAsientoInicio(e.target.value); setSageError(''); }}
+                  className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-orange-400"
+                  placeholder="Ej: 1"
+                />
+                <p className="text-[10px] text-gray-400 mt-1">
+                  Correlativo global: el mismo asiento se incrementa por cada factura del lote.
+                  Último usado: <strong>{sagePreviewData.ultimo_asiento || 0}</strong>.
+                </p>
               </div>
-              <p className="text-[10px] text-gray-400 mt-2">Se propone el siguiente al ultimo asiento exportado para cada proveedor</p>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1">
+                  Número de Documento de Inicio
+                </label>
+                <input
+                  type="number"
+                  min={1}
+                  step={1}
+                  value={sageDocumentoInicio}
+                  onChange={e => { setSageDocumentoInicio(e.target.value); setSageError(''); }}
+                  className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-orange-400"
+                  placeholder="Ej: 1"
+                />
+                <p className="text-[10px] text-gray-400 mt-1">
+                  Genera <span className="font-mono">F/0001</span> (cargo) o <span className="font-mono">A/0001</span> (abono) según el signo del importe.
+                  Último usado: <strong>{sagePreviewData.ultimo_documento || 0}</strong>.
+                </p>
+              </div>
+
+              {(sagePreviewData.ya_exportadas > 0 || sagePreviewData.sin_cuentas > 0) && (
+                <div className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-800">
+                  {sagePreviewData.ya_exportadas > 0 && <div>⚠ {sagePreviewData.ya_exportadas} factura(s) ya exportadas previamente</div>}
+                  {sagePreviewData.sin_cuentas > 0 && <div>⚠ {sagePreviewData.sin_cuentas} factura(s) sin cuenta contable o de gasto</div>}
+                </div>
+              )}
+
+              {sageError && (
+                <div className="rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-xs text-red-700">
+                  {sageError}
+                </div>
+              )}
             </div>
+
             <div className="px-6 py-4 border-t border-gray-100 flex justify-between gap-2">
               <button onClick={() => setModalSageOpen(false)}
                 className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800 transition-colors">
@@ -620,11 +655,13 @@ export default function SeccionFacturas({
               </button>
               <div className="flex gap-2">
                 <button onClick={() => handleExportarSage(false)}
-                  className="px-4 py-2 text-sm font-semibold text-orange-700 bg-orange-50 hover:bg-orange-100 border border-orange-200 rounded-lg transition-colors">
+                  disabled={!validarEnteroPositivo(sageAsientoInicio) || !validarEnteroPositivo(sageDocumentoInicio)}
+                  className="px-4 py-2 text-sm font-semibold text-orange-700 bg-orange-50 hover:bg-orange-100 border border-orange-200 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
                   Generar fichero
                 </button>
                 <button onClick={() => handleExportarSage(true)}
-                  className="px-4 py-2 text-sm font-semibold text-white bg-orange-500 hover:bg-orange-600 rounded-lg transition-colors">
+                  disabled={!validarEnteroPositivo(sageAsientoInicio) || !validarEnteroPositivo(sageDocumentoInicio)}
+                  className="px-4 py-2 text-sm font-semibold text-white bg-orange-500 hover:bg-orange-600 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
                   Generar y contabilizar
                 </button>
               </div>
@@ -633,31 +670,9 @@ export default function SeccionFacturas({
         </div>
       )}
 
-      {/* Tabla */}
-      <TablaFacturas
-        facturas={facturas}
-        seleccionados={seleccionados}
-        onToggle={toggleSeleccion}
-        onToggleTodo={toggleTodo}
-        seleccionandoTodo={seleccionandoTodo}
-        loading={loading}
-        hayFiltros={hayFiltros}
-        esAdmin={esAdmin}
-        onRevertir={handleRevertir}
-        onEliminar={handleEliminar}
-        planContable={planContable}
-        onAsignarCG={onAsignarCG}
-        onDatosActualizados={onDatosActualizados}
-        onProveedorActualizado={onProveedorActualizado}
-        modoGestoria={modoGestoria}
-        focusFacturaId={focusFacturaId}
-        onClearFocus={onClearFocus}
-      />
-
-      {/* Paginación */}
-      {/* Paginación + selector de tamaño */}
+      {/* Paginación + selector de tamaño — encima de la tabla, debajo de los filtros */}
       {totalFacturas > 0 && (
-        <div className="flex items-center justify-between flex-wrap gap-2 bg-white rounded-xl border border-gray-200 shadow-sm px-4 py-3">
+        <div className="flex items-center justify-between flex-wrap gap-2 bg-white rounded-xl border border-gray-200 shadow-sm px-4 py-2">
           <div className="flex items-center gap-2">
             <span className="text-xs text-gray-500">Mostrar</span>
             <select
@@ -693,6 +708,27 @@ export default function SeccionFacturas({
           )}
         </div>
       )}
+
+      {/* Tabla */}
+      <TablaFacturas
+        facturas={facturas}
+        seleccionados={seleccionados}
+        onToggle={toggleSeleccion}
+        onToggleTodo={toggleTodo}
+        seleccionandoTodo={seleccionandoTodo}
+        loading={loading}
+        hayFiltros={hayFiltros}
+        esAdmin={esAdmin}
+        onRevertir={handleRevertir}
+        onEliminar={handleEliminar}
+        planContable={planContable}
+        onAsignarCG={onAsignarCG}
+        onDatosActualizados={onDatosActualizados}
+        onProveedorActualizado={onProveedorActualizado}
+        modoGestoria={modoGestoria}
+        focusFacturaId={focusFacturaId}
+        onClearFocus={onClearFocus}
+      />
     </div>
   );
 }
