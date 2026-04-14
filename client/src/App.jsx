@@ -400,7 +400,7 @@ function AppInner() {
 
           {/* Logo */}
           <div className="flex items-center gap-2 flex-shrink-0">
-            <span className="text-xl">🧾</span>
+            <img src="/logo-buho.png" alt="Scholarum" className="h-8 w-auto object-contain" />
             <span className="font-semibold text-gray-900 text-sm hidden sm:block">Control de Facturas</span>
           </div>
 

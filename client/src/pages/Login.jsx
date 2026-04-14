@@ -43,8 +43,12 @@ export default function Login() {
       <div className="w-full max-w-sm">
 
         {/* Logo / título */}
-        <div className="text-center mb-8">
-          <span className="text-4xl">🧾</span>
+        <div className="flex flex-col items-center text-center mb-8">
+          <img
+            src="/logo-scholarum.png"
+            alt="Scholarum"
+            className="h-24 w-auto object-contain"
+          />
           <h1 className="mt-3 text-xl font-bold text-gray-900">Control de Facturas</h1>
           <p className="text-sm text-gray-400 mt-1">Gestoría</p>
         </div>
