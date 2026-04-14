@@ -47,7 +47,7 @@ export default function Login() {
           <img
             src="/logo-scholarum.png"
             alt="Scholarum"
-            className="h-12 w-auto object-contain"
+            className="h-24 w-auto object-contain"
           />
           <h1 className="mt-3 text-xl font-bold text-gray-900">Control de Facturas</h1>
           <p className="text-sm text-gray-400 mt-1">Gestoría</p>
