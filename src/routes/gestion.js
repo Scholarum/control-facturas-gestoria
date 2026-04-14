@@ -10,7 +10,7 @@ const { registrarEvento, EVENTOS }  = require('../services/auditService');
 const { buildDriveClient, listarCarpetasRaiz, contarArchivosCarpeta, crearCarpeta, subirArchivo, obtenerCarpeta } = require('../services/driveService');
 const { ejecutarExtraccion }        = require('../services/extractorService');
 const { resolveUser, requireAdmin, requireAuth } = require('../middleware/auth');
-const { getSistemaConfig }          = require('../services/sistemaConfigService');
+const { getSistemaConfig, setSistemaConfig } = require('../services/sistemaConfigService');
 const { generarFicheroSage }       = require('../services/sageExporter');
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
@@ -701,7 +701,7 @@ router.post('/sage-preview', requireAuth, express.json(), async (req, res) => {
   const db = getDb();
   const archivos = await db.all(`
     SELECT da.id, da.proveedor, da.datos_extraidos, da.lote_sage_id,
-           p.id AS proveedor_id, p.razon_social, p.ultimo_asiento_sage,
+           p.id AS proveedor_id, p.razon_social,
            cc.codigo AS cta_proveedor_codigo,
            COALESCE(cgd.codigo, pg.codigo) AS cuenta_gasto_codigo
     FROM drive_archivos da
@@ -723,8 +723,10 @@ router.post('/sage-preview', requireAuth, express.json(), async (req, res) => {
     WHERE da.id = ANY($1::int[])
   `, [ids]);
 
-  // Agrupar por proveedor
+  // Resumen global
   const provMap = {};
+  let yaExportadas = 0;
+  let sinCuentas   = 0;
   for (const a of archivos) {
     const pid = a.proveedor_id || 0;
     if (!provMap[pid]) {
@@ -732,24 +734,45 @@ router.post('/sage-preview', requireAuth, express.json(), async (req, res) => {
         proveedor_id: a.proveedor_id,
         razon_social: a.razon_social || a.proveedor || 'Sin proveedor',
         cta_proveedor: a.cta_proveedor_codigo || '',
-        ultimo_asiento: a.ultimo_asiento_sage || 0,
-        siguiente_asiento: (a.ultimo_asiento_sage || 0) + 1,
         num_facturas: 0,
-        ya_exportadas: 0,
-        sin_cuentas: 0,
       };
     }
     provMap[pid].num_facturas++;
-    if (a.lote_sage_id) provMap[pid].ya_exportadas++;
-    if (!a.cta_proveedor_codigo || !a.cuenta_gasto_codigo) provMap[pid].sin_cuentas++;
+    if (a.lote_sage_id) yaExportadas++;
+    if (!a.cta_proveedor_codigo || !a.cuenta_gasto_codigo) sinCuentas++;
   }
 
-  res.json({ ok: true, data: { proveedores: Object.values(provMap) } });
+  // Últimos valores globales para sugerir el siguiente
+  const cfg = await getSistemaConfig();
+  const ultimoAsiento   = parseInt(cfg.sage_ultimo_asiento,   10) || 0;
+  const ultimoDocumento = parseInt(cfg.sage_ultimo_documento, 10) || 0;
+
+  res.json({ ok: true, data: {
+    proveedores: Object.values(provMap),
+    num_facturas: archivos.length,
+    ya_exportadas: yaExportadas,
+    sin_cuentas: sinCuentas,
+    ultimo_asiento: ultimoAsiento,
+    ultimo_documento: ultimoDocumento,
+    siguiente_asiento: ultimoAsiento + 1,
+    siguiente_documento: ultimoDocumento + 1,
+  }});
 });
 
 router.post('/exportar-sage', requireAuth, express.json(), async (req, res) => {
-  const { ids, asientos_por_proveedor, contabilizar: marcarContabilizada } = req.body;
+  const { ids, asiento_inicio, documento_inicio, contabilizar: marcarContabilizada } = req.body;
   if (!ids?.length) return res.status(400).json({ ok: false, error: 'ids requeridos' });
+
+  // Validación: enteros positivos
+  const esEnteroPositivo = v => Number.isInteger(Number(v)) && Number(v) > 0 && String(v).match(/^\d+$/);
+  if (!esEnteroPositivo(asiento_inicio)) {
+    return res.status(400).json({ ok: false, error: 'Asiento de inicio debe ser un entero positivo' });
+  }
+  if (!esEnteroPositivo(documento_inicio)) {
+    return res.status(400).json({ ok: false, error: 'Número de documento de inicio debe ser un entero positivo' });
+  }
+  const asientoInicio   = parseInt(asiento_inicio,   10);
+  const documentoInicio = parseInt(documento_inicio, 10);
 
   const db = getDb();
   const archivos = await db.all(`
@@ -815,29 +838,21 @@ router.post('/exportar-sage', requireAuth, express.json(), async (req, res) => {
     }
   }
 
-  // Generar ficheros con asientos por proveedor
-  const asientosMap = {};
-  if (asientos_por_proveedor) {
-    for (const [k, v] of Object.entries(asientos_por_proveedor)) asientosMap[k] = parseInt(v, 10) || 1;
-  }
-  const { contenidoTXT, contenidoCSV, asientosFin } = generarFicheroSage(facturasConDatos, asientosMap);
+  // Generar ficheros con asiento + documento globales correlativos
+  const { contenidoTXT, contenidoCSV, asientoFin, documentoFin } =
+    generarFicheroSage(facturasConDatos, { asientoInicio, documentoInicio });
+
   const fechaStr = new Date().toISOString().slice(0, 10);
   const nombreFichero = `diario-sage-${fechaStr}`;
 
   const usuarioId     = req.usuario?.id ?? null;
   const usuarioNombre = req.usuario?.nombre ?? null;
 
-  // Calcular rango global de asientos
-  const todosInicios = Object.values(asientosMap);
-  const todosFines   = Object.values(asientosFin).map(Number);
-  const asientoMin   = todosInicios.length ? Math.min(...todosInicios) : 1;
-  const asientoMax   = todosFines.length ? Math.max(...todosFines) : 1;
-
   // Guardar lote en historial (ambos contenidos)
   const loteRow = await db.one(
     `INSERT INTO lotes_exportacion_sage (nombre_fichero, num_facturas, asiento_inicio, asiento_fin, contenido_csv, contenido_txt, usuario_id, usuario_nombre, empresa_id)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id`,
-    [nombreFichero, facturasConDatos.length, asientoMin, asientoMax, contenidoCSV, contenidoTXT, usuarioId, usuarioNombre, facturasConDatos[0]?.empresa_id || null]
+    [nombreFichero, facturasConDatos.length, asientoInicio, asientoFin, contenidoCSV, contenidoTXT, usuarioId, usuarioNombre, facturasConDatos[0]?.empresa_id || null]
   );
 
   // Marcar facturas como exportadas
@@ -853,12 +868,11 @@ router.post('/exportar-sage', requireAuth, express.json(), async (req, res) => {
     }
   }
 
-  // Actualizar ultimo_asiento_sage por proveedor
-  for (const [pid, ultimo] of Object.entries(asientosFin)) {
-    if (pid !== '_sin') {
-      await db.query('UPDATE proveedores SET ultimo_asiento_sage = $1 WHERE id = $2', [ultimo, parseInt(pid, 10)]);
-    }
-  }
+  // Persistir últimos valores globales usados para sugerirlos en la próxima exportación
+  await setSistemaConfig({
+    sage_ultimo_asiento:   String(asientoFin),
+    sage_ultimo_documento: String(documentoFin),
+  });
 
   // Si se pide contabilizar, cambiar estado
   if (marcarContabilizada) {
@@ -868,10 +882,23 @@ router.post('/exportar-sage', requireAuth, express.json(), async (req, res) => {
   registrarEvento({
     evento: 'EXPORT_SAGE', usuarioId,
     ip: req.clientIp, userAgent: req.userAgent,
-    detalle: { lote_id: loteRow.id, count: facturasConDatos.length, asientos: asientosFin, contabilizada: !!marcarContabilizada },
+    detalle: {
+      lote_id: loteRow.id, count: facturasConDatos.length,
+      asiento_inicio: asientoInicio, asiento_fin: asientoFin,
+      documento_inicio: documentoInicio, documento_fin: documentoFin,
+      contabilizada: !!marcarContabilizada,
+    },
   }).catch(() => {});
 
-  res.json({ ok: true, data: { lote_id: loteRow.id, nombre_fichero: nombreFichero, contenido_txt: contenidoTXT, contenido_csv: contenidoCSV, asientos_fin: asientosFin, contabilizada: !!marcarContabilizada } });
+  res.json({ ok: true, data: {
+    lote_id: loteRow.id,
+    nombre_fichero: nombreFichero,
+    contenido_txt: contenidoTXT,
+    contenido_csv: contenidoCSV,
+    asiento_inicio: asientoInicio, asiento_fin: asientoFin,
+    documento_inicio: documentoInicio, documento_fin: documentoFin,
+    contabilizada: !!marcarContabilizada,
+  }});
 });
 
 // ─── GET /api/drive/sage-historial — historial de lotes SAGE ────────────────
