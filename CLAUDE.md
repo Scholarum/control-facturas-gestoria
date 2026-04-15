@@ -176,6 +176,18 @@ throw Object.assign(new Error('No autorizado'), { status: 403 });
 
 Las migraciones están en `src/config/migrate.js`. Se ejecutan al arrancar con `npm run migrate`. Incluyen schema completo + seeds (plan contable, roles ADMIN/GESTORIA, permisos, empresas).
 
+### Seguridad RLS en Supabase
+
+El schema de `migrate.js` es portable (Postgres vanilla). Las políticas RLS son específicas de Supabase y viven aparte, en `sql/`. **Orden de ejecución tras un reset o instancia nueva de Supabase:**
+
+1. `npm run migrate` — crea schema + seeds.
+2. Ejecutar `sql/rls_seguridad.sql` en el SQL Editor de Supabase — activa RLS en las 25 tablas base, crea helpers (`es_admin()`, `app_user_id()`, `usuario_tiene_empresa()`) y vistas seguras.
+3. Ejecutar los deltas `sql/rls_delta_*.sql` por orden cronológico — cubren tablas/vistas añadidas posteriormente.
+
+No meter `ENABLE RLS` en `migrate.js`: rompería entornos Postgres locales (los roles `anon`/`authenticated` y las funciones helper solo existen en Supabase).
+
+Contexto arquitectónico: el backend se conecta con el rol `postgres` del `DATABASE_URL` y **bypassa RLS siempre**. Las políticas `TO authenticated` son defensa en profundidad contra accesos vía PostgREST (API REST de Supabase expuesta con anon key), no protegen ni afectan al backend.
+
 ## Variables de entorno
 
 Ver `.env.example` para el template. Variables necesarias:
