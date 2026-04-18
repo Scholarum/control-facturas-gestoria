@@ -248,13 +248,13 @@ function lineaCSV(valores) {
 
 // ─── Construir valores por factura ──────────────────────────────────────────
 
-function construirLineasFactura(factura, numAsiento, documento) {
+function construirLineasFactura(factura, numAsiento, documento, fechaOpFmt) {
   const d = factura.datos_extraidos || {};
   const ivaList = Array.isArray(d.iva) ? d.iva.filter(e => e.base > 0 || e.cuota > 0) : [];
 
   const fechaEmision  = d.fecha_emision || '';
   const numFactura    = d.numero_factura || '';
-  const concepto      = (d.nombre_emisor || factura.proveedor || '').substring(0, 25);
+  const conceptoFact  = String(numFactura).substring(0, 25);
   const conceptoLargo = (d.nombre_emisor || factura.proveedor || '').substring(0, 50);
   const cifEmisor     = d.cif_emisor || '';
   const nombreEmisor  = d.nombre_emisor || '';
@@ -271,27 +271,28 @@ function construirLineasFactura(factura, numAsiento, documento) {
   // Linea 1: Proveedor en HABER
   const l1 = new Array(142).fill('');
   l1[0]=asiento; l1[1]=fechaFmt; l1[2]=ctaProveedor; l1[3]=ctaGasto;
-  l1[4]=0; l1[5]=concepto; l1[6]=totalFactura;
+  l1[4]=0; l1[5]=conceptoFact; l1[6]=totalFactura;
   l1[11]=doc; l1[26]='2'; l1[27]=0;
-  l1[28]=totalFactura; l1[95]=totalFactura; l1[132]=conceptoLargo;
+  l1[28]=totalFactura; l1[45]=fechaOpFmt; l1[95]=totalFactura; l1[132]=conceptoLargo;
   lineas.push(l1);
 
   // Linea 2: Gasto en DEBE
   const l2 = new Array(142).fill('');
   l2[0]=asiento; l2[1]=fechaFmt; l2[2]=ctaGasto; l2[3]=ctaProveedor;
-  l2[4]=baseSinIva; l2[5]=concepto; l2[6]=0;
+  l2[4]=baseSinIva; l2[5]=conceptoFact; l2[6]=0;
   l2[11]=doc; l2[26]='2';
-  l2[27]=baseSinIva; l2[28]=0; l2[132]=conceptoLargo;
+  l2[27]=baseSinIva; l2[28]=0; l2[45]=fechaOpFmt; l2[132]=conceptoLargo;
   lineas.push(l2);
 
   // Lineas IVA
   const crearIva = (base, cuota, tipo) => {
     const l = new Array(142).fill('');
     l[0]=asiento; l[1]=fechaFmt; l[2]=getCuentaIva(tipo); l[3]=ctaProveedor;
-    l[4]=cuota; l[5]=concepto; l[6]=0;
+    l[4]=cuota; l[5]=conceptoFact; l[6]=0;
     l[7]=numFactura.substring(0,8); l[8]=base;
     l[9]=tipo; l[10]=0; l[11]=doc;
     l[26]='2'; l[27]=cuota; l[28]=0; l[29]=base;
+    l[45]=fechaOpFmt;
     l[61]=cifEmisor; l[62]=nombreEmisor.substring(0,15);
     l[63]=nombreEmisor.substring(0,40);
     l[72]='R'; l[73]='O'; l[75]='.T.'; l[95]=totalFactura;
@@ -337,11 +338,17 @@ function generarFicheroSage(facturas, opts = {}) {
   let numAsiento  = asientoInicio;
   let numDoc      = documentoInicio;
 
+  // Fecha_OP (pos 46): fecha actual de generacion del archivo en formato AAAAMMDD
+  const hoy = new Date();
+  const fechaOpFmt = String(hoy.getFullYear())
+    + String(hoy.getMonth() + 1).padStart(2, '0')
+    + String(hoy.getDate()).padStart(2, '0');
+
   for (const factura of facturas) {
     const d = factura.datos_extraidos || {};
     const total = parseFloat(d.total_factura) || 0;
     const documento = construirDocumento(total, numDoc);
-    registros.push(...construirLineasFactura(factura, numAsiento, documento));
+    registros.push(...construirLineasFactura(factura, numAsiento, documento, fechaOpFmt));
     numAsiento++;
     numDoc++;
   }
