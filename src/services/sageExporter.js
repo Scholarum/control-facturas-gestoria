@@ -255,7 +255,7 @@ function construirLineasFactura(factura, numAsiento, documento, fechaOpFmt) {
   const fechaEmision  = d.fecha_emision || '';
   const numFactura    = d.numero_factura || '';
   const conceptoFact  = String(numFactura).substring(0, 25);
-  const conceptoLargo = (d.nombre_emisor || factura.proveedor || '').substring(0, 50);
+  const conceptoLargo = String(numFactura).substring(0, 50);
   const cifEmisor     = d.cif_emisor || '';
   const nombreEmisor  = d.nombre_emisor || '';
   const totalFactura  = parseFloat(d.total_factura) || 0;
