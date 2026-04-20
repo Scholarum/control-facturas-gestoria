@@ -188,6 +188,18 @@ No meter `ENABLE RLS` en `migrate.js`: rompería entornos Postgres locales (los 
 
 Contexto arquitectónico: el backend se conecta con el rol `postgres` del `DATABASE_URL` y **bypassa RLS siempre**. Las políticas `TO authenticated` son defensa en profundidad contra accesos vía PostgREST (API REST de Supabase expuesta con anon key), no protegen ni afectan al backend.
 
+## Exportación SAGE ContaPlus (R75)
+
+El protocolo R75 define **142 campos** por registro (ver `src/services/sageExporter.js`). Se generan dos formatos en paralelo: `.csv` (delimitado por `;`) y `.txt` (posiciones fijas). Cada factura produce entre 2 y N+2 líneas: proveedor (HABER) + gasto (DEBE) + una línea por tipo de IVA.
+
+**Gotcha del campo Concepto:** ContaPlus tiene dos campos de concepto:
+- **Pos 6 — `Concepto`** (legacy, 25 chars)
+- **Pos 133 — `ConcepNew`** (ampliado, 50 chars)
+
+Las versiones modernas de ContaPlus muestran en la UI el valor de `ConcepNew` (pos 133), **no** el `Concepto` legacy (pos 6). Por eso ambos campos deben contener el mismo valor útil (hoy: el número de factura). Si sólo se rellena el legacy, la UI mostrará vacío; si en `ConcepNew` va otro dato (ej. nombre proveedor), ese será el que aparezca como "Concepto" en ContaPlus.
+
+**Nota CSV:** `lineaCSV()` no escapa `;` ni comillas. Si algún campo de texto libre llegase a contener `;`, desplazaría columnas. Hoy los campos alimentados son controlados (números de factura, códigos, fechas); revisar escape si se introduce texto libre del usuario.
+
 ## Variables de entorno
 
 Ver `.env.example` para el template. Variables necesarias:
