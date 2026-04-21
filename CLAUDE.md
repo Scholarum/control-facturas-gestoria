@@ -198,6 +198,18 @@ El protocolo R75 define **142 campos** por registro (ver `src/services/sageExpor
 
 Las versiones modernas de ContaPlus muestran en la UI el valor de `ConcepNew` (pos 133), **no** el `Concepto` legacy (pos 6). Por eso ambos campos deben contener el mismo valor útil (hoy: el número de factura). Si sólo se rellena el legacy, la UI mostrará vacío; si en `ConcepNew` va otro dato (ej. nombre proveedor), ese será el que aparezca como "Concepto" en ContaPlus.
 
+**Mapeo de fechas (tras cambio 2026-04-21):**
+- **Pos 2 — `Fecha`** (asiento) → fecha de contabilización = día en que se genera el fichero (hoy).
+- **Pos 46 — `Fecha_OP`** → fecha de operación = misma fecha de generación.
+- **Pos 47 — `Fecha_EX`** → fecha de expedición = `fecha_emision` de la factura.
+
+En ContaPlus, el cuadro "Fecha" de Gestión de Asientos muestra pos 2; "F.operación" muestra pos 46; "F.expedición" muestra pos 47. Antes del cambio se ponía la fecha de emisión en pos 2 (y pos 47 vacío), lo que hacía que el asiento quedase fechado con la fecha del documento del proveedor en vez de la de contabilización.
+
+**Campos SII / Libro de IVA:**
+- **Pos 72 — `FacturaEx`** (40 chars) → número de factura del emisor (`numero_factura`). Es el valor que ContaPlus muestra en el "Cuadro de impuestos" como "Nº factura expedición". Sólo se rellena en las líneas de IVA.
+- **Pos 76 — `L340`** (lógico) → `.T.` en todas las líneas del asiento (proveedor, gasto y cada IVA) para que la casilla "340/SII" aparezca marcada.
+- **Pos 73 — `TipoFac`** → `'R'` sólo si la factura es rectificativa (criterio: `total_factura < 0`, mismo que determina el prefijo `A/` vs `F/` del documento). En facturas normales se deja vacío para que la casilla "Factura rectificativa" aparezca desmarcada.
+
 **Nota CSV:** `lineaCSV()` no escapa `;` ni comillas. Si algún campo de texto libre llegase a contener `;`, desplazaría columnas. Hoy los campos alimentados son controlados (números de factura, códigos, fechas); revisar escape si se introduce texto libre del usuario.
 
 ## Variables de entorno
