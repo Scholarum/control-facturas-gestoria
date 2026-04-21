@@ -239,10 +239,12 @@ CORS_ORIGIN           # Orígenes permitidos (CSV), vacío = todos en dev
 
 ## Deploy
 
-- **Backend**: Render (Node.js)
-- **Frontend**: Netlify (SPA con redirect `/* → /index.html`)
+- **Backend**: Render (Node.js) — escucha el repo completo, redespliega ante cualquier commit en `main`.
+- **Frontend**: Netlify (SPA con redirect `/* → /index.html`) — `netlify.toml` define `base = "client"`.
 - **Base de datos**: Supabase (PostgreSQL)
 - En producción, Express sirve el build estático del cliente desde `client/dist/`
+
+**Netlify cancela builds "sin cambios" por diseño:** al tener `base = "client"`, Netlify compara el diff del commit contra esa carpeta y si no hay cambios dentro, marca el deploy como *Canceled* (optimización integrada, no es un error). Por tanto los commits que sólo tocan backend (`src/`), CLI (`extractor.js`, `sync.js`), `CLAUDE.md` o SQL aparecerán como cancelados en Netlify — es correcto, el frontend servido sigue siendo el del último build que sí tocó `client/`.
 
 ### Instancias Supabase
 
