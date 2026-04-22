@@ -589,10 +589,11 @@ function CampoEditable({ label, valor, campo, datosOriginales, onGuardar, tipo =
 
 // Input inline para un campo SII (override por factura). Muestra el valor heredado
 // del proveedor como placeholder. Vacio = hereda del proveedor (NULL en BD).
+// Feedback visual: azul guardando, verde flash al OK, rojo con title al error.
 function CampoSiiInline({ label, override, heredado, campo, disabled, onGuardar }) {
   const [val, setVal] = useState(override == null ? '' : String(override));
-  const [guardando, setGuardando] = useState(false);
-  const [ok, setOk] = useState(false);
+  const [status, setStatus] = useState('idle'); // idle | saving | ok | error
+  const [errorMsg, setErrorMsg] = useState('');
   useEffect(() => { setVal(override == null ? '' : String(override)); }, [override]);
 
   async function guardar() {
@@ -601,14 +602,22 @@ function CampoSiiInline({ label, override, heredado, campo, disabled, onGuardar 
     if (raw !== '' && (!Number.isInteger(toSend) || toSend < 0)) { setVal(override == null ? '' : String(override)); return; }
     const actual = override ?? null;
     if (toSend === actual) return;
-    setGuardando(true);
+    setStatus('saving'); setErrorMsg('');
     try {
       await onGuardar({ [campo]: toSend });
-      setOk(true);
-      setTimeout(() => setOk(false), 1500);
-    } catch { setVal(override == null ? '' : String(override)); }
-    finally { setGuardando(false); }
+      setStatus('ok');
+      setTimeout(() => setStatus('idle'), 500);
+    } catch (e) {
+      setStatus('error');
+      setErrorMsg(e.message || 'Error al guardar');
+      setVal(override == null ? '' : String(override));
+    }
   }
+
+  const bg =
+    status === 'saving' ? 'bg-blue-50' :
+    status === 'ok'     ? 'bg-emerald-50' :
+    status === 'error'  ? 'bg-red-50' : '';
 
   return (
     <div>
@@ -621,15 +630,14 @@ function CampoSiiInline({ label, override, heredado, campo, disabled, onGuardar 
           onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); if (e.key === 'Escape') { setVal(override == null ? '' : String(override)); e.currentTarget.blur(); } }}
           disabled={disabled}
           placeholder={`Heredado: ${heredado ?? 1}`}
-          className={`w-32 rounded border border-gray-200 px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-blue-400 ${disabled ? 'bg-gray-50 text-gray-400 cursor-not-allowed' : ''}`} />
-        {guardando && <span className="text-xs text-gray-400">...</span>}
-        {ok && <span className="text-xs text-emerald-600 font-bold">✓</span>}
+          title={errorMsg || undefined}
+          className={`w-32 rounded border border-gray-200 px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-blue-400 transition-colors ${disabled ? 'bg-gray-50 text-gray-400 cursor-not-allowed' : bg}`} />
       </div>
     </div>
   );
 }
 
-function PanelDetalleFiscal({ f, onDatosActualizados }) {
+function PanelDetalleFiscal({ f, onDatosActualizados, onActualizarFacturaLocal }) {
   const d   = f.datos_extraidos || {};
   const iva = Array.isArray(d.iva) ? d.iva : [];
   const faltantes = detectarIncidencia(d);
@@ -648,6 +656,19 @@ function PanelDetalleFiscal({ f, onDatosActualizados }) {
   async function handleGuardar(campos) {
     const result = await editarDatosFactura(f.id, campos);
     if (onDatosActualizados) onDatosActualizados(f.id, result.datos_extraidos);
+  }
+
+  // Guardado optimista SOLO para los dos campos SII: muta el estado local de la
+  // lista de facturas sin invalidar el cache ni recargar la tabla. El resto de
+  // campos del panel siguen usando handleGuardar (que dispara refetch).
+  async function handleGuardarSiiLocal(campos) {
+    const result = await editarDatosFactura(f.id, campos);
+    if (onActualizarFacturaLocal) {
+      onActualizarFacturaLocal(f.id, {
+        sii_tipo_clave: result.sii_tipo_clave,
+        sii_tipo_fact:  result.sii_tipo_fact,
+      });
+    }
   }
 
   async function guardarIva() {
@@ -829,7 +850,7 @@ function PanelDetalleFiscal({ f, onDatosActualizados }) {
                 override={f.sii_tipo_clave}
                 heredado={f.proveedor_sii_tipo_clave ?? 1}
                 disabled={!!f.lote_sage_id}
-                onGuardar={handleGuardar}
+                onGuardar={handleGuardarSiiLocal}
               />
               <CampoSiiInline
                 label="Tipo factura SII"
@@ -837,7 +858,7 @@ function PanelDetalleFiscal({ f, onDatosActualizados }) {
                 override={f.sii_tipo_fact}
                 heredado={f.proveedor_sii_tipo_fact ?? 1}
                 disabled={!!f.lote_sage_id}
-                onGuardar={handleGuardar}
+                onGuardar={handleGuardarSiiLocal}
               />
             </div>
             <p className="text-xs text-gray-500 mt-2">
@@ -950,7 +971,7 @@ function EmptyState({ hayFiltros, colspan }) {
 export default function TablaFacturas({
   facturas, seleccionados, onToggle, onToggleTodo, seleccionandoTodo = false,
   loading, hayFiltros, esAdmin = false, onRevertir, onEliminar,
-  planContable = [], onAsignarCG, onDatosActualizados, onProveedorActualizado, modoGestoria = 'v2',
+  planContable = [], onAsignarCG, onDatosActualizados, onActualizarFacturaLocal, onProveedorActualizado, modoGestoria = 'v2',
   focusFacturaId, onClearFocus,
 }) {
   const [expandidos, setExpandidos] = useState(new Set());
@@ -1176,7 +1197,7 @@ export default function TablaFacturas({
 
                 // Panel de detalle fiscal (solo cuando se expande)
                 const detailRow = expanded && (
-                  <PanelDetalleFiscal key={`detail-${f.id}`} f={f} onDatosActualizados={onDatosActualizados} />
+                  <PanelDetalleFiscal key={`detail-${f.id}`} f={f} onDatosActualizados={onDatosActualizados} onActualizarFacturaLocal={onActualizarFacturaLocal} />
                 );
 
                 return [mainRow, ccPreviewRow, detailRow].filter(Boolean);

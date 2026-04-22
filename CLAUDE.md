@@ -276,3 +276,4 @@ No hay framework de testing configurado. Las pruebas son manuales.
 - Testing (Jest/Vitest)
 - Pre-commit hooks
 - Gestión centralizada de secretos (pendiente migrar a Doppler/AWS SSM/Vault)
+- Edición optimista en panel fiscal de facturas: aplicada sólo a los dos campos SII (`sii_tipo_clave`, `sii_tipo_fact`) mediante el callback `onActualizarFacturaLocal` hilado `SeccionFacturas → TablaFacturas → PanelDetalleFiscal`. El resto de campos del panel (`numero_factura`, fechas, importes, IVA, etc.) sigue disparando `onDatosActualizados → invalidate() → refetch completo`, lo que cierra el panel expandido y pierde scroll. Patrón replicable si se priorizase.
