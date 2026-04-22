@@ -2,6 +2,53 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { editarProveedor, asignarCuentasEmpresa, crearCuentaContable, eliminarCuentaContable } from '../../api.js';
 
+// ─── Celda numerica SII editable inline (con feedback visual guardando/ok/error) ─
+
+function CeldaNumeroSii({ valor, onGuardar, soloLectura, className = '' }) {
+  const [val, setVal] = useState(valor == null ? '' : String(valor));
+  const [status, setStatus] = useState('idle'); // idle | saving | ok | error
+  const [errorMsg, setErrorMsg] = useState('');
+  useEffect(() => { setVal(valor == null ? '' : String(valor)); }, [valor]);
+
+  async function guardar() {
+    const raw = val.trim();
+    if (raw === '') { setVal(valor == null ? '' : String(valor)); return; }
+    const n = Number(raw);
+    if (!Number.isInteger(n) || n < 0) { setVal(valor == null ? '' : String(valor)); return; }
+    if (n === valor) return;
+    setStatus('saving'); setErrorMsg('');
+    try {
+      await onGuardar(n);
+      setStatus('ok');
+      setTimeout(() => setStatus('idle'), 500);
+    } catch (e) {
+      setStatus('error'); setErrorMsg(e.message || 'Error al guardar');
+      setVal(valor == null ? '' : String(valor));
+    }
+  }
+
+  const bg =
+    status === 'saving' ? 'bg-blue-50' :
+    status === 'ok'     ? 'bg-emerald-50' :
+    status === 'error'  ? 'bg-red-50' : '';
+
+  return (
+    <td className={`px-2 py-1 ${className}`}>
+      <input
+        type="number" min="0" step="1"
+        value={val}
+        onChange={e => setVal(e.target.value)}
+        onBlur={guardar}
+        onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); if (e.key === 'Escape') { setVal(valor == null ? '' : String(valor)); e.currentTarget.blur(); } }}
+        readOnly={soloLectura}
+        title={errorMsg || undefined}
+        className={`w-16 rounded border border-transparent px-2 py-1 text-xs text-center transition-colors
+          ${soloLectura ? 'cursor-not-allowed opacity-70' : 'hover:border-gray-300 focus:border-blue-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-200'}
+          ${bg}`} />
+    </td>
+  );
+}
+
 // ─── Celda de texto editable inline ─────────────────────────────────────────
 
 export function CeldaTexto({ valor, onGuardar, placeholder, mono, className = '' }) {
@@ -302,12 +349,17 @@ export function CeldaCuenta({ valor, valorDesc, cuentas, onGuardar, onCuentaCrea
 
 // ─── Fila completa de proveedor ─────────────────────────────────────────────
 
-export default function FilaProveedorEditable({ proveedor: p, planContable, empresaId, onGuardado, onEliminar, onCuentaCreada }) {
+// onGuardado recibe un patch parcial: { id, ...camposActualizados }. El padre hace
+// setProveedores(prev => prev.map(x => x.id === patch.id ? { ...x, ...patch } : x))
+// sin refetchear la lista completa.
+export default function FilaProveedorEditable({ proveedor: p, planContable, empresaId, onGuardado, onEliminar, onCuentaCreada, soloLectura = false }) {
   const [error, setError] = useState('');
 
   async function guardarCampo(campo, valor) {
-    try { await editarProveedor(p.id, { [campo]: valor }); onGuardado(); }
-    catch (e) { setError(e.message); }
+    try {
+      const actualizado = await editarProveedor(p.id, { [campo]: valor });
+      onGuardado({ id: p.id, ...actualizado });
+    } catch (e) { setError(e.message); throw e; }
   }
 
   async function guardarCuenta(tipo, cuentaId) {
@@ -315,7 +367,12 @@ export default function FilaProveedorEditable({ proveedor: p, planContable, empr
       const ccId = tipo === 'contable' ? cuentaId : (p.cuenta_contable_id || null);
       const cgId = tipo === 'gasto'    ? cuentaId : (p.cuenta_gasto_id || null);
       await asignarCuentasEmpresa(p.id, empresaId, ccId, cgId);
-      onGuardado();
+      // asignarCuentasEmpresa no devuelve el proveedor; resolvemos cuenta desde planContable local.
+      const cuenta = cuentaId ? planContable.find(c => c.id === cuentaId) : null;
+      const patch = tipo === 'contable'
+        ? { id: p.id, cuenta_contable_id: cuentaId, cuenta_contable_codigo: cuenta?.codigo || null, cuenta_contable_desc: cuenta?.descripcion || null }
+        : { id: p.id, cuenta_gasto_id:    cuentaId, cuenta_gasto_codigo:    cuenta?.codigo || null, cuenta_gasto_desc:    cuenta?.descripcion || null };
+      onGuardado(patch);
     } catch (e) { setError(e.message); }
   }
 
@@ -333,6 +390,10 @@ export default function FilaProveedorEditable({ proveedor: p, planContable, empr
       <CeldaCuenta valor={p.cuenta_gasto_codigo} valorDesc={p.cuenta_gasto_desc}
         cuentas={cuentasGasto} razonSocial={p.razon_social}
         onGuardar={id => guardarCuenta('gasto', id)} onCuentaCreada={onCuentaCreada} />
+      <CeldaNumeroSii valor={p.sii_tipo_clave ?? 1}
+        onGuardar={v => guardarCampo('sii_tipo_clave', v)} soloLectura={soloLectura} />
+      <CeldaNumeroSii valor={p.sii_tipo_fact ?? 1}
+        onGuardar={v => guardarCampo('sii_tipo_fact', v)} soloLectura={soloLectura} />
       <td className="px-2 py-2 text-center">
         {error && <span className="text-[10px] text-red-500 block mb-1">{error}</span>}
         <button onClick={onEliminar} title="Eliminar proveedor"

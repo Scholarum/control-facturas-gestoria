@@ -17,7 +17,7 @@ const FORM_VACIO = {
 };
 
 export default function Proveedores() {
-  const { empresaActiva } = useAuth();
+  const { empresaActiva, puedeEditar } = useAuth();
   const [proveedores,   setProveedores]   = useState([]);
   const [planContable,  setPlanContable]  = useState([]);
   const [loading,       setLoading]       = useState(true);
@@ -220,7 +220,7 @@ export default function Proveedores() {
             <table className="w-full text-sm">
               <thead className="bg-gray-50 border-b border-gray-200">
                 <tr>
-                  {['Razon Social', 'Nombre Carpeta', 'CIF', 'Cta. Contable', 'Cta. Gasto', ''].map(h => (
+                  {['Razon Social', 'Nombre Carpeta', 'CIF', 'Cta. Contable', 'Cta. Gasto', 'Clave SII', 'Tipo Fact. SII', ''].map(h => (
                     <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
@@ -232,7 +232,8 @@ export default function Proveedores() {
                     proveedor={p}
                     planContable={planContable}
                     empresaId={empresaActiva?.id}
-                    onGuardado={async () => { setProveedores(await fetchProveedoresCrud(empresaActiva?.id)); }}
+                    soloLectura={!puedeEditar('proveedores')}
+                    onGuardado={patch => setProveedores(prev => prev.map(x => x.id === patch.id ? { ...x, ...patch } : x))}
                     onEliminar={() => eliminar(p)}
                     onCuentaCreada={nueva => {
                       if (nueva) setPlanContable(prev => [...prev, nueva].sort((a, b) => a.codigo.localeCompare(b.codigo)));
