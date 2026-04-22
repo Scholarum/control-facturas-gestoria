@@ -251,12 +251,20 @@ router.delete('/:id', requireAdmin, async (req, res) => {
   res.json({ ok: true });
 });
 
-// GET /excel - exportar a Excel
+// GET /excel - exportar a Excel. Acepta ?ids=1,2,3 para exportar solo los proveedores filtrados.
 router.get('/excel', async (req, res) => {
-  const db   = getDb();
-  const rows = await db.all(`${SELECT_FULL} WHERE p.activo = true ORDER BY p.razon_social`);
+  const db = getDb();
+  const idsParam = String(req.query.ids || '').trim();
+  const ids = idsParam
+    ? idsParam.split(',').map(s => parseInt(s, 10)).filter(n => Number.isInteger(n) && n > 0)
+    : null;
+
+  const rows = ids && ids.length
+    ? await db.all(`${SELECT_FULL} WHERE p.id = ANY($1::int[]) AND p.activo = true ORDER BY p.razon_social`, [ids])
+    : await db.all(`${SELECT_FULL} WHERE p.activo = true ORDER BY p.razon_social`);
 
   const filas = rows.map(r => ({
+    'ID (no modificar)':           r.id,
     'Razón Social':                r.razon_social,
     'Nombre Carpeta':              r.nombre_carpeta              || '',
     'CIF':                         r.cif                         || '',
@@ -272,6 +280,7 @@ router.get('/excel', async (req, res) => {
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Proveedores');
   ws['!cols'] = [
+    { wch: 10 },
     { wch: 30 }, { wch: 25 }, { wch: 14 },
     { wch: 22 }, { wch: 40 }, { wch: 22 }, { wch: 40 },
     { wch: 10 }, { wch: 16 },
@@ -279,9 +288,12 @@ router.get('/excel', async (req, res) => {
 
   const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
   const fecha  = new Date().toISOString().slice(0, 10);
+  const filename = ids && ids.length
+    ? `proveedores-filtrados-${fecha}-${rows.length}reg.xlsx`
+    : `proveedores-${fecha}.xlsx`;
   res.set({
     'Content-Type':        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    'Content-Disposition': `attachment; filename="proveedores-${fecha}.xlsx"`,
+    'Content-Disposition': `attachment; filename="${filename}"`,
     'Content-Length':      buffer.length,
   });
   res.send(buffer);
@@ -290,13 +302,13 @@ router.get('/excel', async (req, res) => {
 // GET /plantilla-importacion - descargar plantilla Excel de ejemplo
 router.get('/plantilla-importacion', async (req, res) => {
   const filas = [
-    { 'Razon Social': 'EMPRESA EJEMPLO SL', 'CIF': 'B12345678', 'Cuenta Contable': '40000001', 'Nombre Carpeta': '', 'Cuenta Gasto': '', 'Clave SII': 1, 'Tipo Factura SII': 1 },
-    { 'Razon Social': 'SERVICIOS DEMO SA',  'CIF': 'A87654321', 'Cuenta Contable': '40000002', 'Nombre Carpeta': 'SERVICIOS DEMO', 'Cuenta Gasto': '62300001', 'Clave SII': 1, 'Tipo Factura SII': 1 },
+    { 'ID (no modificar)': '', 'Razon Social': 'EMPRESA EJEMPLO SL', 'CIF': 'B12345678', 'Cuenta Contable': '40000001', 'Nombre Carpeta': '', 'Cuenta Gasto': '', 'Clave SII': 1, 'Tipo Factura SII': 1 },
+    { 'ID (no modificar)': '', 'Razon Social': 'SERVICIOS DEMO SA',  'CIF': 'A87654321', 'Cuenta Contable': '40000002', 'Nombre Carpeta': 'SERVICIOS DEMO', 'Cuenta Gasto': '62300001', 'Clave SII': 1, 'Tipo Factura SII': 1 },
   ];
   const ws = XLSX.utils.json_to_sheet(filas);
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Proveedores');
-  ws['!cols'] = [{ wch: 30 }, { wch: 14 }, { wch: 18 }, { wch: 25 }, { wch: 18 }, { wch: 10 }, { wch: 16 }];
+  ws['!cols'] = [{ wch: 10 }, { wch: 30 }, { wch: 14 }, { wch: 18 }, { wch: 25 }, { wch: 18 }, { wch: 10 }, { wch: 16 }];
   const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
   res.set({
     'Content-Type':        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -325,6 +337,9 @@ router.post('/importar', requireAdmin, upload.single('archivo'), async (req, res
   const errores = [];
 
   for (const [i, fila] of filas.entries()) {
+    const idRaw          = fila['ID (no modificar)'] ?? fila['ID'] ?? fila['id'];
+    const idNum          = idRaw === undefined || idRaw === null || idRaw === '' ? null
+                         : (Number.isInteger(Number(idRaw)) && Number(idRaw) > 0 ? Number(idRaw) : NaN);
     const razon_social   = String(fila['Razon Social']   || fila['Razón Social']   || '').trim();
     const nombre_carpeta = String(fila['Nombre Carpeta'] || '').trim() || null;
     const cif            = String(fila['CIF']            || '').trim().toUpperCase() || null;
@@ -335,6 +350,7 @@ router.post('/importar', requireAdmin, upload.single('archivo'), async (req, res
     const siiTipoClave   = siiClaveRaw === undefined || siiClaveRaw === '' ? undefined : parseSiiEntero(siiClaveRaw);
     const siiTipoFact    = siiFactRaw  === undefined || siiFactRaw  === '' ? undefined : parseSiiEntero(siiFactRaw);
 
+    if (Number.isNaN(idNum)) { errores.push({ fila: i + 2, error: `ID invalido: ${idRaw}` }); continue; }
     if (!razon_social) { errores.push({ fila: i + 2, error: 'Razon Social vacia' }); continue; }
     if (cif && !validarCIF(cif)) { errores.push({ fila: i + 2, error: `CIF invalido: ${cif}` }); continue; }
     if (Number.isNaN(siiTipoClave)) { errores.push({ fila: i + 2, error: `Clave SII invalida: ${siiClaveRaw}` }); continue; }
@@ -380,9 +396,18 @@ router.post('/importar', requireAdmin, upload.single('archivo'), async (req, res
       }
     }
 
-    const existing = cif
-      ? await db.one('SELECT id FROM proveedores WHERE cif = $1', [cif])
-      : await db.one('SELECT id FROM proveedores WHERE razon_social = $1', [razon_social]);
+    // Matching endurecido: ID (clave unica) -> CIF -> razon social.
+    // Si viene ID pero no existe en BD, descartamos la fila (nunca crea duplicados por
+    // copy/paste accidental del Excel). Si no viene ID, caemos a CIF y luego a razon social.
+    let existing = null;
+    if (idNum !== null) {
+      existing = await db.one('SELECT id FROM proveedores WHERE id = $1', [idNum]);
+      if (!existing) { errores.push({ fila: i + 2, error: `ID ${idNum} no encontrado` }); continue; }
+    } else if (cif) {
+      existing = await db.one('SELECT id FROM proveedores WHERE cif = $1', [cif]);
+    } else {
+      existing = await db.one('SELECT id FROM proveedores WHERE razon_social = $1', [razon_social]);
+    }
 
     let provId;
     if (existing) {

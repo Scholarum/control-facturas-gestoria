@@ -136,8 +136,14 @@ export default function Proveedores() {
 
   async function exportar() {
     setExportando(true);
-    try { await descargarExcelProveedores(); }
-    catch (e) { setError(e.message); }
+    try {
+      const hayFiltros = proveedoresFiltrados.length !== proveedores.length;
+      const ids = hayFiltros ? proveedoresFiltrados.map(p => p.id) : null;
+      await descargarExcelProveedores(ids);
+      mostrarExito(hayFiltros
+        ? `Exportados ${proveedoresFiltrados.length} proveedores filtrados`
+        : `Exportados ${proveedores.length} proveedores (todo)`);
+    } catch (e) { setError(e.message); }
     finally { setExportando(false); }
   }
 
