@@ -13,10 +13,11 @@ import ModalImportar from '../components/proveedores/ModalImportar.jsx';
 const FORM_VACIO = {
   razon_social: '', nombre_carpeta: '', cif: '',
   cuenta_contable_id: '', cuenta_gasto_id: '',
+  sii_tipo_clave: 1, sii_tipo_fact: 1,
 };
 
 export default function Proveedores() {
-  const { empresaActiva } = useAuth();
+  const { empresaActiva, puedeEditar } = useAuth();
   const [proveedores,   setProveedores]   = useState([]);
   const [planContable,  setPlanContable]  = useState([]);
   const [loading,       setLoading]       = useState(true);
@@ -90,6 +91,8 @@ export default function Proveedores() {
       cif:                p.cif                || '',
       cuenta_contable_id: p.cuenta_contable_id ? String(p.cuenta_contable_id) : '',
       cuenta_gasto_id:    p.cuenta_gasto_id    ? String(p.cuenta_gasto_id)    : '',
+      sii_tipo_clave:     p.sii_tipo_clave ?? 1,
+      sii_tipo_fact:      p.sii_tipo_fact  ?? 1,
     });
     setModal({ proveedor: p });
     setErrorModal('');
@@ -104,6 +107,8 @@ export default function Proveedores() {
         cif:                form.cif.trim() || null,
         cuenta_contable_id: form.cuenta_contable_id ? parseInt(form.cuenta_contable_id) : null,
         cuenta_gasto_id:    form.cuenta_gasto_id    ? parseInt(form.cuenta_gasto_id)    : null,
+        sii_tipo_clave:     form.sii_tipo_clave === '' ? undefined : form.sii_tipo_clave,
+        sii_tipo_fact:      form.sii_tipo_fact  === '' ? undefined : form.sii_tipo_fact,
         empresa_id:         empresaActiva?.id || null,
       };
       if (modal === 'nuevo') {
@@ -131,8 +136,14 @@ export default function Proveedores() {
 
   async function exportar() {
     setExportando(true);
-    try { await descargarExcelProveedores(); }
-    catch (e) { setError(e.message); }
+    try {
+      const hayFiltros = proveedoresFiltrados.length !== proveedores.length;
+      const ids = hayFiltros ? proveedoresFiltrados.map(p => p.id) : null;
+      await descargarExcelProveedores(ids);
+      mostrarExito(hayFiltros
+        ? `Exportados ${proveedoresFiltrados.length} proveedores filtrados`
+        : `Exportados ${proveedores.length} proveedores (todo)`);
+    } catch (e) { setError(e.message); }
     finally { setExportando(false); }
   }
 
@@ -215,7 +226,7 @@ export default function Proveedores() {
             <table className="w-full text-sm">
               <thead className="bg-gray-50 border-b border-gray-200">
                 <tr>
-                  {['Razon Social', 'Nombre Carpeta', 'CIF', 'Cta. Contable', 'Cta. Gasto', ''].map(h => (
+                  {['Razon Social', 'Nombre Carpeta', 'CIF', 'Cta. Contable', 'Cta. Gasto', 'Clave SII', 'Tipo Fact. SII', ''].map(h => (
                     <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
@@ -227,7 +238,8 @@ export default function Proveedores() {
                     proveedor={p}
                     planContable={planContable}
                     empresaId={empresaActiva?.id}
-                    onGuardado={async () => { setProveedores(await fetchProveedoresCrud(empresaActiva?.id)); }}
+                    soloLectura={!puedeEditar('proveedores')}
+                    onGuardado={patch => setProveedores(prev => prev.map(x => x.id === patch.id ? { ...x, ...patch } : x))}
                     onEliminar={() => eliminar(p)}
                     onCuentaCreada={nueva => {
                       if (nueva) setPlanContable(prev => [...prev, nueva].sort((a, b) => a.codigo.localeCompare(b.codigo)));

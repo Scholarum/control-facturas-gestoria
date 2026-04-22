@@ -587,7 +587,57 @@ function CampoEditable({ label, valor, campo, datosOriginales, onGuardar, tipo =
   );
 }
 
-function PanelDetalleFiscal({ f, onDatosActualizados }) {
+// Input inline para un campo SII (override por factura). Muestra el valor heredado
+// del proveedor como placeholder. Vacio = hereda del proveedor (NULL en BD).
+// Feedback visual: azul guardando, verde flash al OK, rojo con title al error.
+function CampoSiiInline({ label, override, heredado, campo, disabled, onGuardar }) {
+  const [val, setVal] = useState(override == null ? '' : String(override));
+  const [status, setStatus] = useState('idle'); // idle | saving | ok | error
+  const [errorMsg, setErrorMsg] = useState('');
+  useEffect(() => { setVal(override == null ? '' : String(override)); }, [override]);
+
+  async function guardar() {
+    const raw = val.trim();
+    const toSend = raw === '' ? null : parseInt(raw, 10);
+    if (raw !== '' && (!Number.isInteger(toSend) || toSend < 0)) { setVal(override == null ? '' : String(override)); return; }
+    const actual = override ?? null;
+    if (toSend === actual) return;
+    setStatus('saving'); setErrorMsg('');
+    try {
+      await onGuardar({ [campo]: toSend });
+      setStatus('ok');
+      setTimeout(() => setStatus('idle'), 500);
+    } catch (e) {
+      setStatus('error');
+      setErrorMsg(e.message || 'Error al guardar');
+      setVal(override == null ? '' : String(override));
+    }
+  }
+
+  const bg =
+    status === 'saving' ? 'bg-blue-50' :
+    status === 'ok'     ? 'bg-emerald-50' :
+    status === 'error'  ? 'bg-red-50' : '';
+
+  return (
+    <div>
+      <label className="block text-xs text-gray-500 mb-0.5">{label}</label>
+      <div className="flex items-center gap-2">
+        <input type="number" min="0" step="1"
+          value={val}
+          onChange={e => setVal(e.target.value)}
+          onBlur={guardar}
+          onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); if (e.key === 'Escape') { setVal(override == null ? '' : String(override)); e.currentTarget.blur(); } }}
+          disabled={disabled}
+          placeholder={`Heredado: ${heredado ?? 1}`}
+          title={errorMsg || undefined}
+          className={`w-32 rounded border border-gray-200 px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-blue-400 transition-colors ${disabled ? 'bg-gray-50 text-gray-400 cursor-not-allowed' : bg}`} />
+      </div>
+    </div>
+  );
+}
+
+function PanelDetalleFiscal({ f, onDatosActualizados, onActualizarFacturaLocal }) {
   const d   = f.datos_extraidos || {};
   const iva = Array.isArray(d.iva) ? d.iva : [];
   const faltantes = detectarIncidencia(d);
@@ -606,6 +656,19 @@ function PanelDetalleFiscal({ f, onDatosActualizados }) {
   async function handleGuardar(campos) {
     const result = await editarDatosFactura(f.id, campos);
     if (onDatosActualizados) onDatosActualizados(f.id, result.datos_extraidos);
+  }
+
+  // Guardado optimista SOLO para los dos campos SII: muta el estado local de la
+  // lista de facturas sin invalidar el cache ni recargar la tabla. El resto de
+  // campos del panel siguen usando handleGuardar (que dispara refetch).
+  async function handleGuardarSiiLocal(campos) {
+    const result = await editarDatosFactura(f.id, campos);
+    if (onActualizarFacturaLocal) {
+      onActualizarFacturaLocal(f.id, {
+        sii_tipo_clave: result.sii_tipo_clave,
+        sii_tipo_fact:  result.sii_tipo_fact,
+      });
+    }
   }
 
   async function guardarIva() {
@@ -771,6 +834,39 @@ function PanelDetalleFiscal({ f, onDatosActualizados }) {
 
         </div>
 
+        {/* Datos SII / Libro de IVA */}
+        <div className="px-3 sm:px-6 pb-4">
+          <div className={`rounded-lg border px-3 py-3 ${hayIncidencia ? 'border-red-100 bg-white/40' : 'border-blue-100 bg-white/40'}`}>
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Datos SII / Libro de IVA</p>
+            {f.lote_sage_id && (
+              <div className="mb-3 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-800">
+                Esta factura ya ha sido exportada a SAGE. Los datos SII no pueden modificarse.
+              </div>
+            )}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <CampoSiiInline
+                label="Clave régimen SII"
+                campo="sii_tipo_clave"
+                override={f.sii_tipo_clave}
+                heredado={f.proveedor_sii_tipo_clave ?? 1}
+                disabled={!!f.lote_sage_id}
+                onGuardar={handleGuardarSiiLocal}
+              />
+              <CampoSiiInline
+                label="Tipo factura SII"
+                campo="sii_tipo_fact"
+                override={f.sii_tipo_fact}
+                heredado={f.proveedor_sii_tipo_fact ?? 1}
+                disabled={!!f.lote_sage_id}
+                onGuardar={handleGuardarSiiLocal}
+              />
+            </div>
+            <p className="text-xs text-gray-500 mt-2">
+              Dejar vacío para usar el valor configurado en el proveedor.
+            </p>
+          </div>
+        </div>
+
         {/* Historial de cambios */}
         <HistorialFactura facturaId={f.id} />
 
@@ -875,7 +971,7 @@ function EmptyState({ hayFiltros, colspan }) {
 export default function TablaFacturas({
   facturas, seleccionados, onToggle, onToggleTodo, seleccionandoTodo = false,
   loading, hayFiltros, esAdmin = false, onRevertir, onEliminar,
-  planContable = [], onAsignarCG, onDatosActualizados, onProveedorActualizado, modoGestoria = 'v2',
+  planContable = [], onAsignarCG, onDatosActualizados, onActualizarFacturaLocal, onProveedorActualizado, modoGestoria = 'v2',
   focusFacturaId, onClearFocus,
 }) {
   const [expandidos, setExpandidos] = useState(new Set());
@@ -1101,7 +1197,7 @@ export default function TablaFacturas({
 
                 // Panel de detalle fiscal (solo cuando se expande)
                 const detailRow = expanded && (
-                  <PanelDetalleFiscal key={`detail-${f.id}`} f={f} onDatosActualizados={onDatosActualizados} />
+                  <PanelDetalleFiscal key={`detail-${f.id}`} f={f} onDatosActualizados={onDatosActualizados} onActualizarFacturaLocal={onActualizarFacturaLocal} />
                 );
 
                 return [mainRow, ccPreviewRow, detailRow].filter(Boolean);

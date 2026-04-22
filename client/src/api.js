@@ -831,14 +831,19 @@ export async function eliminarProveedor(id) {
   if (!json.ok) throw new Error(json.error || 'Error al eliminar proveedor');
 }
 
-export async function descargarExcelProveedores() {
-  const res = await fetch(`${API_BASE}/api/proveedores/excel`, { headers: authHeaders() });
+// Si ids esta presente y no vacio, exporta solo esos proveedores.
+export async function descargarExcelProveedores(ids) {
+  const q = ids && ids.length ? `?ids=${ids.join(',')}` : '';
+  const res = await fetch(`${API_BASE}/api/proveedores/excel${q}`, { headers: authHeaders() });
   if (!res.ok) throw new Error('Error al generar Excel');
   const blob = await res.blob();
   const url  = URL.createObjectURL(blob);
+  const fecha = new Date().toISOString().slice(0, 10);
   const a    = document.createElement('a');
   a.href     = url;
-  a.download = `proveedores-${new Date().toISOString().slice(0, 10)}.xlsx`;
+  a.download = ids && ids.length
+    ? `proveedores-filtrados-${fecha}-${ids.length}reg.xlsx`
+    : `proveedores-${fecha}.xlsx`;
   document.body.appendChild(a); a.click(); document.body.removeChild(a);
   URL.revokeObjectURL(url);
 }

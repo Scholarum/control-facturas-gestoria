@@ -266,9 +266,10 @@ function construirLineasFactura(factura, numAsiento, documento, fechaOpFmt) {
   const fechaFmt      = fechaEmision ? fechaEmision.replace(/-/g, '') : '';
   const asiento       = String(numAsiento);
   const doc           = (documento || '').substring(0, 10);
-  // Rectificativa: mismo criterio que documento (A/NNNN vs F/NNNN): importe negativo.
-  const esRectificativa = totalFactura < 0;
-  const tipoFac       = esRectificativa ? 'R' : ''; // pos 73 TipoFac: 'R' solo si rectificativa
+  // Campos SII parametrizables por proveedor + override por factura (resueltos con COALESCE en SQL).
+  // Default 1/1 = régimen general + F1 ordinaria (caso normal español).
+  const siiTipoClave  = Number.isInteger(factura.sii_tipo_clave) ? factura.sii_tipo_clave : 1;
+  const siiTipoFact   = Number.isInteger(factura.sii_tipo_fact)  ? factura.sii_tipo_fact  : 1;
 
   const lineas = []; // cada elemento es un array de 142 valores
 
@@ -300,9 +301,15 @@ function construirLineasFactura(factura, numAsiento, documento, fechaOpFmt) {
     l[9]=tipo; l[10]=0; l[11]=doc;
     l[26]='2'; l[27]=cuota; l[28]=0; l[29]=base;
     l[45]=fechaOpFmt; l[46]=fechaFmt;
-    l[61]=cifEmisor; l[62]=nombreEmisor.substring(0,15);
-    l[63]=nombreEmisor.substring(0,40);
-    l[71]=facturaExp; l[72]=tipoFac; l[73]='O'; l[75]='.T.'; l[95]=totalFactura;
+    l[61] = cifEmisor;                          // pos 62 TerNIF (C 15)
+    l[62] = nombreEmisor.substring(0, 40);      // pos 63 TerNom (C 40)
+    // l[63] pos 64 TerNif14 (C 9): NIF representante legal menores de 14 anios.
+    // Debe ir vacio salvo facturacion a menor de 14, caso que esta app no soporta.
+    l[71]=facturaExp;
+    l[72] = 'R';               // pos 73 TipoFac. 'R' = Recibida (esta app sólo maneja facturas de proveedor).
+    l[73]='O'; l[75]='.T.'; l[95]=totalFactura;
+    l[116] = siiTipoClave;     // pos 117 TipoClave (N 2, marcador *15). Default 1 = Régimen general.
+    l[119] = siiTipoFact;      // pos 120 TipoFact  (N 2, marcador *18). Default 1 = F1 Factura ordinaria.
     l[132]=conceptoLargo; l[133]=cifEmisor; l[134]=nombreEmisor.substring(0,120);
     return l;
   };

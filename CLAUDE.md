@@ -102,6 +102,8 @@ cors → express.json → apiLimiter → attachRequestMeta → routes
 throw Object.assign(new Error('No autorizado'), { status: 403 });
 ```
 
+**UPDATE dinámico para edición parcial:** los endpoints PUT que acepten ediciones parciales (p.ej. un campo inline aislado) deben construir el `SET` sólo con las columnas presentes en `req.body`, usando `'campo' in req.body` como detector uniforme. Nunca poner todas las columnas fijas con `$n` directo sin COALESCE: pisa con NULL los campos que el cliente no envió (ver patrón en `router.put('/:id')` de `src/routes/proveedores.js`).
+
 **Database helpers (config/database.js):**
 - `db.query(sql, params)` — query genérica
 - `db.one(sql, params)` — una fila o null
@@ -154,7 +156,7 @@ throw Object.assign(new Error('No autorizado'), { status: 403 });
 | `empresas` | Multi-empresa (nombre, cif, direccion) |
 | `usuario_empresa` | Relación N:M usuarios-empresas |
 | `drive_archivos` | Facturas sincronizadas desde Google Drive (datos_extraidos JSONB) |
-| `proveedores` | Proveedores (razon_social, cif, cuenta_contable_id, cuenta_gasto_id) |
+| `proveedores` | Proveedores (razon_social, cif, cuenta_contable_id, cuenta_gasto_id, sii_tipo_clave, sii_tipo_fact) |
 | `proveedor_empresa` | Cuentas de proveedor por empresa |
 | `plan_contable` | Cuentas contables (codigo, descripcion, grupo, empresa_id) |
 | `configuracion` | Config local por empresa (clave/valor) |
@@ -207,8 +209,18 @@ En ContaPlus, el cuadro "Fecha" de Gestión de Asientos muestra pos 2; "F.operac
 
 **Campos SII / Libro de IVA:**
 - **Pos 72 — `FacturaEx`** (40 chars) → número de factura del emisor (`numero_factura`). Es el valor que ContaPlus muestra en el "Cuadro de impuestos" como "Nº factura expedición". Sólo se rellena en las líneas de IVA.
-- **Pos 76 — `L340`** (lógico) → `.T.` en todas las líneas del asiento (proveedor, gasto y cada IVA) para que la casilla "340/SII" aparezca marcada.
-- **Pos 73 — `TipoFac`** → `'R'` sólo si la factura es rectificativa (criterio: `total_factura < 0`, mismo que determina el prefijo `A/` vs `F/` del documento). En facturas normales se deja vacío para que la casilla "Factura rectificativa" aparezca desmarcada.
+- **Pos 76 — `L340`** (lógico) → `.T.` en todas las líneas del asiento (proveedor, gasto y cada IVA). Para que ContaPlus marque efectivamente la casilla "340/SII" al importar, cuando `L340=.T.` deben venir informados los campos SII asociados (pos 117 `TipoClave` y pos 120 `TipoFact`); si falta alguno de los críticos, ContaPlus descarta el flag entero (manual R75, Nota 6, pág. 12).
+- **Pos 73 — `TipoFac`** → literal `'R'` (Recibida) en todas las líneas de IVA. Esta app sólo maneja facturas de proveedor, por lo que no requiere parametrización. El soporte correcto de facturas rectificativas (que afectaría a `TipoFact` pos 120 y a `Rectifica` pos 37) queda pendiente: requiere un flag explícito en la factura, no derivado del signo del importe.
+- **Pos 117 — `TipoClave`** (N 2, marcador *15 para 472 Deducible) → clave del régimen SII. Default `1` = operación de régimen general (caso normal español).
+- **Pos 120 — `TipoFact`** (N 2, marcador *18 para 472 Deducible) → tipo de factura SII. Default `1` = F1 Factura ordinaria.
+
+**Parametrización de `TipoClave` / `TipoFact`:** ambos viven como columnas `sii_tipo_clave` y `sii_tipo_fact` en dos tablas:
+- `proveedores`: `SMALLINT NOT NULL DEFAULT 1`. Valor por proveedor.
+- `drive_archivos`: `SMALLINT NULL`. Override por factura; `NULL` = heredar del proveedor.
+
+El SELECT del exportador resuelve el valor efectivo en SQL con `COALESCE(da.sii_tipo_clave, p.sii_tipo_clave, 1)` (análogo para `sii_tipo_fact`), evitando que el exportador tenga que conocer la tabla de proveedores. Las columnas se rellenan en `crearIva` únicamente; proveedor (HABER) y gasto (DEBE) no llevan campos SII.
+
+Edición: el endpoint `PUT /api/drive/:id/datos` acepta ambos campos como columnas separadas (fuera del JSONB `datos_extraidos`). Si la factura ya está exportada (`lote_sage_id IS NOT NULL`), el endpoint responde `409` para cambios en `sii_tipo_*` pero mantiene editables el resto de `CAMPOS_EDITABLES`.
 
 **Nota CSV:** `lineaCSV()` no escapa `;` ni comillas. Si algún campo de texto libre llegase a contener `;`, desplazaría columnas. Hoy los campos alimentados son controlados (números de factura, códigos, fechas); revisar escape si se introduce texto libre del usuario.
 
@@ -239,10 +251,12 @@ CORS_ORIGIN           # Orígenes permitidos (CSV), vacío = todos en dev
 
 ## Deploy
 
-- **Backend**: Render (Node.js)
-- **Frontend**: Netlify (SPA con redirect `/* → /index.html`)
+- **Backend**: Render (Node.js) — escucha el repo completo, redespliega ante cualquier commit en `main`.
+- **Frontend**: Netlify (SPA con redirect `/* → /index.html`) — `netlify.toml` define `base = "client"`.
 - **Base de datos**: Supabase (PostgreSQL)
 - En producción, Express sirve el build estático del cliente desde `client/dist/`
+
+**Netlify cancela builds "sin cambios" por diseño:** al tener `base = "client"`, Netlify compara el diff del commit contra esa carpeta y si no hay cambios dentro, marca el deploy como *Canceled* (optimización integrada, no es un error). Por tanto los commits que sólo tocan backend (`src/`), CLI (`extractor.js`, `sync.js`), `CLAUDE.md` o SQL aparecerán como cancelados en Netlify — es correcto, el frontend servido sigue siendo el del último build que sí tocó `client/`.
 
 ### Instancias Supabase
 
@@ -264,3 +278,4 @@ No hay framework de testing configurado. Las pruebas son manuales.
 - Testing (Jest/Vitest)
 - Pre-commit hooks
 - Gestión centralizada de secretos (pendiente migrar a Doppler/AWS SSM/Vault)
+- Edición optimista en panel fiscal de facturas: aplicada sólo a los dos campos SII (`sii_tipo_clave`, `sii_tipo_fact`) mediante el callback `onActualizarFacturaLocal` hilado `SeccionFacturas → TablaFacturas → PanelDetalleFiscal`. El resto de campos del panel (`numero_factura`, fechas, importes, IVA, etc.) sigue disparando `onDatosActualizados → invalidate() → refetch completo`, lo que cierra el panel expandido y pierde scroll. Patrón replicable si se priorizase.

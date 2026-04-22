@@ -268,6 +268,12 @@ export default function SeccionFacturas({
   const [ccMasiva,           setCcMasiva]           = useState('');
   const [error,              setError]              = useState('');
 
+  // Actualizacion optimista local sin recargar la lista: muta solo el registro tocado.
+  // Se usa hoy para los dos campos SII del panel fiscal (ver PanelDetalleFiscal).
+  function actualizarFacturaLocal(id, cambios) {
+    setFacturas(prev => prev.map(f => f.id === id ? { ...f, ...cambios } : f));
+  }
+
   // Limpiar selecciones cuando cambian las facturas visibles
   useEffect(() => {
     const ids = new Set(facturas.map(f => f.id));
@@ -724,6 +730,7 @@ export default function SeccionFacturas({
         planContable={planContable}
         onAsignarCG={onAsignarCG}
         onDatosActualizados={onDatosActualizados}
+        onActualizarFacturaLocal={actualizarFacturaLocal}
         onProveedorActualizado={onProveedorActualizado}
         modoGestoria={modoGestoria}
         focusFacturaId={focusFacturaId}
