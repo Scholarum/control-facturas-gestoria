@@ -300,8 +300,10 @@ function construirLineasFactura(factura, numAsiento, documento, fechaOpFmt) {
     l[9]=tipo; l[10]=0; l[11]=doc;
     l[26]='2'; l[27]=cuota; l[28]=0; l[29]=base;
     l[45]=fechaOpFmt; l[46]=fechaFmt;
-    l[61]=cifEmisor; l[62]=nombreEmisor.substring(0,15);
-    l[63]=nombreEmisor.substring(0,40);
+    l[61] = cifEmisor;                          // pos 62 TerNIF (C 15)
+    l[62] = nombreEmisor.substring(0, 40);      // pos 63 TerNom (C 40)
+    // l[63] pos 64 TerNif14 (C 9): NIF representante legal menores de 14 anios.
+    // Debe ir vacio salvo facturacion a menor de 14, caso que esta app no soporta.
     l[71]=facturaExp; l[72]=tipoFac; l[73]='O'; l[75]='.T.'; l[95]=totalFactura;
     l[132]=conceptoLargo; l[133]=cifEmisor; l[134]=nombreEmisor.substring(0,120);
     return l;
