@@ -224,6 +224,14 @@ Edición: el endpoint `PUT /api/drive/:id/datos` acepta ambos campos como column
 
 **Nota CSV:** `lineaCSV()` no escapa `;` ni comillas. Si algún campo de texto libre llegase a contener `;`, desplazaría columnas. Hoy los campos alimentados son controlados (números de factura, códigos, fechas); revisar escape si se introduce texto libre del usuario.
 
+## Mantenimiento masivo de proveedores vía Excel
+
+Flujo "exportar filtrado → editar offline → reimportar", pensado para correcciones puntuales sin pisar el resto de la base de proveedores.
+
+- `GET /api/proveedores/excel?ids=1,2,3` — exporta sólo esos proveedores (nombre de fichero `proveedores-filtrados-YYYY-MM-DD-Nreg.xlsx`). Sin `?ids` exporta todos los activos. El frontend del listado calcula los `ids` a partir de `proveedoresFiltrados` (filtrado hoy 100% cliente-side) y los manda.
+- `POST /api/proveedores/importar` — matching por **prioridad `ID → CIF → razón social`** (la columna `ID (no modificar)` va siempre como primera columna del export). Si la fila trae un `ID` que **no existe** en BD, se descarta y se reporta como error (`"Fila N: ID X no encontrado"`) — nunca crea un proveedor nuevo por una fila con ID corrupto. Si no trae ID, cae a CIF; si tampoco, a razón social. Es UPSERT estricto: los proveedores no incluidos en el fichero **no se tocan**.
+- Campos vacíos en el Excel son "no tocar" (se traducen a `COALESCE` en el UPDATE), no "borrar".
+
 ## Variables de entorno
 
 Ver `.env.example` para el template. Variables necesarias:
