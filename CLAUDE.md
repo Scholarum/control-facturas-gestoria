@@ -195,10 +195,10 @@ Contexto arquitectónico: el backend se conecta con el rol `postgres` del `DATAB
 El protocolo R75 define **142 campos** por registro (ver `src/services/sageExporter.js`). Se generan dos formatos en paralelo: `.csv` (delimitado por `;`) y `.txt` (posiciones fijas). Cada factura produce entre 2 y N+2 líneas: proveedor (HABER) + gasto (DEBE) + una línea por tipo de IVA.
 
 **Gotcha del campo Concepto:** ContaPlus tiene dos campos de concepto:
-- **Pos 6 — `Concepto`** (legacy, 25 chars)
-- **Pos 133 — `ConcepNew`** (ampliado, 50 chars)
+- **Pos 6 — `Concepto`** (legacy, 25 chars) → sólo `numero_factura` (25 chars no dan margen para nombre útil).
+- **Pos 133 — `ConcepNew`** (ampliado, 50 chars) → formato `"{numero_factura}|{nombre_emisor}"` truncado a 50 chars. Aplica a las tres líneas del asiento (proveedor HABER, gasto DEBE, cada línea de IVA). Si falta uno de los dos, el separador `|` se omite.
 
-Las versiones modernas de ContaPlus muestran en la UI el valor de `ConcepNew` (pos 133), **no** el `Concepto` legacy (pos 6). Por eso ambos campos deben contener el mismo valor útil (hoy: el número de factura). Si sólo se rellena el legacy, la UI mostrará vacío; si en `ConcepNew` va otro dato (ej. nombre proveedor), ese será el que aparezca como "Concepto" en ContaPlus.
+Las versiones modernas de ContaPlus muestran en la UI el valor de `ConcepNew` (pos 133), **no** el `Concepto` legacy (pos 6). Por eso el nombre del proveedor va en pos 133 y no en pos 6.
 
 **Mapeo de fechas (tras cambio 2026-04-21):**
 - **Pos 2 — `Fecha`** (asiento) → fecha de contabilización = día en que se genera el fichero (hoy).
