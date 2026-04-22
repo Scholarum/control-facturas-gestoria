@@ -143,20 +143,39 @@ router.get('/', async (req, res) => {
   res.json({ ok: true, data: rows.map(r => ({ ...r, label: labelProveedor(r) })) });
 });
 
+// Validacion ligera de campos SII: entero >= 0 o undefined.
+function parseSiiEntero(val) {
+  if (val === undefined || val === null || val === '') return undefined;
+  const n = Number(val);
+  if (!Number.isInteger(n) || n < 0) return NaN;
+  return n;
+}
+
 // POST / - crear proveedor
 router.post('/', requireAdmin, async (req, res) => {
   const { razon_social, nombre_carpeta, cif, cuenta_contable_id, cuenta_gasto_id, empresa_id } = req.body;
   if (!razon_social?.trim()) return res.status(400).json({ ok: false, error: 'razon_social requerida' });
   if (cif && !validarCIF(cif)) return res.status(400).json({ ok: false, error: 'Formato CIF/NIF invalido' });
+
+  const siiTipoClave = parseSiiEntero(req.body.sii_tipo_clave);
+  const siiTipoFact  = parseSiiEntero(req.body.sii_tipo_fact);
+  if (Number.isNaN(siiTipoClave)) return res.status(400).json({ ok: false, error: 'sii_tipo_clave debe ser entero >= 0' });
+  if (Number.isNaN(siiTipoFact))  return res.status(400).json({ ok: false, error: 'sii_tipo_fact debe ser entero >= 0' });
+
   const db  = getDb();
   if (nombre_carpeta?.trim()) {
     const dup = await db.one('SELECT id FROM proveedores WHERE nombre_carpeta = $1 AND activo = true', [nombre_carpeta.trim()]);
     if (dup) return res.status(409).json({ ok: false, error: `La carpeta "${nombre_carpeta.trim()}" ya esta asignada a otro proveedor` });
   }
+  // Si el body trae los campos SII se insertan explicitos; si no, la tabla aplica DEFAULT 1.
+  const cols = ['razon_social', 'nombre_carpeta', 'cif'];
+  const vals = [razon_social.trim(), nombre_carpeta?.trim() || null, cif ? cif.trim().toUpperCase() : null];
+  if (siiTipoClave !== undefined) { cols.push('sii_tipo_clave'); vals.push(siiTipoClave); }
+  if (siiTipoFact  !== undefined) { cols.push('sii_tipo_fact');  vals.push(siiTipoFact);  }
+  const placeholders = vals.map((_, i) => `$${i + 1}`).join(', ');
   const row = await db.one(
-    `INSERT INTO proveedores (razon_social, nombre_carpeta, cif)
-     VALUES ($1, $2, $3) RETURNING *`,
-    [razon_social.trim(), nombre_carpeta?.trim() || null, cif ? cif.trim().toUpperCase() : null]
+    `INSERT INTO proveedores (${cols.join(', ')}) VALUES (${placeholders}) RETURNING *`,
+    vals
   );
   // Guardar cuentas en proveedor_empresa si se pasan
   const empId = empresa_id || (await db.one('SELECT id FROM empresas WHERE activo = true ORDER BY id LIMIT 1'))?.id;
@@ -178,15 +197,35 @@ router.put('/:id', requireAdmin, async (req, res) => {
   const { razon_social, nombre_carpeta, cif, cuenta_contable_id, cuenta_gasto_id, empresa_id } = req.body;
   if (!razon_social?.trim()) return res.status(400).json({ ok: false, error: 'razon_social requerida' });
   if (cif && !validarCIF(cif)) return res.status(400).json({ ok: false, error: 'Formato CIF/NIF invalido' });
+
+  const siiTipoClave = parseSiiEntero(req.body.sii_tipo_clave);
+  const siiTipoFact  = parseSiiEntero(req.body.sii_tipo_fact);
+  if (Number.isNaN(siiTipoClave)) return res.status(400).json({ ok: false, error: 'sii_tipo_clave debe ser entero >= 0' });
+  if (Number.isNaN(siiTipoFact))  return res.status(400).json({ ok: false, error: 'sii_tipo_fact debe ser entero >= 0' });
+
   const db  = getDb();
   if (nombre_carpeta?.trim()) {
     const dup = await db.one('SELECT id FROM proveedores WHERE nombre_carpeta = $1 AND activo = true AND id <> $2', [nombre_carpeta.trim(), id]);
     if (dup) return res.status(409).json({ ok: false, error: `La carpeta "${nombre_carpeta.trim()}" ya esta asignada a otro proveedor` });
   }
+  // COALESCE para mantener valor actual si el campo no viene en el body.
   const row = await db.one(
-    `UPDATE proveedores SET razon_social = $1, nombre_carpeta = $2, cif = $3, updated_at = NOW()
-     WHERE id = $4 AND activo = true RETURNING *`,
-    [razon_social.trim(), nombre_carpeta?.trim() || null, cif ? cif.trim().toUpperCase() : null, id]
+    `UPDATE proveedores SET
+       razon_social   = $1,
+       nombre_carpeta = $2,
+       cif            = $3,
+       sii_tipo_clave = COALESCE($4, sii_tipo_clave),
+       sii_tipo_fact  = COALESCE($5, sii_tipo_fact),
+       updated_at     = NOW()
+     WHERE id = $6 AND activo = true RETURNING *`,
+    [
+      razon_social.trim(),
+      nombre_carpeta?.trim() || null,
+      cif ? cif.trim().toUpperCase() : null,
+      siiTipoClave ?? null,
+      siiTipoFact  ?? null,
+      id,
+    ]
   );
   if (!row) return res.status(404).json({ ok: false, error: 'Proveedor no encontrado' });
   // Guardar cuentas en proveedor_empresa
@@ -225,6 +264,8 @@ router.get('/excel', async (req, res) => {
     'Descripción Cuenta Contable': r.cuenta_contable_desc        || '',
     'Código Cuenta Gasto':         r.cuenta_gasto_codigo         || '',
     'Descripción Cuenta Gasto':    r.cuenta_gasto_desc           || '',
+    'Clave SII':                   r.sii_tipo_clave ?? 1,
+    'Tipo Factura SII':            r.sii_tipo_fact  ?? 1,
   }));
 
   const ws = XLSX.utils.json_to_sheet(filas);
@@ -233,6 +274,7 @@ router.get('/excel', async (req, res) => {
   ws['!cols'] = [
     { wch: 30 }, { wch: 25 }, { wch: 14 },
     { wch: 22 }, { wch: 40 }, { wch: 22 }, { wch: 40 },
+    { wch: 10 }, { wch: 16 },
   ];
 
   const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
@@ -248,13 +290,13 @@ router.get('/excel', async (req, res) => {
 // GET /plantilla-importacion - descargar plantilla Excel de ejemplo
 router.get('/plantilla-importacion', async (req, res) => {
   const filas = [
-    { 'Razon Social': 'EMPRESA EJEMPLO SL', 'CIF': 'B12345678', 'Cuenta Contable': '40000001', 'Nombre Carpeta': '', 'Cuenta Gasto': '' },
-    { 'Razon Social': 'SERVICIOS DEMO SA',  'CIF': 'A87654321', 'Cuenta Contable': '40000002', 'Nombre Carpeta': 'SERVICIOS DEMO', 'Cuenta Gasto': '62300001' },
+    { 'Razon Social': 'EMPRESA EJEMPLO SL', 'CIF': 'B12345678', 'Cuenta Contable': '40000001', 'Nombre Carpeta': '', 'Cuenta Gasto': '', 'Clave SII': 1, 'Tipo Factura SII': 1 },
+    { 'Razon Social': 'SERVICIOS DEMO SA',  'CIF': 'A87654321', 'Cuenta Contable': '40000002', 'Nombre Carpeta': 'SERVICIOS DEMO', 'Cuenta Gasto': '62300001', 'Clave SII': 1, 'Tipo Factura SII': 1 },
   ];
   const ws = XLSX.utils.json_to_sheet(filas);
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Proveedores');
-  ws['!cols'] = [{ wch: 30 }, { wch: 14 }, { wch: 18 }, { wch: 25 }, { wch: 18 }];
+  ws['!cols'] = [{ wch: 30 }, { wch: 14 }, { wch: 18 }, { wch: 25 }, { wch: 18 }, { wch: 10 }, { wch: 16 }];
   const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
   res.set({
     'Content-Type':        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -288,9 +330,15 @@ router.post('/importar', requireAdmin, upload.single('archivo'), async (req, res
     const cif            = String(fila['CIF']            || '').trim().toUpperCase() || null;
     const codContable    = String(fila['Cuenta Contable'] || fila['Código Cuenta Contable'] || fila['Codigo Cuenta Contable'] || '').trim();
     const codGasto       = String(fila['Cuenta Gasto']    || fila['Código Cuenta Gasto']    || fila['Codigo Cuenta Gasto']    || '').trim();
+    const siiClaveRaw    = fila['Clave SII'];
+    const siiFactRaw     = fila['Tipo Factura SII'];
+    const siiTipoClave   = siiClaveRaw === undefined || siiClaveRaw === '' ? undefined : parseSiiEntero(siiClaveRaw);
+    const siiTipoFact    = siiFactRaw  === undefined || siiFactRaw  === '' ? undefined : parseSiiEntero(siiFactRaw);
 
     if (!razon_social) { errores.push({ fila: i + 2, error: 'Razon Social vacia' }); continue; }
     if (cif && !validarCIF(cif)) { errores.push({ fila: i + 2, error: `CIF invalido: ${cif}` }); continue; }
+    if (Number.isNaN(siiTipoClave)) { errores.push({ fila: i + 2, error: `Clave SII invalida: ${siiClaveRaw}` }); continue; }
+    if (Number.isNaN(siiTipoFact))  { errores.push({ fila: i + 2, error: `Tipo Factura SII invalido: ${siiFactRaw}` }); continue; }
 
     // Resolver cuenta contable: buscar existente o crear si no existe
     let cuenta_contable_id = codContable ? (cuentasMap[codContable] ?? null) : null;
@@ -338,17 +386,26 @@ router.post('/importar', requireAdmin, upload.single('archivo'), async (req, res
 
     let provId;
     if (existing) {
+      // COALESCE($n, columna) en SII: si la celda viene vacia, no se toca.
       await db.query(
         `UPDATE proveedores SET razon_social=$1, nombre_carpeta=COALESCE($2, nombre_carpeta), cif=$3,
-         activo=true, updated_at=NOW() WHERE id=$4`,
-        [razon_social, nombre_carpeta, cif, existing.id]
+         sii_tipo_clave=COALESCE($4, sii_tipo_clave),
+         sii_tipo_fact =COALESCE($5, sii_tipo_fact),
+         activo=true, updated_at=NOW() WHERE id=$6`,
+        [razon_social, nombre_carpeta, cif, siiTipoClave ?? null, siiTipoFact ?? null, existing.id]
       );
       provId = existing.id;
       actualizados++;
     } else {
+      // En INSERT, si no viene el campo se omite y la tabla aplica DEFAULT 1.
+      const cols = ['razon_social', 'nombre_carpeta', 'cif'];
+      const vals = [razon_social, nombre_carpeta, cif];
+      if (siiTipoClave !== undefined) { cols.push('sii_tipo_clave'); vals.push(siiTipoClave); }
+      if (siiTipoFact  !== undefined) { cols.push('sii_tipo_fact');  vals.push(siiTipoFact);  }
+      const placeholders = vals.map((_, k) => `$${k + 1}`).join(', ');
       const newRow = await db.one(
-        `INSERT INTO proveedores (razon_social, nombre_carpeta, cif) VALUES ($1,$2,$3) RETURNING id`,
-        [razon_social, nombre_carpeta, cif]
+        `INSERT INTO proveedores (${cols.join(', ')}) VALUES (${placeholders}) RETURNING id`,
+        vals
       );
       provId = newRow.id;
       insertados++;
@@ -424,6 +481,11 @@ router.post('/rapido', requireAuth, async (req, res) => {
   if (!razon_social?.trim()) return res.status(400).json({ ok: false, error: 'razon_social requerida' });
   if (cif && !validarCIF(cif)) return res.status(400).json({ ok: false, error: 'Formato CIF/NIF invalido' });
 
+  const siiTipoClave = parseSiiEntero(req.body.sii_tipo_clave);
+  const siiTipoFact  = parseSiiEntero(req.body.sii_tipo_fact);
+  if (Number.isNaN(siiTipoClave)) return res.status(400).json({ ok: false, error: 'sii_tipo_clave debe ser entero >= 0' });
+  if (Number.isNaN(siiTipoFact))  return res.status(400).json({ ok: false, error: 'sii_tipo_fact debe ser entero >= 0' });
+
   const db = getDb();
   if (cif) {
     const existe = await db.one(
@@ -437,10 +499,14 @@ router.post('/rapido', requireAuth, async (req, res) => {
     if (dup) return res.status(409).json({ ok: false, error: `La carpeta "${nombre_carpeta.trim()}" ya esta asignada a otro proveedor` });
   }
 
+  const cols = ['razon_social', 'nombre_carpeta', 'cif'];
+  const vals = [razon_social.trim(), nombre_carpeta?.trim() || null, cif ? cif.trim().toUpperCase() : null];
+  if (siiTipoClave !== undefined) { cols.push('sii_tipo_clave'); vals.push(siiTipoClave); }
+  if (siiTipoFact  !== undefined) { cols.push('sii_tipo_fact');  vals.push(siiTipoFact);  }
+  const placeholders = vals.map((_, i) => `$${i + 1}`).join(', ');
   const row = await db.one(
-    `INSERT INTO proveedores (razon_social, nombre_carpeta, cif)
-     VALUES ($1, $2, $3) RETURNING *`,
-    [razon_social.trim(), nombre_carpeta?.trim() || null, cif ? cif.trim().toUpperCase() : null]
+    `INSERT INTO proveedores (${cols.join(', ')}) VALUES (${placeholders}) RETURNING *`,
+    vals
   );
   // Guardar cuentas en proveedor_empresa
   const empId = empresa_id || (await db.one('SELECT id FROM empresas WHERE activo = true ORDER BY id LIMIT 1'))?.id;

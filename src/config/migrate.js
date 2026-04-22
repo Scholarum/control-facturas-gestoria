@@ -180,6 +180,14 @@ const tablas = [
   // Último asiento SAGE por proveedor
   `ALTER TABLE proveedores ADD COLUMN IF NOT EXISTS ultimo_asiento_sage INTEGER`,
 
+  // Campos SII para SAGE R75 (pos 117 TipoClave, pos 120 TipoFact).
+  // En proveedores: defaults 1/1 = regimen general + F1 ordinaria (caso normal español).
+  // En drive_archivos: nullable; NULL = heredar del proveedor, valor explicito = override por factura.
+  `ALTER TABLE proveedores    ADD COLUMN IF NOT EXISTS sii_tipo_clave SMALLINT NOT NULL DEFAULT 1`,
+  `ALTER TABLE proveedores    ADD COLUMN IF NOT EXISTS sii_tipo_fact  SMALLINT NOT NULL DEFAULT 1`,
+  `ALTER TABLE drive_archivos ADD COLUMN IF NOT EXISTS sii_tipo_clave SMALLINT`,
+  `ALTER TABLE drive_archivos ADD COLUMN IF NOT EXISTS sii_tipo_fact  SMALLINT`,
+
   // Indices y restricciones
   `CREATE INDEX IF NOT EXISTS idx_proveedores_cif ON proveedores (UPPER(TRIM(cif))) WHERE activo = true AND cif IS NOT NULL`,
   `CREATE INDEX IF NOT EXISTS idx_proveedores_carpeta ON proveedores (nombre_carpeta) WHERE activo = true AND nombre_carpeta IS NOT NULL`,

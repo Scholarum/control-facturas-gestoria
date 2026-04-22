@@ -587,6 +587,48 @@ function CampoEditable({ label, valor, campo, datosOriginales, onGuardar, tipo =
   );
 }
 
+// Input inline para un campo SII (override por factura). Muestra el valor heredado
+// del proveedor como placeholder. Vacio = hereda del proveedor (NULL en BD).
+function CampoSiiInline({ label, override, heredado, campo, disabled, onGuardar }) {
+  const [val, setVal] = useState(override == null ? '' : String(override));
+  const [guardando, setGuardando] = useState(false);
+  const [ok, setOk] = useState(false);
+  useEffect(() => { setVal(override == null ? '' : String(override)); }, [override]);
+
+  async function guardar() {
+    const raw = val.trim();
+    const toSend = raw === '' ? null : parseInt(raw, 10);
+    if (raw !== '' && (!Number.isInteger(toSend) || toSend < 0)) { setVal(override == null ? '' : String(override)); return; }
+    const actual = override ?? null;
+    if (toSend === actual) return;
+    setGuardando(true);
+    try {
+      await onGuardar({ [campo]: toSend });
+      setOk(true);
+      setTimeout(() => setOk(false), 1500);
+    } catch { setVal(override == null ? '' : String(override)); }
+    finally { setGuardando(false); }
+  }
+
+  return (
+    <div>
+      <label className="block text-xs text-gray-500 mb-0.5">{label}</label>
+      <div className="flex items-center gap-2">
+        <input type="number" min="0" step="1"
+          value={val}
+          onChange={e => setVal(e.target.value)}
+          onBlur={guardar}
+          onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); if (e.key === 'Escape') { setVal(override == null ? '' : String(override)); e.currentTarget.blur(); } }}
+          disabled={disabled}
+          placeholder={`Heredado: ${heredado ?? 1}`}
+          className={`w-32 rounded border border-gray-200 px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-blue-400 ${disabled ? 'bg-gray-50 text-gray-400 cursor-not-allowed' : ''}`} />
+        {guardando && <span className="text-xs text-gray-400">...</span>}
+        {ok && <span className="text-xs text-emerald-600 font-bold">✓</span>}
+      </div>
+    </div>
+  );
+}
+
 function PanelDetalleFiscal({ f, onDatosActualizados }) {
   const d   = f.datos_extraidos || {};
   const iva = Array.isArray(d.iva) ? d.iva : [];
@@ -769,6 +811,39 @@ function PanelDetalleFiscal({ f, onDatosActualizados }) {
             </div>
           </div>
 
+        </div>
+
+        {/* Datos SII / Libro de IVA */}
+        <div className="px-3 sm:px-6 pb-4">
+          <div className={`rounded-lg border px-3 py-3 ${hayIncidencia ? 'border-red-100 bg-white/40' : 'border-blue-100 bg-white/40'}`}>
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Datos SII / Libro de IVA</p>
+            {f.lote_sage_id && (
+              <div className="mb-3 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-800">
+                Esta factura ya ha sido exportada a SAGE. Los datos SII no pueden modificarse.
+              </div>
+            )}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <CampoSiiInline
+                label="Clave régimen SII"
+                campo="sii_tipo_clave"
+                override={f.sii_tipo_clave}
+                heredado={f.proveedor_sii_tipo_clave ?? 1}
+                disabled={!!f.lote_sage_id}
+                onGuardar={handleGuardar}
+              />
+              <CampoSiiInline
+                label="Tipo factura SII"
+                campo="sii_tipo_fact"
+                override={f.sii_tipo_fact}
+                heredado={f.proveedor_sii_tipo_fact ?? 1}
+                disabled={!!f.lote_sage_id}
+                onGuardar={handleGuardar}
+              />
+            </div>
+            <p className="text-xs text-gray-500 mt-2">
+              Dejar vacío para usar el valor configurado en el proveedor.
+            </p>
+          </div>
         </div>
 
         {/* Historial de cambios */}

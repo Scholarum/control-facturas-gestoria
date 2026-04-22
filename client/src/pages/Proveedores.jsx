@@ -13,6 +13,7 @@ import ModalImportar from '../components/proveedores/ModalImportar.jsx';
 const FORM_VACIO = {
   razon_social: '', nombre_carpeta: '', cif: '',
   cuenta_contable_id: '', cuenta_gasto_id: '',
+  sii_tipo_clave: 1, sii_tipo_fact: 1,
 };
 
 export default function Proveedores() {
@@ -90,6 +91,8 @@ export default function Proveedores() {
       cif:                p.cif                || '',
       cuenta_contable_id: p.cuenta_contable_id ? String(p.cuenta_contable_id) : '',
       cuenta_gasto_id:    p.cuenta_gasto_id    ? String(p.cuenta_gasto_id)    : '',
+      sii_tipo_clave:     p.sii_tipo_clave ?? 1,
+      sii_tipo_fact:      p.sii_tipo_fact  ?? 1,
     });
     setModal({ proveedor: p });
     setErrorModal('');
@@ -104,6 +107,8 @@ export default function Proveedores() {
         cif:                form.cif.trim() || null,
         cuenta_contable_id: form.cuenta_contable_id ? parseInt(form.cuenta_contable_id) : null,
         cuenta_gasto_id:    form.cuenta_gasto_id    ? parseInt(form.cuenta_gasto_id)    : null,
+        sii_tipo_clave:     form.sii_tipo_clave === '' ? undefined : form.sii_tipo_clave,
+        sii_tipo_fact:      form.sii_tipo_fact  === '' ? undefined : form.sii_tipo_fact,
         empresa_id:         empresaActiva?.id || null,
       };
       if (modal === 'nuevo') {
