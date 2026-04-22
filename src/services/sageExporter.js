@@ -254,11 +254,14 @@ function construirLineasFactura(factura, numAsiento, documento, fechaOpFmt) {
 
   const fechaEmision  = d.fecha_emision || '';
   const numFactura    = d.numero_factura || '';
-  const conceptoFact  = String(numFactura).substring(0, 25);
-  const conceptoLargo = String(numFactura).substring(0, 50);
-  const facturaExp    = String(numFactura).substring(0, 40); // Nº factura expedición (SII/Libro IVA, pos 72 FacturaEx, 40 chars)
   const cifEmisor     = d.cif_emisor || '';
   const nombreEmisor  = d.nombre_emisor || '';
+  const conceptoFact  = String(numFactura).substring(0, 25);
+  // ConcepNew (pos 133, 50 chars): "numFactura|nombreEmisor". Es el valor que
+  // ContaPlus muestra como "Concepto" en la UI moderna. El legacy pos 6 queda
+  // solo con el numero de factura (25 chars no dan para nombre util).
+  const conceptoLargo = [numFactura, nombreEmisor].filter(Boolean).join('|').substring(0, 50);
+  const facturaExp    = String(numFactura).substring(0, 40); // Nº factura expedición (SII/Libro IVA, pos 72 FacturaEx, 40 chars)
   const totalFactura  = parseFloat(d.total_factura) || 0;
   const baseSinIva    = parseFloat(d.total_sin_iva) || 0;
   const ctaProveedor  = factura.cta_proveedor_codigo || '';
