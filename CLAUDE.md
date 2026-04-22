@@ -102,6 +102,8 @@ cors → express.json → apiLimiter → attachRequestMeta → routes
 throw Object.assign(new Error('No autorizado'), { status: 403 });
 ```
 
+**UPDATE dinámico para edición parcial:** los endpoints PUT que acepten ediciones parciales (p.ej. un campo inline aislado) deben construir el `SET` sólo con las columnas presentes en `req.body`, usando `'campo' in req.body` como detector uniforme. Nunca poner todas las columnas fijas con `$n` directo sin COALESCE: pisa con NULL los campos que el cliente no envió (ver patrón en `router.put('/:id')` de `src/routes/proveedores.js`).
+
 **Database helpers (config/database.js):**
 - `db.query(sql, params)` — query genérica
 - `db.one(sql, params)` — una fila o null

@@ -194,41 +194,55 @@ router.post('/', requireAdmin, async (req, res) => {
 // PUT /:id - actualizar proveedor
 router.put('/:id', requireAdmin, async (req, res) => {
   const id = parseInt(req.params.id, 10);
-  const { razon_social, nombre_carpeta, cif, cuenta_contable_id, cuenta_gasto_id, empresa_id } = req.body;
-  if (!razon_social?.trim()) return res.status(400).json({ ok: false, error: 'razon_social requerida' });
-  if (cif && !validarCIF(cif)) return res.status(400).json({ ok: false, error: 'Formato CIF/NIF invalido' });
+  const b  = req.body;
 
-  const siiTipoClave = parseSiiEntero(req.body.sii_tipo_clave);
-  const siiTipoFact  = parseSiiEntero(req.body.sii_tipo_fact);
-  if (Number.isNaN(siiTipoClave)) return res.status(400).json({ ok: false, error: 'sii_tipo_clave debe ser entero >= 0' });
-  if (Number.isNaN(siiTipoFact))  return res.status(400).json({ ok: false, error: 'sii_tipo_fact debe ser entero >= 0' });
-
-  const db  = getDb();
-  if (nombre_carpeta?.trim()) {
-    const dup = await db.one('SELECT id FROM proveedores WHERE nombre_carpeta = $1 AND activo = true AND id <> $2', [nombre_carpeta.trim(), id]);
-    if (dup) return res.status(409).json({ ok: false, error: `La carpeta "${nombre_carpeta.trim()}" ya esta asignada a otro proveedor` });
+  // Edicion parcial: validamos y actualizamos solo los campos presentes en el body.
+  // Clave de deteccion uniforme: `'campo' in b` (no depender de destructuring ni de
+  // undefined vs null) — ver convencion "UPDATE dinamico" en CLAUDE.md.
+  if ('razon_social' in b && !b.razon_social?.trim()) {
+    return res.status(400).json({ ok: false, error: 'razon_social no puede estar vacia' });
   }
-  // COALESCE para mantener valor actual si el campo no viene en el body.
+  if ('cif' in b && b.cif && !validarCIF(b.cif)) {
+    return res.status(400).json({ ok: false, error: 'Formato CIF/NIF invalido' });
+  }
+
+  let siiTipoClave, siiTipoFact;
+  if ('sii_tipo_clave' in b) {
+    siiTipoClave = parseSiiEntero(b.sii_tipo_clave);
+    if (Number.isNaN(siiTipoClave)) return res.status(400).json({ ok: false, error: 'sii_tipo_clave debe ser entero >= 0' });
+  }
+  if ('sii_tipo_fact' in b) {
+    siiTipoFact = parseSiiEntero(b.sii_tipo_fact);
+    if (Number.isNaN(siiTipoFact)) return res.status(400).json({ ok: false, error: 'sii_tipo_fact debe ser entero >= 0' });
+  }
+
+  const db = getDb();
+  if ('nombre_carpeta' in b && b.nombre_carpeta?.trim()) {
+    const dup = await db.one('SELECT id FROM proveedores WHERE nombre_carpeta = $1 AND activo = true AND id <> $2', [b.nombre_carpeta.trim(), id]);
+    if (dup) return res.status(409).json({ ok: false, error: `La carpeta "${b.nombre_carpeta.trim()}" ya esta asignada a otro proveedor` });
+  }
+
+  // UPDATE dinamico: SET solo para columnas presentes en el body. Asi la edicion
+  // parcial (p.ej. editar solo CIF inline) no pisa con NULL los demas campos.
+  // SII de proveedor es NOT NULL; si viene null explicito lo ignoramos en el UPDATE.
+  const sets = [];
+  const vals = [];
+  if ('razon_social'   in b) { sets.push(`razon_social   = $${vals.length + 1}`); vals.push(b.razon_social.trim()); }
+  if ('nombre_carpeta' in b) { sets.push(`nombre_carpeta = $${vals.length + 1}`); vals.push(b.nombre_carpeta?.trim() || null); }
+  if ('cif'            in b) { sets.push(`cif            = $${vals.length + 1}`); vals.push(b.cif ? b.cif.trim().toUpperCase() : null); }
+  if ('sii_tipo_clave' in b && siiTipoClave !== undefined) { sets.push(`sii_tipo_clave = $${vals.length + 1}`); vals.push(siiTipoClave); }
+  if ('sii_tipo_fact'  in b && siiTipoFact  !== undefined) { sets.push(`sii_tipo_fact  = $${vals.length + 1}`); vals.push(siiTipoFact);  }
+  sets.push(`updated_at = NOW()`);
+  vals.push(id);
+
   const row = await db.one(
-    `UPDATE proveedores SET
-       razon_social   = $1,
-       nombre_carpeta = $2,
-       cif            = $3,
-       sii_tipo_clave = COALESCE($4, sii_tipo_clave),
-       sii_tipo_fact  = COALESCE($5, sii_tipo_fact),
-       updated_at     = NOW()
-     WHERE id = $6 AND activo = true RETURNING *`,
-    [
-      razon_social.trim(),
-      nombre_carpeta?.trim() || null,
-      cif ? cif.trim().toUpperCase() : null,
-      siiTipoClave ?? null,
-      siiTipoFact  ?? null,
-      id,
-    ]
+    `UPDATE proveedores SET ${sets.join(', ')} WHERE id = $${vals.length} AND activo = true RETURNING *`,
+    vals
   );
   if (!row) return res.status(404).json({ ok: false, error: 'Proveedor no encontrado' });
-  // Guardar cuentas en proveedor_empresa
+
+  // Cuentas en proveedor_empresa: solo se tocan si el body las incluye (flujo del Modal).
+  const { cuenta_contable_id, cuenta_gasto_id, empresa_id } = b;
   const empId = empresa_id || (await db.one('SELECT id FROM empresas WHERE activo = true ORDER BY id LIMIT 1'))?.id;
   if (empId && (cuenta_contable_id || cuenta_gasto_id)) {
     await db.query(
