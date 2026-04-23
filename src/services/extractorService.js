@@ -487,6 +487,25 @@ async function guardarResultado(id, estado, datos, error) {
   // COALESCE($n, columna): null de Gemini = "no detectado, respeta ediciones manuales
   // previas"; valor explicito (incluso false) = "sobrescribe el valor actual".
   const { es_rectificativa, rect_serie, rect_numero, rect_fecha, rect_base_imp, ...datosJson } = datos;
+
+  // Heuristica de fallback: si Gemini no detecto explicitamente rectificativa (null)
+  // o dijo false, pero la factura tiene total negativo y sin IVA, la marcamos como
+  // rectificativa. Razon: abonos y notas de credito habitualmente vienen con signo
+  // negativo sin desglose IVA. El usuario puede desmarcar manualmente si era un
+  // ajuste contable no rectificativo.
+  //
+  // Precedencia: Gemini true > heuristica true > Gemini false > Gemini null.
+  // Nunca bajamos de true a false; solo elevamos null/false a true si la heuristica aplica.
+  let esRectFinal = es_rectificativa;
+  if (esRectFinal !== true) {
+    const total = Number(datosJson.total_factura);
+    const totalIva = datosJson.total_iva;
+    const ivaEsCero = totalIva == null || Number(totalIva) === 0;
+    if (Number.isFinite(total) && total < 0 && ivaEsCero) {
+      esRectFinal = true;
+    }
+  }
+
   await db.query(
     `UPDATE drive_archivos
      SET estado           = $1,
@@ -503,7 +522,7 @@ async function guardarResultado(id, estado, datos, error) {
       estado,
       JSON.stringify(datosJson),
       error ?? null,
-      es_rectificativa ?? null,
+      esRectFinal ?? null,
       rect_serie ?? null,
       rect_numero ?? null,
       rect_fecha ?? null,

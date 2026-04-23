@@ -339,6 +339,23 @@ Si el admin había customizado el prompt, tras un deploy con nuevo `PROMPT_DEFAU
 Dashboard dev: `https://supabase.com/dashboard/project/fothahxvwswlmnkssjqf`
 Dashboard prod: `https://supabase.com/dashboard/project/drjdkcfygevlnrvzgzan`
 
+### Checklist post-deploy (commits que tocan schema + UI)
+
+Cuando un commit añade columnas a BD y UI que las consume, tras esperar a que Render termine la migración (log `Migración PostgreSQL completada`), verificar los 3 puntos siguientes — si alguno falla, la UI queda inconsistente y el bug pasa silencioso:
+
+```sql
+-- 1. Las columnas nuevas existen en BD (incluir table_schema='public' para evitar falsos negativos).
+SELECT column_name, data_type FROM information_schema.columns
+WHERE table_schema = 'public' AND table_name = '<tabla>'
+  AND column_name IN (<lista>);
+```
+
+2. El SELECT del listado (o endpoint relevante) expone todas las columnas nuevas: buscar `da.<columna>` en `src/routes/gestion.js` (o el router que alimente la vista).
+
+3. El componente UI lee los campos desde `f.<columna>`: buscar el nombre del campo en el componente y confirmar que llega un valor (no `undefined`) desde el backend.
+
+Si se publica un commit con schema + UI y la columna no se creó en BD, los SELECT que la referencien devolverán `ERROR: column X does not exist` y el endpoint servirá 500 — el síntoma es tabla vacía o error en consola del navegador, no un bloque UI que "no aparece".
+
 ## Testing
 
 No hay framework de testing configurado. Las pruebas son manuales.

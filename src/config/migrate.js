@@ -669,6 +669,33 @@ async function runMigrations() {
 
   // historial_sincronizaciones es global (no se filtra por empresa)
 
+  // ─── Auto-healing columnas de rectificativa ─────────────────────────────────
+  // Garantizamos que las 5 columnas del soporte rectificativas existen. Si alguna
+  // no se creo en el bucle de ALTER de arriba (por un deploy parcial, error
+  // transitorio, o lo que sea), la creamos aqui explicitamente con log. Idempotente.
+  const RECT_COLS = {
+    es_rectificativa: 'BOOLEAN NOT NULL DEFAULT FALSE',
+    rect_serie:       'VARCHAR(1)',
+    rect_numero:      'VARCHAR(40)',
+    rect_fecha:       'DATE',
+    rect_base_imp:    'NUMERIC(14,2)',
+  };
+  const colsActuales = await db.all(
+    `SELECT column_name FROM information_schema.columns
+     WHERE table_schema = 'public' AND table_name = 'drive_archivos'
+       AND column_name = ANY($1::text[])`,
+    [Object.keys(RECT_COLS)]
+  );
+  const presentes = new Set(colsActuales.map(r => r.column_name));
+  const faltantes = Object.keys(RECT_COLS).filter(c => !presentes.has(c));
+  if (faltantes.length) {
+    logger.warn({ faltantes }, '[MIGRATION] Columnas de rectificativa faltantes tras ALTER en bucle, reintentando explicitamente');
+    for (const col of faltantes) {
+      await db.query(`ALTER TABLE drive_archivos ADD COLUMN IF NOT EXISTS ${col} ${RECT_COLS[col]}`);
+      logger.info({ columna: col }, '[MIGRATION] Columna de rectificativa creada (auto-healing)');
+    }
+  }
+
   // ─── Migracion idempotente: prompt Gemini V1 → V2 ───────────────────────────
   // El V2 anyade deteccion de rectificativas. Si el prompt en BD coincide
   // byte-a-byte con V1, se actualiza automaticamente. Si el admin lo customizo
@@ -691,6 +718,33 @@ async function runMigrations() {
         'resetea desde la UI de configuracion o aplica el nuevo PROMPT_DEFAULT manualmente.'
       );
     }
+  }
+
+  // ─── Backfill retroactivo de es_rectificativa por heuristica ────────────────
+  // Las facturas extraidas con el prompt V1 (pre-rectificativas) tienen todas
+  // es_rectificativa=false (default de columna). Aplicamos la misma heuristica
+  // del extractor (total_factura < 0 && total_iva = 0|null) para no obligar a
+  // re-extraer con Gemini. Idempotente: solo afecta filas donde sigue en false
+  // y cumplen la heuristica; tras marcarlas a true, la WHERE no las vuelve a tocar.
+  // Claves JSON: total_factura, total_iva (ver mapearRespuestaGemini).
+  const backfillRes = await db.query(
+    `UPDATE drive_archivos
+     SET es_rectificativa = true
+     WHERE es_rectificativa = false
+       AND datos_extraidos IS NOT NULL
+       AND datos_extraidos ~ '^\\s*\\{'
+       AND ((datos_extraidos::jsonb)->>'total_factura') IS NOT NULL
+       AND ((datos_extraidos::jsonb)->>'total_factura')::numeric < 0
+       AND (
+         (datos_extraidos::jsonb)->>'total_iva' IS NULL
+         OR ((datos_extraidos::jsonb)->>'total_iva')::numeric = 0
+       )`
+  );
+  if (backfillRes.rowCount > 0) {
+    logger.info(
+      { marcadas: backfillRes.rowCount },
+      '[MIGRATION] Backfill es_rectificativa: facturas marcadas por heuristica (total<0, iva=0/null)'
+    );
   }
 
   logger.info('Migración PostgreSQL completada');
