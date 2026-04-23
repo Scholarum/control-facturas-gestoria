@@ -20,7 +20,13 @@ const CIFS_MULTI_FACTURA = new Set([
   'B95842522', // PAYCOMET S.L.
 ]);
 
-const PROMPT_DEFAULT = `Analiza los documentos PDF que te pidamos.
+// PROMPT_DEFAULT_V1 — version historica (pre-rectificativas). Se conserva como
+// constante literal para que la migracion idempotente de runMigrations() pueda
+// detectar si el prompt en BD coincide byte-a-byte con el default antiguo y,
+// en ese caso, actualizarlo automaticamente al V2 (PROMPT_DEFAULT abajo).
+// Si el admin ha customizado el prompt en la UI, la comparacion fallara y la
+// migracion respetara su version.
+const PROMPT_DEFAULT_V1 = `Analiza los documentos PDF que te pidamos.
 Tienes que extraer los datos de la factura con el máximo detalle fiscal posible.
 
 Devuelve ÚNICAMENTE un objeto JSON válido con la siguiente estructura, sin texto adicional, sin markdown, sin explicaciones:
@@ -64,6 +70,77 @@ En el campo 'issuerCif', extrae el CIF/NIF del emisor (quien emite la factura).
 En el campo 'receiverName', busca el nombre del destinatario en secciones como 'Datos del cliente', 'Cliente:', 'Facturar a:', 'Abono a:' o similar.
 
 En el campo 'receiverCif', extrae el CIF/NIF del receptor (quien recibe la factura).
+
+Si no encuentras un campo de texto, devuelve null. Nunca inventes datos.
+
+Responde SOLO con el JSON. Ningún carácter fuera del objeto JSON.`;
+
+// PROMPT_DEFAULT — version vigente (V2). Incluye deteccion de facturas
+// rectificativas y extraccion opcional de datos de la factura original
+// rectificada (serie, numero, fecha, base imponible).
+const PROMPT_DEFAULT = `Analiza los documentos PDF que te pidamos.
+Tienes que extraer los datos de la factura con el máximo detalle fiscal posible.
+
+Devuelve ÚNICAMENTE un objeto JSON válido con la siguiente estructura, sin texto adicional, sin markdown, sin explicaciones:
+
+{
+  "invoiceNumber": "string o null",
+  "issueDate": "YYYY-MM-DD o null",
+  "issuerName": "string o null",
+  "issuerCif": "string o null",
+  "receiverName": "string o null",
+  "receiverCif": "string o null",
+  "taxBase0": 0,
+  "taxBase4": 0,
+  "taxBase10": 0,
+  "taxBase21": 0,
+  "vatAmount0": 0,
+  "vatAmount4": 0,
+  "vatAmount10": 0,
+  "vatAmount21": 0,
+  "totalExcludingVat": 0,
+  "totalVat": 0,
+  "totalIncludingVat": 0,
+  "paymentMethod": "string o null",
+  "paymentDate": "YYYY-MM-DD o null",
+  "isRectificativa": null,
+  "rectifiedSerie": null,
+  "rectifiedNumber": null,
+  "rectifiedDate": null,
+  "rectifiedTaxBase": null
+}
+
+Instrucciones clave:
+
+Si hay varios tipos de IVA, desglósalos en sus campos correspondientes (taxBase4, taxBase21, etc.).
+
+Si alguno de los tipos de IVA indicados no existen en la factura, devuelve el valor 0 tanto en la base imponible como en el total del impuesto.
+
+Normaliza todos los números: usa PUNTO para decimales (ej: 15.50) y no uses separadores de miles. Esto es obligatorio para que el JSON sea válido.
+
+Las fechas deben estar SIEMPRE en formato YYYY-MM-DD. Si el año tiene 2 dígitos, asume 20XX.
+
+En el campo 'issuerName', extrae SIEMPRE el nombre COMPLETO con su forma jurídica legal como 'S.A.', 'S.L.', 'S.L.U.', etc. Ejemplo: Si ves 'Iberdrola S.A.', devuelve 'Iberdrola S.A.'.
+
+En el campo 'issuerCif', extrae el CIF/NIF del emisor (quien emite la factura).
+
+En el campo 'receiverName', busca el nombre del destinatario en secciones como 'Datos del cliente', 'Cliente:', 'Facturar a:', 'Abono a:' o similar.
+
+En el campo 'receiverCif', extrae el CIF/NIF del receptor (quien recibe la factura).
+
+DETECCIÓN DE FACTURAS RECTIFICATIVAS:
+
+En 'isRectificativa' devuelve true si el documento se autodescribe explícitamente como una rectificativa. Señales que lo indican: títulos o textos como 'FACTURA RECTIFICATIVA', 'NOTA DE ABONO', 'NOTA DE CRÉDITO', 'FACTURA DE ABONO', 'CORRECCIÓN DE FACTURA', menciones explícitas a 'Art. 80 LIVA' o 'Ley del IVA art. 80', o literales equivalentes en inglés ('CREDIT NOTE', 'CORRECTED INVOICE') cuando el proveedor factura internacionalmente. Devuelve false si el documento es una factura ordinaria normal. Devuelve null SOLO si no puedes determinarlo — esto es excepcional, la mayoría de facturas son claramente ordinarias. Importante: un total negativo por sí solo NO basta para marcar true; tiene que haber texto que lo autodescriba como rectificativa.
+
+Si 'isRectificativa' es true, intenta extraer también los datos de la factura original que se rectifica, si aparecen en el documento:
+- 'rectifiedSerie': serie de la factura original (1 carácter, p.ej. 'A', 'B'). Si no se menciona, null.
+- 'rectifiedNumber': número de la factura original (texto, hasta 40 caracteres). Si no se menciona, null.
+- 'rectifiedDate': fecha de la factura original en formato YYYY-MM-DD. Si no se menciona, null.
+- 'rectifiedTaxBase': base imponible de la factura original (número decimal positivo). Si no se menciona, null.
+
+IMPORTANTE: muchas rectificativas NO traen referencia a la factura original. En ese caso, mantén los 4 campos 'rectified*' a null aunque 'isRectificativa' sea true. No inventes datos.
+
+Si 'isRectificativa' es false o null, los 4 campos 'rectified*' deben ser null.
 
 Si no encuentras un campo de texto, devuelve null. Nunca inventes datos.
 
@@ -219,6 +296,14 @@ function mapearRespuestaGemini(raw) {
     if (base !== 0 || cuota !== 0) iva.push({ tipo, base, cuota });
   }
 
+  // Campos de rectificativa: prompts anteriores no los devolvian. Si llegan,
+  // null = "Gemini no sabe / no aplica" (respeta valor actual al persistir);
+  // false explicito = "detectado como NO rectificativa" (sobrescribe).
+  const isRect = raw.isRectificativa === true  ? true
+               : raw.isRectificativa === false ? false
+               : null;
+  const rectBaseRaw = raw.rectifiedTaxBase;
+
   return {
     numero_factura:    raw.invoiceNumber   ?? null,
     fecha_emision:     parseFechaFlexible(raw.issueDate),
@@ -232,6 +317,11 @@ function mapearRespuestaGemini(raw) {
     total_factura:     raw.totalIncludingVat != null  ? Number(raw.totalIncludingVat) : null,
     forma_pago:        raw.paymentMethod   ?? null,
     fecha_vencimiento: parseFechaFlexible(raw.paymentDate),
+    es_rectificativa:  isRect,
+    rect_serie:        raw.rectifiedSerie  ?? null,
+    rect_numero:       raw.rectifiedNumber ?? null,
+    rect_fecha:        parseFechaFlexible(raw.rectifiedDate),
+    rect_base_imp:     rectBaseRaw != null ? Number(rectBaseRaw) : null,
   };
 }
 
@@ -377,11 +467,49 @@ function validarDatos(datos) {
 
 async function guardarResultado(id, estado, datos, error) {
   const db = getDb();
+
+  // Sin datos (REVISION_MANUAL por fallo de extraccion): solo estado/error.
+  if (!datos) {
+    await db.query(
+      `UPDATE drive_archivos
+       SET estado = $1, datos_extraidos = NULL, error_extraccion = $2, procesado_at = NOW()
+       WHERE id = $3`,
+      [estado, error ?? null, id]
+    );
+    return;
+  }
+
+  // Fuente unica de verdad: los 5 campos de rectificativa (es_rectificativa + 4 rect_*)
+  // viven EXCLUSIVAMENTE como columnas separadas de drive_archivos, nunca dentro del
+  // string JSON de datos_extraidos. Asi las ediciones manuales desde la UI no divergen
+  // con lo que extrajo Gemini en su dia.
+  //
+  // COALESCE($n, columna): null de Gemini = "no detectado, respeta ediciones manuales
+  // previas"; valor explicito (incluso false) = "sobrescribe el valor actual".
+  const { es_rectificativa, rect_serie, rect_numero, rect_fecha, rect_base_imp, ...datosJson } = datos;
   await db.query(
     `UPDATE drive_archivos
-     SET estado = $1, datos_extraidos = $2, error_extraccion = $3, procesado_at = NOW()
-     WHERE id = $4`,
-    [estado, datos ? JSON.stringify(datos) : null, error ?? null, id]
+     SET estado           = $1,
+         datos_extraidos  = $2,
+         error_extraccion = $3,
+         procesado_at     = NOW(),
+         es_rectificativa = COALESCE($4, es_rectificativa),
+         rect_serie       = COALESCE($5, rect_serie),
+         rect_numero      = COALESCE($6, rect_numero),
+         rect_fecha       = COALESCE($7::date, rect_fecha),
+         rect_base_imp    = COALESCE($8, rect_base_imp)
+     WHERE id = $9`,
+    [
+      estado,
+      JSON.stringify(datosJson),
+      error ?? null,
+      es_rectificativa ?? null,
+      rect_serie ?? null,
+      rect_numero ?? null,
+      rect_fecha ?? null,
+      rect_base_imp ?? null,
+      id,
+    ]
   );
 }
 
@@ -526,7 +654,7 @@ async function ejecutarExtraccion(ids, onProgress = () => {}) {
 
 module.exports = {
   getPrompt, savePrompt, ensurePromptSeeded, resetPromptToDefault,
-  PROMPT_DEFAULT,
+  PROMPT_DEFAULT, PROMPT_DEFAULT_V1,
   procesarArchivo, ejecutarExtraccion,
   buildGeminiModel, normalizarTotales, validarDatos, guardarResultado,
 };

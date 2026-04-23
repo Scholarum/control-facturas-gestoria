@@ -1,3 +1,5 @@
+const logger = require('../config/logger');
+
 /**
  * sageExporter.js
  * Genera ficheros para importacion en SAGE ContaPlus — protocolo R75.
@@ -279,6 +281,19 @@ function construirLineasFactura(factura, numAsiento, documento, fechaAsientoYmd)
   const siiTipoRectif  = Number.isInteger(factura.sii_tipo_rectif)  ? factura.sii_tipo_rectif  : 2;
   const siiEntrPrest   = Number.isInteger(factura.sii_entr_prest)   ? factura.sii_entr_prest   : 3;
 
+  // Rectificativas. overrideTipoFact = valor crudo de da.sii_tipo_fact (puede ser NULL).
+  // Solo lo tratamos como override si es un entero > 0; 0 o NULL significa "no hay override,
+  // aplica mapeo automatico F1→R1, F2→R5". Esto permite forzar R2/R3/R4 (8/9/10) en casos
+  // de concurso/incobrables/otros desde el PUT /:id/datos.
+  const esRect          = factura.es_rectificativa === true;
+  const overrideTipoFact = (factura.override_sii_tipo_fact != null && factura.override_sii_tipo_fact > 0)
+    ? factura.override_sii_tipo_fact
+    : null;
+  const rectSerie     = factura.rect_serie    || '';
+  const rectNumero    = factura.rect_numero   || '';
+  const rectFechaYmd  = factura.rect_fecha_ymd || '';
+  const rectBaseImp   = factura.rect_base_imp != null ? Number(factura.rect_base_imp) : null;
+
   const lineas = []; // cada elemento es un array de 142 valores
 
   // Fechas del asiento — criterio fiscal (R75, corrección 2026-04-23):
@@ -324,12 +339,49 @@ function construirLineasFactura(factura, numAsiento, documento, fechaAsientoYmd)
     l[116] = siiTipoClave;     // pos 117 TipoClave  (N 2, marcador *15). Default 1 = Régimen general.
     l[117] = siiTipoExenci;    // pos 118 TipoExenci (N 2, marcador *16). Default 1 = No exenta.
     l[118] = siiTipoNoSuje;    // pos 119 TipoNoSuje (N 2, marcador *17). Default 2 = S1 Sujeta-No exenta.
-    l[119] = siiTipoFact;      // pos 120 TipoFact   (N 2, marcador *18). Default 1 = F1 Factura ordinaria.
-    // pos 123 TipoRectif: placeholder — en commit 3 se hara condicional a es_rectificativa
-    // (defensa en profundidad: si la factura no es rectificativa, se fuerza 1).
-    l[122] = siiTipoRectif;    // pos 123 TipoRectif (N 2, marcador *20). Default 2 = Por diferencias.
+
+    // pos 120 TipoFact: con factura rectificativa aplica mapeo F1→R1 (Art. 80.1/80.2) y
+    // F2→R5 (simplificada). El override de la factura (da.sii_tipo_fact > 0) permite
+    // forzar R2=8 (concurso), R3=9 (incobrables) o R4=10 (otros) cuando aplique.
+    if (esRect) {
+      const mapRect = { 1: 7, 2: 11 };
+      l[119] = overrideTipoFact ?? mapRect[siiTipoFact] ?? 7;
+    } else {
+      l[119] = siiTipoFact;     // pos 120 TipoFact (N 2, marcador *18). Default 1 = F1 Factura ordinaria.
+    }
+
+    // pos 123 TipoRectif: defensa en profundidad. Si la factura NO es rectificativa,
+    // forzamos 1 ignorando el valor configurado en proveedor/factura, asi una mala
+    // configuracion del proveedor no produce asientos normales con TipoRectif != 1.
+    l[122] = esRect ? siiTipoRectif : 1;
+
     l[125] = siiEntrPrest;     // pos 126 nEntrPrest (N 1, marcador *21). Default 3 = Prestacion de servicios.
     l[126] = fechaAsientoYmd;  // pos 127 Decrecen  (F 8). No parametrizado: siempre = fecha del asiento.
+
+    // pos 37 Rectifica (L): .T./.F. segun es_rectificativa. Solo informado en la linea de IVA.
+    l[36] = esRect ? '.T.' : '.F.';
+
+    // Datos de la factura original rectificada (pos 33-38 + 128). Solo cuando es rect.
+    // Son opcionales: si el proveedor no incluye referencia, van vacios y el SII acepta
+    // la rectificativa "por diferencias" sin referencia (caso frecuente en esta app).
+    if (esRect) {
+      l[32] = rectSerie;                                       // pos 33 Serie_RT (C 1)
+      // pos 34 Factu_RT es numerico N 8. Si rect_numero no es puramente numerico hasta
+      // 8 digitos, queda vacio; el valor textual integro va siempre en pos 128 FactuEx_RT.
+      if (rectNumero && /^\d{1,8}$/.test(rectNumero)) {
+        l[33] = rectNumero;
+      } else {
+        l[33] = '';
+        if (rectNumero) {
+          logger.debug({ asiento: numAsiento, rect_numero: rectNumero }, '[SAGE DEBUG] rect_numero no numerico, se omite pos 34 Factu_RT');
+        }
+      }
+      l[34] = rectBaseImp != null ? rectBaseImp.toFixed(2) : '';  // pos 35 BaseImp_RT (N 16.2)
+      l[35] = base;                                               // pos 36 BaseImp_RF (N 16.2): base de la rect en esta linea de IVA
+      l[37] = rectFechaYmd;                                       // pos 38 Fecha_RT (F 8, AAAAMMDD)
+      l[127] = rectNumero;                                        // pos 128 FactuEx_RT (C 40, alfanumerico integro)
+    }
+
     l[132]=conceptoLargo; l[133]=cifEmisor; l[134]=nombreEmisor.substring(0,120);
     return l;
   };

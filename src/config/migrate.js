@@ -1,5 +1,6 @@
 const { getDb } = require('./database');
 const logger = require('./logger');
+const { PROMPT_DEFAULT, PROMPT_DEFAULT_V1 } = require('../services/extractorService');
 
 // ─── Schema ───────────────────────────────────────────────────────────────────
 
@@ -207,6 +208,21 @@ const tablas = [
   `ALTER TABLE drive_archivos ADD COLUMN IF NOT EXISTS sii_tipo_no_suje SMALLINT`,
   `ALTER TABLE drive_archivos ADD COLUMN IF NOT EXISTS sii_tipo_rectif  SMALLINT`,
   `ALTER TABLE drive_archivos ADD COLUMN IF NOT EXISTS sii_entr_prest   SMALLINT`,
+
+  // Soporte facturas rectificativas (SAGE R75 pos 33-38 + 128 + flag pos 37).
+  // es_rectificativa: flag propio de la factura. Cuando true, el exportador rellena
+  //   Rectifica (pos 37) = .T., mapea TipoFact (pos 120) F1→R1 / F2→R5 y permite
+  //   forzar R2/R3/R4 via override sii_tipo_fact nivel factura.
+  // rect_serie/numero/fecha/base_imp: datos de la factura original rectificada
+  //   (opcionales — muchos proveedores no los proporcionan y el SII acepta rectificativas
+  //   "por diferencias" sin referencia a la original).
+  // Estos 5 campos viven SIEMPRE como columnas (nunca dentro de datos_extraidos)
+  // para evitar divergencia entre extraccion Gemini y ediciones manuales del usuario.
+  `ALTER TABLE drive_archivos ADD COLUMN IF NOT EXISTS es_rectificativa BOOLEAN NOT NULL DEFAULT FALSE`,
+  `ALTER TABLE drive_archivos ADD COLUMN IF NOT EXISTS rect_serie       VARCHAR(1)`,
+  `ALTER TABLE drive_archivos ADD COLUMN IF NOT EXISTS rect_numero      VARCHAR(40)`,
+  `ALTER TABLE drive_archivos ADD COLUMN IF NOT EXISTS rect_fecha       DATE`,
+  `ALTER TABLE drive_archivos ADD COLUMN IF NOT EXISTS rect_base_imp    NUMERIC(14,2)`,
 
   // Indices y restricciones
   `CREATE INDEX IF NOT EXISTS idx_proveedores_cif ON proveedores (UPPER(TRIM(cif))) WHERE activo = true AND cif IS NOT NULL`,
@@ -652,6 +668,30 @@ async function runMigrations() {
   `);
 
   // historial_sincronizaciones es global (no se filtra por empresa)
+
+  // ─── Migracion idempotente: prompt Gemini V1 → V2 ───────────────────────────
+  // El V2 anyade deteccion de rectificativas. Si el prompt en BD coincide
+  // byte-a-byte con V1, se actualiza automaticamente. Si el admin lo customizo
+  // (no coincide con V1 ni con V2), respetamos su version y avisamos por log.
+  // Si la fila no existe, ensurePromptSeeded creara el V2 tras las migraciones.
+  const promptRow = await db.one("SELECT valor FROM configuracion WHERE clave = 'prompt_gemini'");
+  if (promptRow) {
+    if (promptRow.valor === PROMPT_DEFAULT_V1) {
+      await db.query(
+        `UPDATE configuracion SET valor = $1, updated_at = NOW() WHERE clave = 'prompt_gemini'`,
+        [PROMPT_DEFAULT]
+      );
+      logger.info('[MIGRATION] prompt_gemini actualizado de V1 a V2 (deteccion de rectificativas)');
+    } else if (promptRow.valor === PROMPT_DEFAULT) {
+      // Ya esta en V2, no hacer nada.
+    } else {
+      logger.warn(
+        '[MIGRATION WARN] prompt_gemini en BD ha sido modificado manualmente. ' +
+        'No se actualiza automaticamente. Para incluir deteccion de rectificativas, ' +
+        'resetea desde la UI de configuracion o aplica el nuevo PROMPT_DEFAULT manualmente.'
+      );
+    }
+  }
 
   logger.info('Migración PostgreSQL completada');
 }

@@ -217,6 +217,8 @@ router.get('/', async (req, res) => {
         p.sii_tipo_no_suje AS proveedor_sii_tipo_no_suje,
         p.sii_tipo_rectif  AS proveedor_sii_tipo_rectif,
         p.sii_entr_prest   AS proveedor_sii_entr_prest,
+        da.es_rectificativa, da.rect_serie, da.rect_numero, da.rect_base_imp,
+        TO_CHAR(da.rect_fecha, 'YYYY-MM-DD') AS rect_fecha,
         la.nombre_fichero AS lote_a3_nombre, la.fecha AS lote_a3_fecha
       ${joinBlock}
       ORDER BY da.id DESC
@@ -794,7 +796,10 @@ router.post('/exportar-sage', requireAuth, express.json(), async (req, res) => {
            COALESCE(da.sii_tipo_exenci,  p.sii_tipo_exenci,  1) AS sii_tipo_exenci,
            COALESCE(da.sii_tipo_no_suje, p.sii_tipo_no_suje, 2) AS sii_tipo_no_suje,
            COALESCE(da.sii_tipo_rectif,  p.sii_tipo_rectif,  2) AS sii_tipo_rectif,
-           COALESCE(da.sii_entr_prest,   p.sii_entr_prest,   3) AS sii_entr_prest
+           COALESCE(da.sii_entr_prest,   p.sii_entr_prest,   3) AS sii_entr_prest,
+           da.sii_tipo_fact AS override_sii_tipo_fact,
+           da.es_rectificativa, da.rect_serie, da.rect_numero, da.rect_base_imp,
+           TO_CHAR(da.rect_fecha, 'YYYYMMDD') AS rect_fecha_ymd
     FROM drive_archivos da
     LEFT JOIN LATERAL (
       SELECT p2.* FROM proveedores p2
@@ -1158,6 +1163,36 @@ const CAMPOS_EDITABLES = [
 // no del JSONB). Si la factura ya esta exportada a SAGE todos quedan bloqueados.
 const CAMPOS_SII_FACTURA = ['sii_tipo_clave', 'sii_tipo_fact', 'sii_tipo_exenci', 'sii_tipo_no_suje', 'sii_tipo_rectif', 'sii_entr_prest'];
 
+// Campos propios de rectificativa (columnas de drive_archivos, tambien fuera del JSONB).
+// Mismo bloqueo por lote_sage_id que los SII. Validadores por tipo — ver PUT /:id/datos.
+const CAMPOS_RECT_FACTURA = ['es_rectificativa', 'rect_serie', 'rect_numero', 'rect_fecha', 'rect_base_imp'];
+const VALIDADORES_RECT = {
+  es_rectificativa: (v) => typeof v === 'boolean'
+    ? { value: v }
+    : { error: 'es_rectificativa debe ser true o false' },
+  rect_serie: (v) => {
+    if (v === null || v === '') return { value: null };
+    if (typeof v !== 'string' || v.length > 1) return { error: 'rect_serie debe ser cadena de 1 caracter o null' };
+    return { value: v };
+  },
+  rect_numero: (v) => {
+    if (v === null || v === '') return { value: null };
+    if (typeof v !== 'string' || v.length > 40) return { error: 'rect_numero debe ser cadena de hasta 40 caracteres o null' };
+    return { value: v };
+  },
+  rect_fecha: (v) => {
+    if (v === null || v === '') return { value: null };
+    if (typeof v !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(v)) return { error: 'rect_fecha debe ser YYYY-MM-DD o null' };
+    return { value: v };
+  },
+  rect_base_imp: (v) => {
+    if (v === null || v === '') return { value: null };
+    const n = Number(v);
+    if (!Number.isFinite(n)) return { error: 'rect_base_imp debe ser numero o null' };
+    return { value: n };
+  },
+};
+
 router.put('/:id/datos', requireAuth, express.json(), async (req, res) => {
   const id = parseInt(req.params.id, 10);
   const db = getDb();
@@ -1165,14 +1200,15 @@ router.put('/:id/datos', requireAuth, express.json(), async (req, res) => {
   const archivo = await db.one('SELECT * FROM drive_archivos WHERE id = $1', [id]);
   if (!archivo) return res.status(404).json({ ok: false, error: 'Archivo no encontrado' });
 
-  // Detectar que campos SII vienen en el body (undefined = no tocar).
-  const siiPresentes = CAMPOS_SII_FACTURA.filter(c => req.body[c] !== undefined);
+  // Detectar que campos SII + rectificativa vienen en el body (undefined = no tocar).
+  const siiPresentes  = CAMPOS_SII_FACTURA.filter(c => req.body[c] !== undefined);
+  const rectPresentes = CAMPOS_RECT_FACTURA.filter(c => req.body[c] !== undefined);
 
-  if (archivo.lote_sage_id && siiPresentes.length > 0) {
-    return res.status(409).json({ ok: false, error: 'Factura ya exportada a SAGE, campos SII no editables' });
+  if (archivo.lote_sage_id && (siiPresentes.length > 0 || rectPresentes.length > 0)) {
+    return res.status(409).json({ ok: false, error: 'Factura ya exportada a SAGE, campos SII / rectificativa no editables' });
   }
 
-  // Validacion: null o '' = volver a heredar del proveedor (NULL en BD), entero >= 0 = override.
+  // Validacion SII: null o '' = volver a heredar del proveedor (NULL en BD), entero >= 0 = override.
   const parseSiiCol = v => {
     if (v === null || v === '') return null;
     const n = Number(v);
@@ -1184,6 +1220,14 @@ router.put('/:id/datos', requireAuth, express.json(), async (req, res) => {
     const v = parseSiiCol(req.body[c]);
     if (Number.isNaN(v)) return res.status(400).json({ ok: false, error: `${c} debe ser entero >= 0 o null` });
     siiNuevos[c] = v;
+  }
+
+  // Validacion rectificativa: validador por campo (ver VALIDADORES_RECT).
+  const rectNuevos = {};
+  for (const c of rectPresentes) {
+    const { value, error } = VALIDADORES_RECT[c](req.body[c]);
+    if (error) return res.status(400).json({ ok: false, error });
+    rectNuevos[c] = value;
   }
 
   const datosActuales = archivo.datos_extraidos ? JSON.parse(archivo.datos_extraidos) : {};
@@ -1203,7 +1247,7 @@ router.put('/:id/datos', requireAuth, express.json(), async (req, res) => {
   }
 
   const hayCambiosJson = Object.keys(cambios).length > 0;
-  if (!hayCambiosJson && siiPresentes.length === 0) {
+  if (!hayCambiosJson && siiPresentes.length === 0 && rectPresentes.length === 0) {
     return res.status(400).json({ ok: false, error: 'No hay campos que modificar' });
   }
 
@@ -1223,6 +1267,14 @@ router.put('/:id/datos', requireAuth, express.json(), async (req, res) => {
     cambios[c] = siiNuevos[c];
   }
 
+  for (const c of rectPresentes) {
+    // Nombre de columna de CAMPOS_RECT_FACTURA (lista blanca). rect_fecha va como string
+    // YYYY-MM-DD y Postgres lo castea al tipo DATE de la columna.
+    await db.query(`UPDATE drive_archivos SET ${c} = $1 WHERE id = $2`, [rectNuevos[c], id]);
+    anteriores[c] = archivo[c] ?? null;
+    cambios[c] = rectNuevos[c];
+  }
+
   await registrarEvento({
     evento:    'EDICION_DATOS_FACTURA',
     usuarioId: req.usuario?.id ?? null,
@@ -1238,13 +1290,24 @@ router.put('/:id/datos', requireAuth, express.json(), async (req, res) => {
     },
   }).catch(() => {});
 
-  // Responder con el valor actual de los 6 campos SII (siendo nuevo si se edito,
-  // o el valor previo en caso contrario). El frontend lo usa para update optimista.
+  // Responder con el valor actual de los 11 campos SII + rectificativa (nuevo si se
+  // edito, previo en caso contrario). El frontend lo usa para update optimista.
   const siiResp = {};
   for (const c of CAMPOS_SII_FACTURA) {
     siiResp[c] = siiPresentes.includes(c) ? siiNuevos[c] : (archivo[c] ?? null);
   }
-  res.json({ ok: true, data: { datos_extraidos: nuevosDatos, ...siiResp } });
+  const rectResp = {};
+  for (const c of CAMPOS_RECT_FACTURA) {
+    if (rectPresentes.includes(c)) {
+      rectResp[c] = rectNuevos[c];
+    } else if (c === 'rect_fecha' && archivo.rect_fecha instanceof Date) {
+      // El driver pg devuelve DATE como Date. Formatear a ISO para el input date-picker.
+      rectResp[c] = archivo.rect_fecha.toISOString().slice(0, 10);
+    } else {
+      rectResp[c] = archivo[c] ?? null;
+    }
+  }
+  res.json({ ok: true, data: { datos_extraidos: nuevosDatos, ...siiResp, ...rectResp } });
 });
 
 // ─── GET /api/drive/carpetas — listar carpetas de proveedores en Drive ───────

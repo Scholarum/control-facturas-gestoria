@@ -226,19 +226,58 @@ Historial de correcciones:
 **Campos SII / Libro de IVA:**
 - **Pos 72 — `FacturaEx`** (40 chars) → número de factura del emisor (`numero_factura`). Es el valor que ContaPlus muestra en el "Cuadro de impuestos" como "Nº factura expedición". Sólo se rellena en las líneas de IVA.
 - **Pos 76 — `L340`** (lógico) → `.T.` en todas las líneas del asiento (proveedor, gasto y cada IVA). Para que ContaPlus marque efectivamente la casilla "340/SII" al importar, cuando `L340=.T.` deben venir informados los campos SII asociados (pos 117 `TipoClave` y pos 120 `TipoFact`); si falta alguno de los críticos, ContaPlus descarta el flag entero (manual R75, Nota 6, pág. 12).
-- **Pos 73 — `TipoFac`** → literal `'R'` (Recibida) en todas las líneas de IVA. Esta app sólo maneja facturas de proveedor, por lo que no requiere parametrización. El soporte correcto de facturas rectificativas (que afectaría a `TipoFact` pos 120 y a `Rectifica` pos 37) queda pendiente: requiere un flag explícito en la factura, no derivado del signo del importe.
+- **Pos 73 — `TipoFac`** → literal `'R'` (Recibida) en todas las líneas de IVA. Esta app sólo maneja facturas de proveedor, por lo que no requiere parametrización.
 - **Pos 117 — `TipoClave`** (N 2, marcador *15 para 472 Deducible) → clave del régimen SII. Default `1` = operación de régimen general (caso normal español).
-- **Pos 120 — `TipoFact`** (N 2, marcador *18 para 472 Deducible) → tipo de factura SII. Default `1` = F1 Factura ordinaria.
+- **Pos 118 — `TipoExenci`** (N 2, marcador *16) → tipo de exención. Default `1` = no exenta.
+- **Pos 119 — `TipoNoSuje`** (N 2, marcador *17) → tipo de operación no sujeta. Default `2` = S1 Sujeta-No exenta.
+- **Pos 120 — `TipoFact`** (N 2, marcador *18 para 472 Deducible) → tipo de factura SII. Default `1` = F1 Factura ordinaria. Si la factura está marcada rectificativa, el exportador aplica mapeo automático F1→R1 / F2→R5 (ver "Facturas rectificativas" abajo).
+- **Pos 123 — `TipoRectif`** (N 2, marcador *20) → tipo de rectificativa. Default `2` = por diferencias. Sólo aplica cuando `es_rectificativa=true`; en facturas normales el exportador fuerza `1` como defensa en profundidad.
+- **Pos 126 — `nEntrPrest`** (N 1, marcador *21) → entrega de bienes vs prestación de servicios. Default `3` = prestación de servicios.
+- **Pos 127 — `Decrecen`** (F 8) → fecha de registro contable, siempre igual a la fecha del asiento (hoy). No parametrizado en BD; se calcula en el exportador.
 
-**Parametrización de `TipoClave` / `TipoFact`:** ambos viven como columnas `sii_tipo_clave` y `sii_tipo_fact` en dos tablas:
-- `proveedores`: `SMALLINT NOT NULL DEFAULT 1`. Valor por proveedor.
+**Parametrización de los 6 campos SII:** viven como columnas `sii_tipo_clave`, `sii_tipo_fact`, `sii_tipo_exenci`, `sii_tipo_no_suje`, `sii_tipo_rectif`, `sii_entr_prest` en dos tablas:
+- `proveedores`: `SMALLINT NOT NULL DEFAULT <d>` donde `<d>` es el default correspondiente (1/1/1/2/2/3). Valor por proveedor.
 - `drive_archivos`: `SMALLINT NULL`. Override por factura; `NULL` = heredar del proveedor.
 
-El SELECT del exportador resuelve el valor efectivo en SQL con `COALESCE(da.sii_tipo_clave, p.sii_tipo_clave, 1)` (análogo para `sii_tipo_fact`), evitando que el exportador tenga que conocer la tabla de proveedores. Las columnas se rellenan en `crearIva` únicamente; proveedor (HABER) y gasto (DEBE) no llevan campos SII.
+El SELECT del exportador resuelve el valor efectivo en SQL con `COALESCE(da.sii_tipo_X, p.sii_tipo_X, <default>)` para cada campo, evitando que el exportador tenga que conocer la tabla de proveedores. Las columnas se rellenan en `crearIva` únicamente; proveedor (HABER) y gasto (DEBE) no llevan campos SII.
 
-Edición: el endpoint `PUT /api/drive/:id/datos` acepta ambos campos como columnas separadas (fuera del JSONB `datos_extraidos`). Si la factura ya está exportada (`lote_sage_id IS NOT NULL`), el endpoint responde `409` para cambios en `sii_tipo_*` pero mantiene editables el resto de `CAMPOS_EDITABLES`.
+Edición: el endpoint `PUT /api/drive/:id/datos` acepta los 6 campos SII como columnas separadas (fuera del TEXT `datos_extraidos`). Si la factura ya está exportada (`lote_sage_id IS NOT NULL`), el endpoint responde `409` para cambios en `sii_tipo_*` y campos de rectificativa, pero mantiene editables los `CAMPOS_EDITABLES` del JSON.
 
-**Nota CSV:** `lineaCSV()` no escapa `;` ni comillas. Si algún campo de texto libre llegase a contener `;`, desplazaría columnas. Hoy los campos alimentados son controlados (números de factura, códigos, fechas); revisar escape si se introduce texto libre del usuario.
+### Facturas rectificativas
+
+Soporte completo para el mapeo SII de rectificativas (SAGE R75 pos 37 + pos 33-38 + pos 128), añadido el 2026-04-23. Cubre los casos mayoritarios de esta app: Art. 80.1/80.2 LIVA (errores, devoluciones, descuentos) con referencia opcional a factura original. Casos 80.3 (concurso) y 80.4 (incobrables) se soportan vía override manual de `sii_tipo_fact` a nivel factura.
+
+**Modelo de datos** (columnas de `drive_archivos`, fuera del JSONB `datos_extraidos`):
+- `es_rectificativa BOOLEAN NOT NULL DEFAULT FALSE` — flag propio de la factura.
+- `rect_serie VARCHAR(1)` — serie de la factura original. Opcional.
+- `rect_numero VARCHAR(40)` — número de la factura original. Opcional.
+- `rect_fecha DATE` — fecha de la factura original. Opcional.
+- `rect_base_imp NUMERIC(14,2)` — base imponible de la factura original. Opcional.
+
+Los 5 campos viven siempre como columnas, nunca dentro del JSONB. Razón: el usuario puede editarlos manualmente desde la UI; si también estuvieran en el JSONB extraído por Gemini, habría dos fuentes divergentes y cualquier consumer que leyera del JSON obtendría el valor antiguo.
+
+**Persistencia desde extractor Gemini** (`extractorService.guardarResultado`): extrae `es_rectificativa` + 4 `rect_*` del objeto `datos` antes del `JSON.stringify(datosJson)` y los persiste vía `COALESCE($valor_gemini, columna_actual)`. Semántica: `null` de Gemini significa "no detectado, respeta ediciones manuales previas"; valor explícito (incluso `false`) sobrescribe. Así, re-procesar una factura no pisa ediciones del usuario salvo que Gemini devuelva un valor explícito distinto.
+
+**Exportador SAGE** (`sageExporter.crearIva`):
+- **Pos 37 `Rectifica`**: `.T.` si `es_rectificativa=true`, `.F.` si no.
+- **Pos 120 `TipoFact`** con mapeo condicional:
+  - Si no rectificativa → valor efectivo de `sii_tipo_fact` (1 F1, 2 F2, etc.).
+  - Si rectificativa y hay override explícito de factura (`da.sii_tipo_fact > 0`) → valor del override (permite forzar R2=8, R3=9, R4=10 en casos raros).
+  - Si rectificativa sin override → mapeo automático: F1(1)→R1(7), F2(2)→R5(11); fallback R1 para cualquier otro caso.
+- **Pos 123 `TipoRectif`**: defensa en profundidad → si no rectificativa se fuerza `1` ignorando el valor de `sii_tipo_rectif`; si rectificativa, usa el valor resuelto.
+- **Pos 33-38 + 128** (datos factura original, sólo línea de IVA, sólo cuando `es_rectificativa=true`):
+  - Pos 33 `Serie_RT` = `rect_serie`.
+  - Pos 34 `Factu_RT` (N 8) = `rect_numero` **sólo si** cumple `/^\d{1,8}$/`; en otro caso queda vacío y se loguea `[SAGE DEBUG] rect_numero no numérico para asiento N, se omite pos 34 Factu_RT`. El valor textual íntegro va en pos 128 `FactuEx_RT` (C 40) sin restricción.
+  - Pos 35 `BaseImp_RT` = `rect_base_imp.toFixed(2)` o vacío.
+  - Pos 36 `BaseImp_RF` = base imponible de la línea de IVA actual.
+  - Pos 38 `Fecha_RT` = `rect_fecha` formateada como `AAAAMMDD`.
+  - Pos 128 `FactuEx_RT` = `rect_numero` textual íntegro.
+
+**Opción B para abonos globales** (1 rectificativa → N facturas originales): la app genera un único asiento de rectificativa sin referencia a original y con `TipoRectif=2` (por diferencias). El SII lo acepta como ajuste global. No partimos abonos en N asientos (opción A) — fuera de alcance.
+
+**Detección por Gemini**: el PROMPT_DEFAULT vigente (V2, desde 2026-04-23) incluye extracción de `isRectificativa, rectifiedSerie/Number/Date/TaxBase`. Ver sección de deploy para la migración idempotente del prompt.
+
+**Nota CSV:** `lineaCSV()` no escapa `;` ni comillas. Si algún campo de texto libre llegase a contener `;`, desplazaría columnas. Hoy los campos alimentados son controlados (números de factura, códigos, fechas, serie de rectificativa); revisar escape si se introduce texto libre del usuario. `rect_numero` admite hasta 40 caracteres alfanuméricos y **no** se escapa — si en algún caso se encuentra un número de factura con `;`, rompería la línea CSV. Query preventiva en BD dev devolvió 0 filas; replicar en prod en el merge.
 
 ## Mantenimiento masivo de proveedores vía Excel
 
@@ -278,6 +317,14 @@ CORS_ORIGIN           # Orígenes permitidos (CSV), vacío = todos en dev
 - **Backend**: Render (Node.js) — escucha el repo completo, redespliega ante cualquier commit en `main`.
 - **Frontend**: Netlify (SPA con redirect `/* → /index.html`) — `netlify.toml` define `base = "client"`.
 - **Base de datos**: Supabase (PostgreSQL)
+
+**Migración idempotente del prompt Gemini (`configuracion.prompt_gemini`)**: el `runMigrations()` compara byte-a-byte el valor actual en BD con `PROMPT_DEFAULT_V1` (la versión anterior, hardcodeada como constante literal en `src/services/extractorService.js`). Si coincide, se actualiza automáticamente al `PROMPT_DEFAULT` vigente. Si no coincide (admin customizó el prompt desde la UI de configuración), se respeta su versión y se loguea un warning claro:
+```
+[MIGRATION WARN] prompt_gemini en BD ha sido modificado manualmente. No se actualiza
+automáticamente. Para incluir detección de rectificativas, resetea desde la UI de
+configuración o aplica el nuevo PROMPT_DEFAULT manualmente.
+```
+Si el admin había customizado el prompt, tras un deploy con nuevo `PROMPT_DEFAULT` tendrá que resetearlo desde la UI (o aplicar manualmente los cambios) para que el extractor recoja las nuevas capacidades. La opción "respetar customización por defecto" evita pisar trabajo manual.
 - En producción, Express sirve el build estático del cliente desde `client/dist/`
 
 **Netlify cancela builds "sin cambios" por diseño:** al tener `base = "client"`, Netlify compara el diff del commit contra esa carpeta y si no hay cambios dentro, marca el deploy como *Canceled* (optimización integrada, no es un error). Por tanto los commits que sólo tocan backend (`src/`), CLI (`extractor.js`, `sync.js`), `CLAUDE.md` o SQL aparecerán como cancelados en Netlify — es correcto, el frontend servido sigue siendo el del último build que sí tocó `client/`.
