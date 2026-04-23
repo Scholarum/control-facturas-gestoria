@@ -155,7 +155,7 @@ throw Object.assign(new Error('No autorizado'), { status: 403 });
 | `usuarios` | Usuarios del sistema (email, rol, password_hash, activo) |
 | `empresas` | Multi-empresa (nombre, cif, direccion) |
 | `usuario_empresa` | Relación N:M usuarios-empresas |
-| `drive_archivos` | Facturas sincronizadas desde Google Drive (datos_extraidos JSONB) |
+| `drive_archivos` | Facturas sincronizadas desde Google Drive (datos_extraidos **TEXT** con JSON serializado; ver nota) |
 | `proveedores` | Proveedores (razon_social, cif, cuenta_contable_id, cuenta_gasto_id, sii_tipo_clave, sii_tipo_fact) |
 | `proveedor_empresa` | Cuentas de proveedor por empresa |
 | `plan_contable` | Cuentas contables (codigo, descripcion, grupo, empresa_id) |
@@ -173,6 +173,18 @@ throw Object.assign(new Error('No autorizado'), { status: 403 });
 ### Estados de archivo (drive_archivos)
 
 `PENDIENTE` → `PROCESADA` (extracción OK) o `REVISION_MANUAL` (error extracción)
+
+### Columna `drive_archivos.datos_extraidos` — TEXT, no JSONB
+
+La columna está declarada `TEXT` (ver `src/config/migrate.js`). Almacena el JSON de la extracción Gemini serializado como string. **No** es JSONB (pese a que el contenido sea JSON). Razones históricas — la tabla se creó antes de la migración a PostgreSQL y nunca se cambió el tipo para no romper los `JSON.parse(a.datos_extraidos)` del código JS (con JSONB el driver `pg` devolvería objeto directo y esos `JSON.parse` fallarían).
+
+**Reglas obligatorias:**
+
+1. **Acceso desde SQL**: siempre con cast `::jsonb` antes de los operadores `->>` o `->`. Patrón estándar: `(da.datos_extraidos::jsonb)->>'clave'`. Sin cast los operadores dan error `operator does not exist: text ->> unknown`.
+2. **Acceso desde JS**: `JSON.parse(row.datos_extraidos)`. El driver devuelve string.
+3. **Guard frente a JSON inválido**: las filas antiguas pueden tener `datos_extraidos` vacío o corrupto. En SELECTs que castean a `jsonb`, proteger con `da.datos_extraidos ~ '^\s*\{'` antes del cast (patrón usado en todos los SELECT de `src/routes/gestion.js` y `src/config/migrate.js`). Sin este guard, una fila con texto no-JSON puede hacer fallar la consulta entera.
+
+Las columnas nuevas que vayan a parametrizar comportamientos del export SAGE o SII deben crearse **fuera del JSONB** como columnas separadas de `drive_archivos` (patrón `sii_tipo_*`, `rect_*`, `es_rectificativa`). Mucho más rápido de indexar y no dependen de casts.
 
 ### Migraciones
 
