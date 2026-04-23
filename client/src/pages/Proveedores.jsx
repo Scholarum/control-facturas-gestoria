@@ -9,6 +9,24 @@ import BuscadorAvanzado, { FILTROS_VACIO } from '../components/proveedores/Busca
 import FilaProveedorEditable from '../components/proveedores/FilaProveedorEditable.jsx';
 import ModalProveedor from '../components/proveedores/ModalProveedor.jsx';
 import ModalImportar from '../components/proveedores/ModalImportar.jsx';
+import { SII_CLAVE, SII_TIPO_FACT, SII_TIPO_EXENCI, SII_TIPO_NO_SUJE, SII_TIPO_RECTIF, SII_ENTR_PREST, tooltipSii } from '../constants/sii.js';
+
+// Cabeceras de la tabla de proveedores. Las SII llevan tooltip nativo con los
+// valores validos (title=""), lista cargada desde client/src/constants/sii.js.
+const CABECERAS_TABLA = [
+  { label: 'Razon Social' },
+  { label: 'Nombre Carpeta' },
+  { label: 'CIF' },
+  { label: 'Cta. Contable' },
+  { label: 'Cta. Gasto' },
+  { label: 'Clave SII',      tooltip: tooltipSii(SII_CLAVE) },
+  { label: 'Tipo Fact. SII', tooltip: tooltipSii(SII_TIPO_FACT) },
+  { label: 'Exenc.',         tooltip: tooltipSii(SII_TIPO_EXENCI) },
+  { label: 'No Suj.',        tooltip: tooltipSii(SII_TIPO_NO_SUJE) },
+  { label: 'Rectif.',        tooltip: tooltipSii(SII_TIPO_RECTIF) },
+  { label: 'Entr/Prest',     tooltip: tooltipSii(SII_ENTR_PREST) },
+  { label: '' },
+];
 
 const FORM_VACIO = {
   razon_social: '', nombre_carpeta: '', cif: '',
@@ -235,8 +253,14 @@ export default function Proveedores() {
             <table className="w-full text-sm">
               <thead className="bg-gray-50 border-b border-gray-200">
                 <tr>
-                  {['Razon Social', 'Nombre Carpeta', 'CIF', 'Cta. Contable', 'Cta. Gasto', 'Clave SII', 'Tipo Fact. SII', 'Exenc.', 'No Suj.', 'Rectif.', 'Entr/Prest', ''].map(h => (
-                    <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">{h}</th>
+                  {CABECERAS_TABLA.map((h, i) => (
+                    <th
+                      key={`${h.label}-${i}`}
+                      title={h.tooltip || undefined}
+                      className={`px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap ${h.tooltip ? 'cursor-help' : ''}`}
+                    >
+                      {h.label}
+                    </th>
                   ))}
                 </tr>
               </thead>

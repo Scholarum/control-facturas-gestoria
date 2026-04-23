@@ -380,4 +380,5 @@ No hay framework de testing configurado. Las pruebas son manuales.
 - Testing (Jest/Vitest)
 - Pre-commit hooks
 - Gestión centralizada de secretos (pendiente migrar a Doppler/AWS SSM/Vault)
+- Normalización de CIF en el exportador SAGE: pos 62 `TerNIF` y pos 134 `TerNifNew` hoy se escriben tal cual llegan del JSONB (con guiones o barras, p.ej. `B-85294916`, `A78/603479`). ContaPlus los acepta y normaliza al importar, pero es preferible enviarlos limpios. Añadir `normalizarCIF()` que aplique `strip / - espacios` antes de volcar esos dos campos.
 - Edición optimista en panel fiscal de facturas: aplicada sólo a los dos campos SII (`sii_tipo_clave`, `sii_tipo_fact`) mediante el callback `onActualizarFacturaLocal` hilado `SeccionFacturas → TablaFacturas → PanelDetalleFiscal`. El resto de campos del panel (`numero_factura`, fechas, importes, IVA, etc.) sigue disparando `onDatosActualizados → invalidate() → refetch completo`, lo que cierra el panel expandido y pierde scroll. Patrón replicable si se priorizase.

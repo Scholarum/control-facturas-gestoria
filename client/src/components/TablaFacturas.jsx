@@ -4,6 +4,7 @@ import { BadgeGestion, BadgeExtraccion } from './Badge.jsx';
 import { fetchPreviewFactura, editarDatosFactura, asignarCuentaContableProveedor, crearProveedorRapido, crearCuentaContable, eliminarCuentaContable, fetchHistorialFactura } from '../api.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import { formatCurrency, formatCurrencyIva } from '../utils/formatCurrency.js';
+import { SII_CLAVE, SII_TIPO_FACT, SII_TIPO_EXENCI, SII_TIPO_NO_SUJE, SII_TIPO_RECTIF, SII_ENTR_PREST, tooltipSii } from '../constants/sii.js';
 
 // Campos obligatorios para considerar una factura sin incidencia
 const CAMPOS_OBLIGATORIOS = [
@@ -590,7 +591,8 @@ function CampoEditable({ label, valor, campo, datosOriginales, onGuardar, tipo =
 // Input inline para un campo SII (override por factura). Muestra el valor heredado
 // del proveedor como placeholder. Vacio = hereda del proveedor (NULL en BD).
 // Feedback visual: azul guardando, verde flash al OK, rojo con title al error.
-function CampoSiiInline({ label, override, heredado, campo, disabled, onGuardar }) {
+// tooltip opcional: si se pasa, el <label> lleva title="" con los valores validos.
+function CampoSiiInline({ label, override, heredado, campo, disabled, onGuardar, tooltip }) {
   const [val, setVal] = useState(override == null ? '' : String(override));
   const [status, setStatus] = useState('idle'); // idle | saving | ok | error
   const [errorMsg, setErrorMsg] = useState('');
@@ -621,7 +623,12 @@ function CampoSiiInline({ label, override, heredado, campo, disabled, onGuardar 
 
   return (
     <div>
-      <label className="block text-xs text-gray-500 mb-0.5">{label}</label>
+      <label
+        className={`block text-xs text-gray-500 mb-0.5 ${tooltip ? 'cursor-help' : ''}`}
+        title={tooltip || undefined}
+      >
+        {label}
+      </label>
       <div className="flex items-center gap-2">
         <input type="number" min="0" step="1"
           value={val}
@@ -931,6 +938,7 @@ function PanelDetalleFiscal({ f, onDatosActualizados, onActualizarFacturaLocal }
                 heredado={f.proveedor_sii_tipo_clave ?? 1}
                 disabled={!!f.lote_sage_id}
                 onGuardar={handleGuardarSiiLocal}
+                tooltip={tooltipSii(SII_CLAVE)}
               />
               <CampoSiiInline
                 label="Tipo factura SII"
@@ -939,6 +947,7 @@ function PanelDetalleFiscal({ f, onDatosActualizados, onActualizarFacturaLocal }
                 heredado={f.proveedor_sii_tipo_fact ?? 1}
                 disabled={!!f.lote_sage_id}
                 onGuardar={handleGuardarSiiLocal}
+                tooltip={tooltipSii(SII_TIPO_FACT)}
               />
               <CampoSiiInline
                 label="Tipo exención"
@@ -947,6 +956,7 @@ function PanelDetalleFiscal({ f, onDatosActualizados, onActualizarFacturaLocal }
                 heredado={f.proveedor_sii_tipo_exenci ?? 1}
                 disabled={!!f.lote_sage_id}
                 onGuardar={handleGuardarSiiLocal}
+                tooltip={tooltipSii(SII_TIPO_EXENCI)}
               />
               <CampoSiiInline
                 label="Tipo no sujeta"
@@ -955,6 +965,7 @@ function PanelDetalleFiscal({ f, onDatosActualizados, onActualizarFacturaLocal }
                 heredado={f.proveedor_sii_tipo_no_suje ?? 2}
                 disabled={!!f.lote_sage_id}
                 onGuardar={handleGuardarSiiLocal}
+                tooltip={tooltipSii(SII_TIPO_NO_SUJE)}
               />
               <CampoSiiInline
                 label="Tipo rectificativa"
@@ -963,6 +974,7 @@ function PanelDetalleFiscal({ f, onDatosActualizados, onActualizarFacturaLocal }
                 heredado={f.proveedor_sii_tipo_rectif ?? 2}
                 disabled={!!f.lote_sage_id}
                 onGuardar={handleGuardarSiiLocal}
+                tooltip={tooltipSii(SII_TIPO_RECTIF)}
               />
               <CampoSiiInline
                 label="Entrega / Prestación"
@@ -971,6 +983,7 @@ function PanelDetalleFiscal({ f, onDatosActualizados, onActualizarFacturaLocal }
                 heredado={f.proveedor_sii_entr_prest ?? 3}
                 disabled={!!f.lote_sage_id}
                 onGuardar={handleGuardarSiiLocal}
+                tooltip={tooltipSii(SII_ENTR_PREST)}
               />
             </div>
             <p className="text-xs text-gray-500 mt-2">
