@@ -252,7 +252,11 @@ function lineaCSV(valores) {
 
 function construirLineasFactura(factura, numAsiento, documento, fechaAsientoYmd) {
   const d = factura.datos_extraidos || {};
-  const ivaList = Array.isArray(d.iva) ? d.iva.filter(e => e.base > 0 || e.cuota > 0) : [];
+  // Entrada valida en ivaList: hay base o cuota distintas de cero (cualquier signo).
+  // Rectificativas traen valores negativos — filtrar por "no-cero", NO por "> 0".
+  const ivaList = Array.isArray(d.iva)
+    ? d.iva.filter(e => (Number(e.base) || 0) !== 0 || (Number(e.cuota) || 0) !== 0)
+    : [];
 
   const fechaEmision  = d.fecha_emision || '';
   const numFactura    = d.numero_factura || '';
@@ -388,11 +392,13 @@ function construirLineasFactura(factura, numAsiento, documento, fechaAsientoYmd)
 
   if (ivaList.length === 0) {
     const totalIva = parseFloat(d.total_iva) || 0;
-    if (totalIva > 0) lineas.push(crearIva(baseSinIva, totalIva, 21));
+    // !== 0 (no > 0): rectificativas pueden traer total_iva negativo sin desglose.
+    if (totalIva !== 0) lineas.push(crearIva(baseSinIva, totalIva, 21));
   } else {
     for (const iva of ivaList) {
       const tipo = iva.tipo || 21, base = parseFloat(iva.base)||0, cuota = parseFloat(iva.cuota)||0;
-      if (cuota > 0 || tipo === 0) lineas.push(crearIva(base, cuota, tipo));
+      // cuota !== 0 (rectificativas = cuota negativa) o tipo === 0 (exentas con cuota 0).
+      if (cuota !== 0 || tipo === 0) lineas.push(crearIva(base, cuota, tipo));
     }
   }
 
@@ -435,6 +441,18 @@ function generarFicheroSage(facturas, opts = {}) {
     const d = factura.datos_extraidos || {};
     const total = parseFloat(d.total_factura) || 0;
     const documento = construirDocumento(total, numDoc);
+
+    // Defensivo: el TXT de posiciones fijas pierde el signo (fmtND aplica Math.abs).
+    // Si la gestoria importa CSV el asiento cuadra; si importa TXT, los negativos
+    // se serializan sin signo y DEBE/HABER no ajustan. Dejamos traza para detectarlo
+    // en produccion si algun dia reportan descuadre en rectificativas.
+    if (total < 0) {
+      logger.warn(
+        { asiento: numAsiento, total, factura: d.numero_factura || null, drive_id: factura.id || null },
+        '[SAGE TXT] asiento con total negativo; el TXT no preserva signo. Usar CSV para rectificativas.'
+      );
+    }
+
     registros.push(...construirLineasFactura(factura, numAsiento, documento, fechaAsientoYmd));
     numAsiento++;
     numDoc++;

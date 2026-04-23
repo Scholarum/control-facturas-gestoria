@@ -285,6 +285,14 @@ El backfill retroactivo (query SQL lanzada manualmente desde Supabase SQL Editor
 
 **Nota CSV:** `lineaCSV()` no escapa `;` ni comillas. Si algún campo de texto libre llegase a contener `;`, desplazaría columnas. Hoy los campos alimentados son controlados (números de factura, códigos, fechas, serie de rectificativa); revisar escape si se introduce texto libre del usuario. `rect_numero` admite hasta 40 caracteres alfanuméricos y **no** se escapa — si en algún caso se encuentra un número de factura con `;`, rompería la línea CSV. Query preventiva en BD dev devolvió 0 filas; replicar en prod en el merge.
 
+### Limitación conocida: formato TXT y números negativos
+
+La función `fmtND` (`src/services/sageExporter.js`) aplica `Math.abs(n)` antes de paddear, por lo que el formato TXT de posiciones fijas **no refleja el signo de los importes**. Facturas con total negativo (rectificativas, abonos) generadas en TXT no cuadran DEBE/HABER correctamente en ContaPlus al importar.
+
+El CSV (delimitado por `;`) sí preserva el signo porque `lineaCSV()` concatena los valores JS crudos sin pasar por `fmtND`; es el formato recomendado para importar a ContaPlus. Si se valida que la gestoría exclusivamente usa CSV, este tema es cosmético. Si en algún momento se pasa al TXT, hay que resolver la representación del signo en posiciones fijas conforme al manual R75 antes de hacerlo — el manual R75 define un ancho fijo sin signo explícito; habría que ver si ContaPlus admite `-` consumiendo 1 char del ancho o si hay un campo booleano separado para marcar "asiento negativo".
+
+Defensa operativa vigente: `generarFicheroSage` loguea `logger.warn('[SAGE TXT] asiento con total negativo; el TXT no preserva signo. Usar CSV para rectificativas.')` por cada asiento con `total_factura < 0`. Si la gestoría reporta descuadre en rectificativas, buscar este warning en los logs de Render confirma o descarta que hayan usado el TXT.
+
 ## Mantenimiento masivo de proveedores vía Excel
 
 Flujo "exportar filtrado → editar offline → reimportar", pensado para correcciones puntuales sin pisar el resto de la base de proveedores.
