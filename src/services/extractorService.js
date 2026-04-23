@@ -489,19 +489,19 @@ async function guardarResultado(id, estado, datos, error) {
   const { es_rectificativa, rect_serie, rect_numero, rect_fecha, rect_base_imp, ...datosJson } = datos;
 
   // Heuristica de fallback: si Gemini no detecto explicitamente rectificativa (null)
-  // o dijo false, pero la factura tiene total negativo y sin IVA, la marcamos como
-  // rectificativa. Razon: abonos y notas de credito habitualmente vienen con signo
-  // negativo sin desglose IVA. El usuario puede desmarcar manualmente si era un
-  // ajuste contable no rectificativo.
+  // o dijo false, pero la factura tiene total negativo, la marcamos como rectificativa.
+  // Razon: abonos, notas de credito y rectificativas con IVA bien desglosado vienen
+  // con signo negativo — cubrimos tambien los casos sin IVA desglosado. Los (pocos)
+  // ajustes contables con total<0 que no son rectificativos los desmarca el usuario
+  // desde la UI. Criterio coherente con el backfill retroactivo aplicado en dev
+  // el 2026-04-24 (ver seccion "Heuristica es_rectificativa" en CLAUDE.md).
   //
   // Precedencia: Gemini true > heuristica true > Gemini false > Gemini null.
-  // Nunca bajamos de true a false; solo elevamos null/false a true si la heuristica aplica.
+  // Nunca bajamos de true a false; solo elevamos null/false a true si total<0.
   let esRectFinal = es_rectificativa;
   if (esRectFinal !== true) {
     const total = Number(datosJson.total_factura);
-    const totalIva = datosJson.total_iva;
-    const ivaEsCero = totalIva == null || Number(totalIva) === 0;
-    if (Number.isFinite(total) && total < 0 && ivaEsCero) {
+    if (Number.isFinite(total) && total < 0) {
       esRectFinal = true;
     }
   }

@@ -258,6 +258,12 @@ Los 5 campos viven siempre como columnas, nunca dentro del JSONB. Razón: el usu
 
 **Persistencia desde extractor Gemini** (`extractorService.guardarResultado`): extrae `es_rectificativa` + 4 `rect_*` del objeto `datos` antes del `JSON.stringify(datosJson)` y los persiste vía `COALESCE($valor_gemini, columna_actual)`. Semántica: `null` de Gemini significa "no detectado, respeta ediciones manuales previas"; valor explícito (incluso `false`) sobrescribe. Así, re-procesar una factura no pisa ediciones del usuario salvo que Gemini devuelva un valor explícito distinto.
 
+**Heurística `es_rectificativa` (coherente runtime + backfill, alineada el 2026-04-24)**: si Gemini no detectó explícitamente `true` (devuelve `null` o `false`) pero `total_factura < 0`, el extractor eleva el flag a `true` antes del `UPDATE`. **Sin condición sobre IVA**: una rectificativa puede venir con IVA bien desglosado (negativo coherente con la base negativa) o sin desglose; ambos casos deben capturarse. Los falsos positivos (ajustes contables con total negativo que no son rectificativas) se desmarcan manualmente desde la UI.
+
+Precedencia estricta: `Gemini true > heurística true > Gemini false > Gemini null`. Nunca baja de `true` a `false`; sólo eleva a `true` si `total<0` y Gemini no dijo `true`.
+
+El backfill retroactivo (query SQL lanzada manualmente desde Supabase SQL Editor de dev/prod tras el deploy del commit 3) usa **el mismo criterio**: `UPDATE drive_archivos SET es_rectificativa = true WHERE es_rectificativa = false AND ((datos_extraidos::jsonb)->>'total_factura')::numeric < 0`. Idempotente por la condición `WHERE es_rectificativa = false`. Versión previa de la heurística exigía `total_iva IS NULL OR = 0` — era demasiado restrictiva porque las rectificativas con IVA negativo desglosado (p.ej. MACMILLAN −37,40 € con IVA −6,49) no entraban en ese filtro.
+
 **Exportador SAGE** (`sageExporter.crearIva`):
 - **Pos 37 `Rectifica`**: `.T.` si `es_rectificativa=true`, `.F.` si no.
 - **Pos 120 `TipoFact`** con mapeo condicional:
