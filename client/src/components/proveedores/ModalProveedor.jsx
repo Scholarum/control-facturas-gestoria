@@ -100,10 +100,43 @@ export default function ModalProveedor({ form, setForm, planContable, guardando,
                     className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                     placeholder="1" />
                 </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Tipo exención</label>
+                  <input type="number" min="0" step="1"
+                    value={form.sii_tipo_exenci ?? ''}
+                    onChange={e => set('sii_tipo_exenci', e.target.value === '' ? '' : parseInt(e.target.value, 10))}
+                    className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="1" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Tipo no sujeta</label>
+                  <input type="number" min="0" step="1"
+                    value={form.sii_tipo_no_suje ?? ''}
+                    onChange={e => set('sii_tipo_no_suje', e.target.value === '' ? '' : parseInt(e.target.value, 10))}
+                    className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="2" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Tipo rectificativa</label>
+                  <input type="number" min="0" step="1"
+                    value={form.sii_tipo_rectif ?? ''}
+                    onChange={e => set('sii_tipo_rectif', e.target.value === '' ? '' : parseInt(e.target.value, 10))}
+                    className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="2" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Entrega / Prestación</label>
+                  <input type="number" min="0" step="1"
+                    value={form.sii_entr_prest ?? ''}
+                    onChange={e => set('sii_entr_prest', e.target.value === '' ? '' : parseInt(e.target.value, 10))}
+                    className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="3" />
+                </div>
               </div>
               <p className="text-xs text-gray-500 mt-2">
-                Valores estándar 1/1 (régimen general + F1 factura ordinaria). Sólo tocar en casos especiales
-                (intracomunitarias, importaciones, inversión del sujeto pasivo, rectificativas, etc.).
+                Valores estándar 1/1/1/2/2/3 (régimen general + F1 + no exenta + S1 sujeta-no exenta + por diferencias + prestación servicios).
+                Sólo tocar en casos especiales (intracomunitarias, importaciones, inversión del sujeto pasivo, exenciones art. 20-25, rectificativas, etc.).
+                Los tooltips de las cabeceras de la tabla de proveedores detallan todos los valores válidos.
               </p>
             </div>
           </div>

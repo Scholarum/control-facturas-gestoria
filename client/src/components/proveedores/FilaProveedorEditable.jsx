@@ -394,6 +394,14 @@ export default function FilaProveedorEditable({ proveedor: p, planContable, empr
         onGuardar={v => guardarCampo('sii_tipo_clave', v)} soloLectura={soloLectura} />
       <CeldaNumeroSii valor={p.sii_tipo_fact ?? 1}
         onGuardar={v => guardarCampo('sii_tipo_fact', v)} soloLectura={soloLectura} />
+      <CeldaNumeroSii valor={p.sii_tipo_exenci ?? 1}
+        onGuardar={v => guardarCampo('sii_tipo_exenci', v)} soloLectura={soloLectura} />
+      <CeldaNumeroSii valor={p.sii_tipo_no_suje ?? 2}
+        onGuardar={v => guardarCampo('sii_tipo_no_suje', v)} soloLectura={soloLectura} />
+      <CeldaNumeroSii valor={p.sii_tipo_rectif ?? 2}
+        onGuardar={v => guardarCampo('sii_tipo_rectif', v)} soloLectura={soloLectura} />
+      <CeldaNumeroSii valor={p.sii_entr_prest ?? 3}
+        onGuardar={v => guardarCampo('sii_entr_prest', v)} soloLectura={soloLectura} />
       <td className="px-2 py-2 text-center">
         {error && <span className="text-[10px] text-red-500 block mb-1">{error}</span>}
         <button onClick={onEliminar} title="Eliminar proveedor"

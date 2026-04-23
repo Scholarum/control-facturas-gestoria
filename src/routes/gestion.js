@@ -210,8 +210,13 @@ router.get('/', async (req, res) => {
         COALESCE(cgd.descripcion, peg.descripcion) AS cuenta_gasto_desc,
         pec.codigo AS cta_proveedor_codigo,
         da.sii_tipo_clave, da.sii_tipo_fact,
-        p.sii_tipo_clave AS proveedor_sii_tipo_clave,
-        p.sii_tipo_fact  AS proveedor_sii_tipo_fact,
+        da.sii_tipo_exenci, da.sii_tipo_no_suje, da.sii_tipo_rectif, da.sii_entr_prest,
+        p.sii_tipo_clave   AS proveedor_sii_tipo_clave,
+        p.sii_tipo_fact    AS proveedor_sii_tipo_fact,
+        p.sii_tipo_exenci  AS proveedor_sii_tipo_exenci,
+        p.sii_tipo_no_suje AS proveedor_sii_tipo_no_suje,
+        p.sii_tipo_rectif  AS proveedor_sii_tipo_rectif,
+        p.sii_entr_prest   AS proveedor_sii_entr_prest,
         la.nombre_fichero AS lote_a3_nombre, la.fecha AS lote_a3_fecha
       ${joinBlock}
       ORDER BY da.id DESC
@@ -784,8 +789,12 @@ router.post('/exportar-sage', requireAuth, express.json(), async (req, res) => {
            COALESCE(da.cuenta_gasto_id, pe.cuenta_gasto_id) AS cg_efectiva_id,
            COALESCE(cgd.codigo, peg.codigo)                  AS cuenta_gasto_codigo,
            pec.codigo                                        AS cta_proveedor_codigo,
-           COALESCE(da.sii_tipo_clave, p.sii_tipo_clave, 1)  AS sii_tipo_clave,
-           COALESCE(da.sii_tipo_fact,  p.sii_tipo_fact,  1)  AS sii_tipo_fact
+           COALESCE(da.sii_tipo_clave,   p.sii_tipo_clave,   1) AS sii_tipo_clave,
+           COALESCE(da.sii_tipo_fact,    p.sii_tipo_fact,    1) AS sii_tipo_fact,
+           COALESCE(da.sii_tipo_exenci,  p.sii_tipo_exenci,  1) AS sii_tipo_exenci,
+           COALESCE(da.sii_tipo_no_suje, p.sii_tipo_no_suje, 2) AS sii_tipo_no_suje,
+           COALESCE(da.sii_tipo_rectif,  p.sii_tipo_rectif,  2) AS sii_tipo_rectif,
+           COALESCE(da.sii_entr_prest,   p.sii_entr_prest,   3) AS sii_entr_prest
     FROM drive_archivos da
     LEFT JOIN LATERAL (
       SELECT p2.* FROM proveedores p2
@@ -1145,6 +1154,10 @@ const CAMPOS_EDITABLES = [
   'nombre_receptor', 'cif_receptor', 'total_factura', 'total_sin_iva', 'total_iva',
 ];
 
+// Campos SII parametrizables como override por factura (columnas de drive_archivos,
+// no del JSONB). Si la factura ya esta exportada a SAGE todos quedan bloqueados.
+const CAMPOS_SII_FACTURA = ['sii_tipo_clave', 'sii_tipo_fact', 'sii_tipo_exenci', 'sii_tipo_no_suje', 'sii_tipo_rectif', 'sii_entr_prest'];
+
 router.put('/:id/datos', requireAuth, express.json(), async (req, res) => {
   const id = parseInt(req.params.id, 10);
   const db = getDb();
@@ -1152,29 +1165,25 @@ router.put('/:id/datos', requireAuth, express.json(), async (req, res) => {
   const archivo = await db.one('SELECT * FROM drive_archivos WHERE id = $1', [id]);
   if (!archivo) return res.status(404).json({ ok: false, error: 'Archivo no encontrado' });
 
-  // Campos SII son columnas de drive_archivos (no del JSONB). Si la factura ya esta
-  // exportada a SAGE se bloquea editar estos dos campos, pero el resto de
-  // CAMPOS_EDITABLES sigue siendo editable como hoy.
-  const tieneSiiClave = req.body.sii_tipo_clave !== undefined;
-  const tieneSiiFact  = req.body.sii_tipo_fact  !== undefined;
-  if (archivo.lote_sage_id && (tieneSiiClave || tieneSiiFact)) {
+  // Detectar que campos SII vienen en el body (undefined = no tocar).
+  const siiPresentes = CAMPOS_SII_FACTURA.filter(c => req.body[c] !== undefined);
+
+  if (archivo.lote_sage_id && siiPresentes.length > 0) {
     return res.status(409).json({ ok: false, error: 'Factura ya exportada a SAGE, campos SII no editables' });
   }
-  // Validacion: undefined = no tocar, null o '' = volver a heredar (NULL en BD), entero >= 0 = override.
+
+  // Validacion: null o '' = volver a heredar del proveedor (NULL en BD), entero >= 0 = override.
   const parseSiiCol = v => {
     if (v === null || v === '') return null;
     const n = Number(v);
     if (!Number.isInteger(n) || n < 0) return NaN;
     return n;
   };
-  let siiClaveNuevo, siiFactNuevo;
-  if (tieneSiiClave) {
-    siiClaveNuevo = parseSiiCol(req.body.sii_tipo_clave);
-    if (Number.isNaN(siiClaveNuevo)) return res.status(400).json({ ok: false, error: 'sii_tipo_clave debe ser entero >= 0 o null' });
-  }
-  if (tieneSiiFact) {
-    siiFactNuevo = parseSiiCol(req.body.sii_tipo_fact);
-    if (Number.isNaN(siiFactNuevo)) return res.status(400).json({ ok: false, error: 'sii_tipo_fact debe ser entero >= 0 o null' });
+  const siiNuevos = {};
+  for (const c of siiPresentes) {
+    const v = parseSiiCol(req.body[c]);
+    if (Number.isNaN(v)) return res.status(400).json({ ok: false, error: `${c} debe ser entero >= 0 o null` });
+    siiNuevos[c] = v;
   }
 
   const datosActuales = archivo.datos_extraidos ? JSON.parse(archivo.datos_extraidos) : {};
@@ -1194,7 +1203,7 @@ router.put('/:id/datos', requireAuth, express.json(), async (req, res) => {
   }
 
   const hayCambiosJson = Object.keys(cambios).length > 0;
-  if (!hayCambiosJson && !tieneSiiClave && !tieneSiiFact) {
+  if (!hayCambiosJson && siiPresentes.length === 0) {
     return res.status(400).json({ ok: false, error: 'No hay campos que modificar' });
   }
 
@@ -1207,15 +1216,11 @@ router.put('/:id/datos', requireAuth, express.json(), async (req, res) => {
     );
   }
 
-  if (tieneSiiClave) {
-    await db.query('UPDATE drive_archivos SET sii_tipo_clave = $1 WHERE id = $2', [siiClaveNuevo, id]);
-    anteriores.sii_tipo_clave = archivo.sii_tipo_clave ?? null;
-    cambios.sii_tipo_clave = siiClaveNuevo;
-  }
-  if (tieneSiiFact) {
-    await db.query('UPDATE drive_archivos SET sii_tipo_fact = $1 WHERE id = $2', [siiFactNuevo, id]);
-    anteriores.sii_tipo_fact = archivo.sii_tipo_fact ?? null;
-    cambios.sii_tipo_fact = siiFactNuevo;
+  for (const c of siiPresentes) {
+    // Nombre de columna inyectado en SQL: c proviene de CAMPOS_SII_FACTURA (lista blanca).
+    await db.query(`UPDATE drive_archivos SET ${c} = $1 WHERE id = $2`, [siiNuevos[c], id]);
+    anteriores[c] = archivo[c] ?? null;
+    cambios[c] = siiNuevos[c];
   }
 
   await registrarEvento({
@@ -1233,14 +1238,13 @@ router.put('/:id/datos', requireAuth, express.json(), async (req, res) => {
     },
   }).catch(() => {});
 
-  res.json({
-    ok: true,
-    data: {
-      datos_extraidos: nuevosDatos,
-      sii_tipo_clave: tieneSiiClave ? siiClaveNuevo : (archivo.sii_tipo_clave ?? null),
-      sii_tipo_fact:  tieneSiiFact  ? siiFactNuevo  : (archivo.sii_tipo_fact  ?? null),
-    },
-  });
+  // Responder con el valor actual de los 6 campos SII (siendo nuevo si se edito,
+  // o el valor previo en caso contrario). El frontend lo usa para update optimista.
+  const siiResp = {};
+  for (const c of CAMPOS_SII_FACTURA) {
+    siiResp[c] = siiPresentes.includes(c) ? siiNuevos[c] : (archivo[c] ?? null);
+  }
+  res.json({ ok: true, data: { datos_extraidos: nuevosDatos, ...siiResp } });
 });
 
 // ─── GET /api/drive/carpetas — listar carpetas de proveedores en Drive ───────

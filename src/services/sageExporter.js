@@ -270,9 +270,14 @@ function construirLineasFactura(factura, numAsiento, documento, fechaAsientoYmd)
   const asiento       = String(numAsiento);
   const doc           = (documento || '').substring(0, 10);
   // Campos SII parametrizables por proveedor + override por factura (resueltos con COALESCE en SQL).
-  // Default 1/1 = régimen general + F1 ordinaria (caso normal español).
-  const siiTipoClave  = Number.isInteger(factura.sii_tipo_clave) ? factura.sii_tipo_clave : 1;
-  const siiTipoFact   = Number.isInteger(factura.sii_tipo_fact)  ? factura.sii_tipo_fact  : 1;
+  // Defaults: 1/1 = régimen general + F1 ordinaria; 1/2/2/3 = no exenta / S1 sujeta-no exenta /
+  // por diferencias / prestación de servicios (caso normal español).
+  const siiTipoClave   = Number.isInteger(factura.sii_tipo_clave)   ? factura.sii_tipo_clave   : 1;
+  const siiTipoFact    = Number.isInteger(factura.sii_tipo_fact)    ? factura.sii_tipo_fact    : 1;
+  const siiTipoExenci  = Number.isInteger(factura.sii_tipo_exenci)  ? factura.sii_tipo_exenci  : 1;
+  const siiTipoNoSuje  = Number.isInteger(factura.sii_tipo_no_suje) ? factura.sii_tipo_no_suje : 2;
+  const siiTipoRectif  = Number.isInteger(factura.sii_tipo_rectif)  ? factura.sii_tipo_rectif  : 2;
+  const siiEntrPrest   = Number.isInteger(factura.sii_entr_prest)   ? factura.sii_entr_prest   : 3;
 
   const lineas = []; // cada elemento es un array de 142 valores
 
@@ -316,8 +321,15 @@ function construirLineasFactura(factura, numAsiento, documento, fechaAsientoYmd)
     l[71]=facturaExp;
     l[72] = 'R';               // pos 73 TipoFac. 'R' = Recibida (esta app sólo maneja facturas de proveedor).
     l[73]='O'; l[75]='.T.'; l[95]=totalFactura;
-    l[116] = siiTipoClave;     // pos 117 TipoClave (N 2, marcador *15). Default 1 = Régimen general.
-    l[119] = siiTipoFact;      // pos 120 TipoFact  (N 2, marcador *18). Default 1 = F1 Factura ordinaria.
+    l[116] = siiTipoClave;     // pos 117 TipoClave  (N 2, marcador *15). Default 1 = Régimen general.
+    l[117] = siiTipoExenci;    // pos 118 TipoExenci (N 2, marcador *16). Default 1 = No exenta.
+    l[118] = siiTipoNoSuje;    // pos 119 TipoNoSuje (N 2, marcador *17). Default 2 = S1 Sujeta-No exenta.
+    l[119] = siiTipoFact;      // pos 120 TipoFact   (N 2, marcador *18). Default 1 = F1 Factura ordinaria.
+    // pos 123 TipoRectif: placeholder — en commit 3 se hara condicional a es_rectificativa
+    // (defensa en profundidad: si la factura no es rectificativa, se fuerza 1).
+    l[122] = siiTipoRectif;    // pos 123 TipoRectif (N 2, marcador *20). Default 2 = Por diferencias.
+    l[125] = siiEntrPrest;     // pos 126 nEntrPrest (N 1, marcador *21). Default 3 = Prestacion de servicios.
+    l[126] = fechaAsientoYmd;  // pos 127 Decrecen  (F 8). No parametrizado: siempre = fecha del asiento.
     l[132]=conceptoLargo; l[133]=cifEmisor; l[134]=nombreEmisor.substring(0,120);
     return l;
   };

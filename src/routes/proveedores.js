@@ -151,27 +151,43 @@ function parseSiiEntero(val) {
   return n;
 }
 
+// Columnas SII parametrizables por proveedor (mismo patron para los 6). El orden
+// aqui tambien define el orden que aparece en las cabeceras del Excel de export.
+const CAMPOS_SII_PROVEEDOR = ['sii_tipo_clave', 'sii_tipo_fact', 'sii_tipo_exenci', 'sii_tipo_no_suje', 'sii_tipo_rectif', 'sii_entr_prest'];
+
+// Parsea los 6 campos SII del body y devuelve {values, error}. values[c] puede ser:
+//   number  → valor explicito a insertar/actualizar
+//   undefined → no viene en el body, mantener default/valor actual en BD.
+function parseCamposSiiBody(body) {
+  const values = {};
+  for (const c of CAMPOS_SII_PROVEEDOR) {
+    const v = parseSiiEntero(body[c]);
+    if (Number.isNaN(v)) return { error: `${c} debe ser entero >= 0` };
+    values[c] = v;
+  }
+  return { values };
+}
+
 // POST / - crear proveedor
 router.post('/', requireAdmin, async (req, res) => {
   const { razon_social, nombre_carpeta, cif, cuenta_contable_id, cuenta_gasto_id, empresa_id } = req.body;
   if (!razon_social?.trim()) return res.status(400).json({ ok: false, error: 'razon_social requerida' });
   if (cif && !validarCIF(cif)) return res.status(400).json({ ok: false, error: 'Formato CIF/NIF invalido' });
 
-  const siiTipoClave = parseSiiEntero(req.body.sii_tipo_clave);
-  const siiTipoFact  = parseSiiEntero(req.body.sii_tipo_fact);
-  if (Number.isNaN(siiTipoClave)) return res.status(400).json({ ok: false, error: 'sii_tipo_clave debe ser entero >= 0' });
-  if (Number.isNaN(siiTipoFact))  return res.status(400).json({ ok: false, error: 'sii_tipo_fact debe ser entero >= 0' });
+  const { values: sii, error: siiErr } = parseCamposSiiBody(req.body);
+  if (siiErr) return res.status(400).json({ ok: false, error: siiErr });
 
   const db  = getDb();
   if (nombre_carpeta?.trim()) {
     const dup = await db.one('SELECT id FROM proveedores WHERE nombre_carpeta = $1 AND activo = true', [nombre_carpeta.trim()]);
     if (dup) return res.status(409).json({ ok: false, error: `La carpeta "${nombre_carpeta.trim()}" ya esta asignada a otro proveedor` });
   }
-  // Si el body trae los campos SII se insertan explicitos; si no, la tabla aplica DEFAULT 1.
+  // Si el body trae campos SII se insertan explicitos; si no, la tabla aplica el DEFAULT correspondiente.
   const cols = ['razon_social', 'nombre_carpeta', 'cif'];
   const vals = [razon_social.trim(), nombre_carpeta?.trim() || null, cif ? cif.trim().toUpperCase() : null];
-  if (siiTipoClave !== undefined) { cols.push('sii_tipo_clave'); vals.push(siiTipoClave); }
-  if (siiTipoFact  !== undefined) { cols.push('sii_tipo_fact');  vals.push(siiTipoFact);  }
+  for (const c of CAMPOS_SII_PROVEEDOR) {
+    if (sii[c] !== undefined) { cols.push(c); vals.push(sii[c]); }
+  }
   const placeholders = vals.map((_, i) => `$${i + 1}`).join(', ');
   const row = await db.one(
     `INSERT INTO proveedores (${cols.join(', ')}) VALUES (${placeholders}) RETURNING *`,
@@ -206,14 +222,13 @@ router.put('/:id', requireAdmin, async (req, res) => {
     return res.status(400).json({ ok: false, error: 'Formato CIF/NIF invalido' });
   }
 
-  let siiTipoClave, siiTipoFact;
-  if ('sii_tipo_clave' in b) {
-    siiTipoClave = parseSiiEntero(b.sii_tipo_clave);
-    if (Number.isNaN(siiTipoClave)) return res.status(400).json({ ok: false, error: 'sii_tipo_clave debe ser entero >= 0' });
-  }
-  if ('sii_tipo_fact' in b) {
-    siiTipoFact = parseSiiEntero(b.sii_tipo_fact);
-    if (Number.isNaN(siiTipoFact)) return res.status(400).json({ ok: false, error: 'sii_tipo_fact debe ser entero >= 0' });
+  // Solo validamos los campos SII que vienen realmente en el body (edicion parcial).
+  const siiPresentes = CAMPOS_SII_PROVEEDOR.filter(c => c in b);
+  const siiParsed = {};
+  for (const c of siiPresentes) {
+    const v = parseSiiEntero(b[c]);
+    if (Number.isNaN(v)) return res.status(400).json({ ok: false, error: `${c} debe ser entero >= 0` });
+    siiParsed[c] = v;
   }
 
   const db = getDb();
@@ -224,14 +239,16 @@ router.put('/:id', requireAdmin, async (req, res) => {
 
   // UPDATE dinamico: SET solo para columnas presentes en el body. Asi la edicion
   // parcial (p.ej. editar solo CIF inline) no pisa con NULL los demas campos.
-  // SII de proveedor es NOT NULL; si viene null explicito lo ignoramos en el UPDATE.
+  // SII de proveedor es NOT NULL; si viene null explicito (siiParsed[c] === undefined
+  // tras pasar por parseSiiEntero) lo ignoramos en el UPDATE.
   const sets = [];
   const vals = [];
   if ('razon_social'   in b) { sets.push(`razon_social   = $${vals.length + 1}`); vals.push(b.razon_social.trim()); }
   if ('nombre_carpeta' in b) { sets.push(`nombre_carpeta = $${vals.length + 1}`); vals.push(b.nombre_carpeta?.trim() || null); }
   if ('cif'            in b) { sets.push(`cif            = $${vals.length + 1}`); vals.push(b.cif ? b.cif.trim().toUpperCase() : null); }
-  if ('sii_tipo_clave' in b && siiTipoClave !== undefined) { sets.push(`sii_tipo_clave = $${vals.length + 1}`); vals.push(siiTipoClave); }
-  if ('sii_tipo_fact'  in b && siiTipoFact  !== undefined) { sets.push(`sii_tipo_fact  = $${vals.length + 1}`); vals.push(siiTipoFact);  }
+  for (const c of siiPresentes) {
+    if (siiParsed[c] !== undefined) { sets.push(`${c} = $${vals.length + 1}`); vals.push(siiParsed[c]); }
+  }
   sets.push(`updated_at = NOW()`);
   vals.push(id);
 
@@ -286,8 +303,12 @@ router.get('/excel', async (req, res) => {
     'Descripción Cuenta Contable': r.cuenta_contable_desc        || '',
     'Código Cuenta Gasto':         r.cuenta_gasto_codigo         || '',
     'Descripción Cuenta Gasto':    r.cuenta_gasto_desc           || '',
-    'Clave SII':                   r.sii_tipo_clave ?? 1,
-    'Tipo Factura SII':            r.sii_tipo_fact  ?? 1,
+    'Clave SII':                   r.sii_tipo_clave   ?? 1,
+    'Tipo Factura SII':            r.sii_tipo_fact    ?? 1,
+    'Tipo Exencion SII':           r.sii_tipo_exenci  ?? 1,
+    'Tipo No Sujeta SII':          r.sii_tipo_no_suje ?? 2,
+    'Tipo Rectificativa SII':      r.sii_tipo_rectif  ?? 2,
+    'Entrega/Prestacion SII':      r.sii_entr_prest   ?? 3,
   }));
 
   const ws = XLSX.utils.json_to_sheet(filas);
@@ -297,7 +318,7 @@ router.get('/excel', async (req, res) => {
     { wch: 10 },
     { wch: 30 }, { wch: 25 }, { wch: 14 },
     { wch: 22 }, { wch: 40 }, { wch: 22 }, { wch: 40 },
-    { wch: 10 }, { wch: 16 },
+    { wch: 10 }, { wch: 16 }, { wch: 18 }, { wch: 18 }, { wch: 22 }, { wch: 22 },
   ];
 
   const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
@@ -316,13 +337,13 @@ router.get('/excel', async (req, res) => {
 // GET /plantilla-importacion - descargar plantilla Excel de ejemplo
 router.get('/plantilla-importacion', async (req, res) => {
   const filas = [
-    { 'ID (no modificar)': '', 'Razon Social': 'EMPRESA EJEMPLO SL', 'CIF': 'B12345678', 'Cuenta Contable': '40000001', 'Nombre Carpeta': '', 'Cuenta Gasto': '', 'Clave SII': 1, 'Tipo Factura SII': 1 },
-    { 'ID (no modificar)': '', 'Razon Social': 'SERVICIOS DEMO SA',  'CIF': 'A87654321', 'Cuenta Contable': '40000002', 'Nombre Carpeta': 'SERVICIOS DEMO', 'Cuenta Gasto': '62300001', 'Clave SII': 1, 'Tipo Factura SII': 1 },
+    { 'ID (no modificar)': '', 'Razon Social': 'EMPRESA EJEMPLO SL', 'CIF': 'B12345678', 'Cuenta Contable': '40000001', 'Nombre Carpeta': '', 'Cuenta Gasto': '', 'Clave SII': 1, 'Tipo Factura SII': 1, 'Tipo Exencion SII': 1, 'Tipo No Sujeta SII': 2, 'Tipo Rectificativa SII': 2, 'Entrega/Prestacion SII': 3 },
+    { 'ID (no modificar)': '', 'Razon Social': 'SERVICIOS DEMO SA',  'CIF': 'A87654321', 'Cuenta Contable': '40000002', 'Nombre Carpeta': 'SERVICIOS DEMO', 'Cuenta Gasto': '62300001', 'Clave SII': 1, 'Tipo Factura SII': 1, 'Tipo Exencion SII': 1, 'Tipo No Sujeta SII': 2, 'Tipo Rectificativa SII': 2, 'Entrega/Prestacion SII': 3 },
   ];
   const ws = XLSX.utils.json_to_sheet(filas);
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Proveedores');
-  ws['!cols'] = [{ wch: 10 }, { wch: 30 }, { wch: 14 }, { wch: 18 }, { wch: 25 }, { wch: 18 }, { wch: 10 }, { wch: 16 }];
+  ws['!cols'] = [{ wch: 10 }, { wch: 30 }, { wch: 14 }, { wch: 18 }, { wch: 25 }, { wch: 18 }, { wch: 10 }, { wch: 16 }, { wch: 18 }, { wch: 18 }, { wch: 22 }, { wch: 22 }];
   const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
   res.set({
     'Content-Type':        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -359,16 +380,31 @@ router.post('/importar', requireAdmin, upload.single('archivo'), async (req, res
     const cif            = String(fila['CIF']            || '').trim().toUpperCase() || null;
     const codContable    = String(fila['Cuenta Contable'] || fila['Código Cuenta Contable'] || fila['Codigo Cuenta Contable'] || '').trim();
     const codGasto       = String(fila['Cuenta Gasto']    || fila['Código Cuenta Gasto']    || fila['Codigo Cuenta Gasto']    || '').trim();
-    const siiClaveRaw    = fila['Clave SII'];
-    const siiFactRaw     = fila['Tipo Factura SII'];
-    const siiTipoClave   = siiClaveRaw === undefined || siiClaveRaw === '' ? undefined : parseSiiEntero(siiClaveRaw);
-    const siiTipoFact    = siiFactRaw  === undefined || siiFactRaw  === '' ? undefined : parseSiiEntero(siiFactRaw);
+
+    // Lectura de los 6 campos SII con cabeceras Excel flexibles (con/sin tilde).
+    const SII_HEADERS = {
+      sii_tipo_clave:   ['Clave SII'],
+      sii_tipo_fact:    ['Tipo Factura SII'],
+      sii_tipo_exenci:  ['Tipo Exencion SII', 'Tipo Exención SII'],
+      sii_tipo_no_suje: ['Tipo No Sujeta SII'],
+      sii_tipo_rectif:  ['Tipo Rectificativa SII'],
+      sii_entr_prest:   ['Entrega/Prestacion SII', 'Entrega/Prestación SII'],
+    };
+    const sii = {};
+    let siiError = null;
+    for (const col of CAMPOS_SII_PROVEEDOR) {
+      let raw;
+      for (const h of SII_HEADERS[col]) if (h in fila) { raw = fila[h]; break; }
+      if (raw === undefined || raw === '') { sii[col] = undefined; continue; }
+      const v = parseSiiEntero(raw);
+      if (Number.isNaN(v)) { siiError = `${col} invalido: ${raw}`; break; }
+      sii[col] = v;
+    }
 
     if (Number.isNaN(idNum)) { errores.push({ fila: i + 2, error: `ID invalido: ${idRaw}` }); continue; }
     if (!razon_social) { errores.push({ fila: i + 2, error: 'Razon Social vacia' }); continue; }
     if (cif && !validarCIF(cif)) { errores.push({ fila: i + 2, error: `CIF invalido: ${cif}` }); continue; }
-    if (Number.isNaN(siiTipoClave)) { errores.push({ fila: i + 2, error: `Clave SII invalida: ${siiClaveRaw}` }); continue; }
-    if (Number.isNaN(siiTipoFact))  { errores.push({ fila: i + 2, error: `Tipo Factura SII invalido: ${siiFactRaw}` }); continue; }
+    if (siiError) { errores.push({ fila: i + 2, error: siiError }); continue; }
 
     // Resolver cuenta contable: buscar existente o crear si no existe
     let cuenta_contable_id = codContable ? (cuentasMap[codContable] ?? null) : null;
@@ -425,22 +461,26 @@ router.post('/importar', requireAdmin, upload.single('archivo'), async (req, res
 
     let provId;
     if (existing) {
-      // COALESCE($n, columna) en SII: si la celda viene vacia, no se toca.
-      await db.query(
-        `UPDATE proveedores SET razon_social=$1, nombre_carpeta=COALESCE($2, nombre_carpeta), cif=$3,
-         sii_tipo_clave=COALESCE($4, sii_tipo_clave),
-         sii_tipo_fact =COALESCE($5, sii_tipo_fact),
-         activo=true, updated_at=NOW() WHERE id=$6`,
-        [razon_social, nombre_carpeta, cif, siiTipoClave ?? null, siiTipoFact ?? null, existing.id]
-      );
+      // UPDATE dinamico con COALESCE en SII: si la celda viene vacia (sii[c] === undefined),
+      // se pasa NULL y COALESCE mantiene el valor actual en BD.
+      const sets = ['razon_social=$1', 'nombre_carpeta=COALESCE($2, nombre_carpeta)', 'cif=$3'];
+      const params = [razon_social, nombre_carpeta, cif];
+      for (const c of CAMPOS_SII_PROVEEDOR) {
+        sets.push(`${c}=COALESCE($${params.length + 1}, ${c})`);
+        params.push(sii[c] ?? null);
+      }
+      sets.push('activo=true', 'updated_at=NOW()');
+      params.push(existing.id);
+      await db.query(`UPDATE proveedores SET ${sets.join(', ')} WHERE id=$${params.length}`, params);
       provId = existing.id;
       actualizados++;
     } else {
-      // En INSERT, si no viene el campo se omite y la tabla aplica DEFAULT 1.
+      // En INSERT, si no viene el campo se omite y la tabla aplica el DEFAULT correspondiente.
       const cols = ['razon_social', 'nombre_carpeta', 'cif'];
       const vals = [razon_social, nombre_carpeta, cif];
-      if (siiTipoClave !== undefined) { cols.push('sii_tipo_clave'); vals.push(siiTipoClave); }
-      if (siiTipoFact  !== undefined) { cols.push('sii_tipo_fact');  vals.push(siiTipoFact);  }
+      for (const c of CAMPOS_SII_PROVEEDOR) {
+        if (sii[c] !== undefined) { cols.push(c); vals.push(sii[c]); }
+      }
       const placeholders = vals.map((_, k) => `$${k + 1}`).join(', ');
       const newRow = await db.one(
         `INSERT INTO proveedores (${cols.join(', ')}) VALUES (${placeholders}) RETURNING id`,
@@ -520,10 +560,8 @@ router.post('/rapido', requireAuth, async (req, res) => {
   if (!razon_social?.trim()) return res.status(400).json({ ok: false, error: 'razon_social requerida' });
   if (cif && !validarCIF(cif)) return res.status(400).json({ ok: false, error: 'Formato CIF/NIF invalido' });
 
-  const siiTipoClave = parseSiiEntero(req.body.sii_tipo_clave);
-  const siiTipoFact  = parseSiiEntero(req.body.sii_tipo_fact);
-  if (Number.isNaN(siiTipoClave)) return res.status(400).json({ ok: false, error: 'sii_tipo_clave debe ser entero >= 0' });
-  if (Number.isNaN(siiTipoFact))  return res.status(400).json({ ok: false, error: 'sii_tipo_fact debe ser entero >= 0' });
+  const { values: sii, error: siiErr } = parseCamposSiiBody(req.body);
+  if (siiErr) return res.status(400).json({ ok: false, error: siiErr });
 
   const db = getDb();
   if (cif) {
@@ -540,8 +578,9 @@ router.post('/rapido', requireAuth, async (req, res) => {
 
   const cols = ['razon_social', 'nombre_carpeta', 'cif'];
   const vals = [razon_social.trim(), nombre_carpeta?.trim() || null, cif ? cif.trim().toUpperCase() : null];
-  if (siiTipoClave !== undefined) { cols.push('sii_tipo_clave'); vals.push(siiTipoClave); }
-  if (siiTipoFact  !== undefined) { cols.push('sii_tipo_fact');  vals.push(siiTipoFact);  }
+  for (const c of CAMPOS_SII_PROVEEDOR) {
+    if (sii[c] !== undefined) { cols.push(c); vals.push(sii[c]); }
+  }
   const placeholders = vals.map((_, i) => `$${i + 1}`).join(', ');
   const row = await db.one(
     `INSERT INTO proveedores (${cols.join(', ')}) VALUES (${placeholders}) RETURNING *`,

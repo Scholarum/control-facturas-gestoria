@@ -188,6 +188,26 @@ const tablas = [
   `ALTER TABLE drive_archivos ADD COLUMN IF NOT EXISTS sii_tipo_clave SMALLINT`,
   `ALTER TABLE drive_archivos ADD COLUMN IF NOT EXISTS sii_tipo_fact  SMALLINT`,
 
+  // Campos SII adicionales R75 (pos 118 TipoExenci, pos 119 TipoNoSuje,
+  // pos 123 TipoRectif, pos 126 nEntrPrest). Mismo patron override:
+  // proveedor NOT NULL con default = valor tipico de facturas de proveedor de servicios;
+  // drive_archivos nullable para override por factura.
+  //
+  // Default de sii_tipo_rectif=2 ("por diferencias"): solo aplica cuando la
+  // factura esta marcada como rectificativa. Si es_rectificativa=false el
+  // exportador fuerza pos 123 = 1 (defensa en profundidad, ver commit 3).
+  //
+  // sii_decrecen (pos 127 Decrecen) NO se parametriza: siempre vale la fecha
+  // del asiento; se calcula en el exportador.
+  `ALTER TABLE proveedores    ADD COLUMN IF NOT EXISTS sii_tipo_exenci  SMALLINT NOT NULL DEFAULT 1`,
+  `ALTER TABLE proveedores    ADD COLUMN IF NOT EXISTS sii_tipo_no_suje SMALLINT NOT NULL DEFAULT 2`,
+  `ALTER TABLE proveedores    ADD COLUMN IF NOT EXISTS sii_tipo_rectif  SMALLINT NOT NULL DEFAULT 2`,
+  `ALTER TABLE proveedores    ADD COLUMN IF NOT EXISTS sii_entr_prest   SMALLINT NOT NULL DEFAULT 3`,
+  `ALTER TABLE drive_archivos ADD COLUMN IF NOT EXISTS sii_tipo_exenci  SMALLINT`,
+  `ALTER TABLE drive_archivos ADD COLUMN IF NOT EXISTS sii_tipo_no_suje SMALLINT`,
+  `ALTER TABLE drive_archivos ADD COLUMN IF NOT EXISTS sii_tipo_rectif  SMALLINT`,
+  `ALTER TABLE drive_archivos ADD COLUMN IF NOT EXISTS sii_entr_prest   SMALLINT`,
+
   // Indices y restricciones
   `CREATE INDEX IF NOT EXISTS idx_proveedores_cif ON proveedores (UPPER(TRIM(cif))) WHERE activo = true AND cif IS NOT NULL`,
   `CREATE INDEX IF NOT EXISTS idx_proveedores_carpeta ON proveedores (nombre_carpeta) WHERE activo = true AND nombre_carpeta IS NOT NULL`,

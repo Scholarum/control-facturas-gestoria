@@ -658,15 +658,19 @@ function PanelDetalleFiscal({ f, onDatosActualizados, onActualizarFacturaLocal }
     if (onDatosActualizados) onDatosActualizados(f.id, result.datos_extraidos);
   }
 
-  // Guardado optimista SOLO para los dos campos SII: muta el estado local de la
+  // Guardado optimista SOLO para los campos SII: muta el estado local de la
   // lista de facturas sin invalidar el cache ni recargar la tabla. El resto de
   // campos del panel siguen usando handleGuardar (que dispara refetch).
   async function handleGuardarSiiLocal(campos) {
     const result = await editarDatosFactura(f.id, campos);
     if (onActualizarFacturaLocal) {
       onActualizarFacturaLocal(f.id, {
-        sii_tipo_clave: result.sii_tipo_clave,
-        sii_tipo_fact:  result.sii_tipo_fact,
+        sii_tipo_clave:   result.sii_tipo_clave,
+        sii_tipo_fact:    result.sii_tipo_fact,
+        sii_tipo_exenci:  result.sii_tipo_exenci,
+        sii_tipo_no_suje: result.sii_tipo_no_suje,
+        sii_tipo_rectif:  result.sii_tipo_rectif,
+        sii_entr_prest:   result.sii_entr_prest,
       });
     }
   }
@@ -843,7 +847,7 @@ function PanelDetalleFiscal({ f, onDatosActualizados, onActualizarFacturaLocal }
                 Esta factura ya ha sido exportada a SAGE. Los datos SII no pueden modificarse.
               </div>
             )}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
               <CampoSiiInline
                 label="Clave régimen SII"
                 campo="sii_tipo_clave"
@@ -857,6 +861,38 @@ function PanelDetalleFiscal({ f, onDatosActualizados, onActualizarFacturaLocal }
                 campo="sii_tipo_fact"
                 override={f.sii_tipo_fact}
                 heredado={f.proveedor_sii_tipo_fact ?? 1}
+                disabled={!!f.lote_sage_id}
+                onGuardar={handleGuardarSiiLocal}
+              />
+              <CampoSiiInline
+                label="Tipo exención"
+                campo="sii_tipo_exenci"
+                override={f.sii_tipo_exenci}
+                heredado={f.proveedor_sii_tipo_exenci ?? 1}
+                disabled={!!f.lote_sage_id}
+                onGuardar={handleGuardarSiiLocal}
+              />
+              <CampoSiiInline
+                label="Tipo no sujeta"
+                campo="sii_tipo_no_suje"
+                override={f.sii_tipo_no_suje}
+                heredado={f.proveedor_sii_tipo_no_suje ?? 2}
+                disabled={!!f.lote_sage_id}
+                onGuardar={handleGuardarSiiLocal}
+              />
+              <CampoSiiInline
+                label="Tipo rectificativa"
+                campo="sii_tipo_rectif"
+                override={f.sii_tipo_rectif}
+                heredado={f.proveedor_sii_tipo_rectif ?? 2}
+                disabled={!!f.lote_sage_id}
+                onGuardar={handleGuardarSiiLocal}
+              />
+              <CampoSiiInline
+                label="Entrega / Prestación"
+                campo="sii_entr_prest"
+                override={f.sii_entr_prest}
+                heredado={f.proveedor_sii_entr_prest ?? 3}
                 disabled={!!f.lote_sage_id}
                 onGuardar={handleGuardarSiiLocal}
               />
