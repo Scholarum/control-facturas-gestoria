@@ -9,11 +9,30 @@ import BuscadorAvanzado, { FILTROS_VACIO } from '../components/proveedores/Busca
 import FilaProveedorEditable from '../components/proveedores/FilaProveedorEditable.jsx';
 import ModalProveedor from '../components/proveedores/ModalProveedor.jsx';
 import ModalImportar from '../components/proveedores/ModalImportar.jsx';
+import { SII_CLAVE, SII_TIPO_FACT, SII_TIPO_EXENCI, SII_TIPO_NO_SUJE, SII_TIPO_RECTIF, SII_ENTR_PREST, tooltipSii } from '../constants/sii.js';
+
+// Cabeceras de la tabla de proveedores. Las SII llevan tooltip nativo con los
+// valores validos (title=""), lista cargada desde client/src/constants/sii.js.
+const CABECERAS_TABLA = [
+  { label: 'Razon Social' },
+  { label: 'Nombre Carpeta' },
+  { label: 'CIF' },
+  { label: 'Cta. Contable' },
+  { label: 'Cta. Gasto' },
+  { label: 'Clave SII',      tooltip: tooltipSii(SII_CLAVE) },
+  { label: 'Tipo Fact. SII', tooltip: tooltipSii(SII_TIPO_FACT) },
+  { label: 'Exenc.',         tooltip: tooltipSii(SII_TIPO_EXENCI) },
+  { label: 'No Suj.',        tooltip: tooltipSii(SII_TIPO_NO_SUJE) },
+  { label: 'Rectif.',        tooltip: tooltipSii(SII_TIPO_RECTIF) },
+  { label: 'Entr/Prest',     tooltip: tooltipSii(SII_ENTR_PREST) },
+  { label: '' },
+];
 
 const FORM_VACIO = {
   razon_social: '', nombre_carpeta: '', cif: '',
   cuenta_contable_id: '', cuenta_gasto_id: '',
   sii_tipo_clave: 1, sii_tipo_fact: 1,
+  sii_tipo_exenci: 1, sii_tipo_no_suje: 2, sii_tipo_rectif: 2, sii_entr_prest: 3,
 };
 
 export default function Proveedores() {
@@ -91,8 +110,12 @@ export default function Proveedores() {
       cif:                p.cif                || '',
       cuenta_contable_id: p.cuenta_contable_id ? String(p.cuenta_contable_id) : '',
       cuenta_gasto_id:    p.cuenta_gasto_id    ? String(p.cuenta_gasto_id)    : '',
-      sii_tipo_clave:     p.sii_tipo_clave ?? 1,
-      sii_tipo_fact:      p.sii_tipo_fact  ?? 1,
+      sii_tipo_clave:     p.sii_tipo_clave   ?? 1,
+      sii_tipo_fact:      p.sii_tipo_fact    ?? 1,
+      sii_tipo_exenci:    p.sii_tipo_exenci  ?? 1,
+      sii_tipo_no_suje:   p.sii_tipo_no_suje ?? 2,
+      sii_tipo_rectif:    p.sii_tipo_rectif  ?? 2,
+      sii_entr_prest:     p.sii_entr_prest   ?? 3,
     });
     setModal({ proveedor: p });
     setErrorModal('');
@@ -107,8 +130,12 @@ export default function Proveedores() {
         cif:                form.cif.trim() || null,
         cuenta_contable_id: form.cuenta_contable_id ? parseInt(form.cuenta_contable_id) : null,
         cuenta_gasto_id:    form.cuenta_gasto_id    ? parseInt(form.cuenta_gasto_id)    : null,
-        sii_tipo_clave:     form.sii_tipo_clave === '' ? undefined : form.sii_tipo_clave,
-        sii_tipo_fact:      form.sii_tipo_fact  === '' ? undefined : form.sii_tipo_fact,
+        sii_tipo_clave:     form.sii_tipo_clave   === '' ? undefined : form.sii_tipo_clave,
+        sii_tipo_fact:      form.sii_tipo_fact    === '' ? undefined : form.sii_tipo_fact,
+        sii_tipo_exenci:    form.sii_tipo_exenci  === '' ? undefined : form.sii_tipo_exenci,
+        sii_tipo_no_suje:   form.sii_tipo_no_suje === '' ? undefined : form.sii_tipo_no_suje,
+        sii_tipo_rectif:    form.sii_tipo_rectif  === '' ? undefined : form.sii_tipo_rectif,
+        sii_entr_prest:     form.sii_entr_prest   === '' ? undefined : form.sii_entr_prest,
         empresa_id:         empresaActiva?.id || null,
       };
       if (modal === 'nuevo') {
@@ -226,8 +253,14 @@ export default function Proveedores() {
             <table className="w-full text-sm">
               <thead className="bg-gray-50 border-b border-gray-200">
                 <tr>
-                  {['Razon Social', 'Nombre Carpeta', 'CIF', 'Cta. Contable', 'Cta. Gasto', 'Clave SII', 'Tipo Fact. SII', ''].map(h => (
-                    <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">{h}</th>
+                  {CABECERAS_TABLA.map((h, i) => (
+                    <th
+                      key={`${h.label}-${i}`}
+                      title={h.tooltip || undefined}
+                      className={`px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap ${h.tooltip ? 'cursor-help' : ''}`}
+                    >
+                      {h.label}
+                    </th>
                   ))}
                 </tr>
               </thead>

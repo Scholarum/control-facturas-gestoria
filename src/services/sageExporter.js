@@ -1,3 +1,5 @@
+const logger = require('../config/logger');
+
 /**
  * sageExporter.js
  * Genera ficheros para importacion en SAGE ContaPlus — protocolo R75.
@@ -248,9 +250,13 @@ function lineaCSV(valores) {
 
 // ─── Construir valores por factura ──────────────────────────────────────────
 
-function construirLineasFactura(factura, numAsiento, documento, fechaOpFmt) {
+function construirLineasFactura(factura, numAsiento, documento, fechaAsientoYmd) {
   const d = factura.datos_extraidos || {};
-  const ivaList = Array.isArray(d.iva) ? d.iva.filter(e => e.base > 0 || e.cuota > 0) : [];
+  // Entrada valida en ivaList: hay base o cuota distintas de cero (cualquier signo).
+  // Rectificativas traen valores negativos — filtrar por "no-cero", NO por "> 0".
+  const ivaList = Array.isArray(d.iva)
+    ? d.iva.filter(e => (Number(e.base) || 0) !== 0 || (Number(e.cuota) || 0) !== 0)
+    : [];
 
   const fechaEmision  = d.fecha_emision || '';
   const numFactura    = d.numero_factura || '';
@@ -270,40 +276,63 @@ function construirLineasFactura(factura, numAsiento, documento, fechaOpFmt) {
   const asiento       = String(numAsiento);
   const doc           = (documento || '').substring(0, 10);
   // Campos SII parametrizables por proveedor + override por factura (resueltos con COALESCE en SQL).
-  // Default 1/1 = régimen general + F1 ordinaria (caso normal español).
-  const siiTipoClave  = Number.isInteger(factura.sii_tipo_clave) ? factura.sii_tipo_clave : 1;
-  const siiTipoFact   = Number.isInteger(factura.sii_tipo_fact)  ? factura.sii_tipo_fact  : 1;
+  // Defaults: 1/1 = régimen general + F1 ordinaria; 1/2/2/3 = no exenta / S1 sujeta-no exenta /
+  // por diferencias / prestación de servicios (caso normal español).
+  const siiTipoClave   = Number.isInteger(factura.sii_tipo_clave)   ? factura.sii_tipo_clave   : 1;
+  const siiTipoFact    = Number.isInteger(factura.sii_tipo_fact)    ? factura.sii_tipo_fact    : 1;
+  const siiTipoExenci  = Number.isInteger(factura.sii_tipo_exenci)  ? factura.sii_tipo_exenci  : 1;
+  const siiTipoNoSuje  = Number.isInteger(factura.sii_tipo_no_suje) ? factura.sii_tipo_no_suje : 2;
+  const siiTipoRectif  = Number.isInteger(factura.sii_tipo_rectif)  ? factura.sii_tipo_rectif  : 2;
+  const siiEntrPrest   = Number.isInteger(factura.sii_entr_prest)   ? factura.sii_entr_prest   : 3;
+
+  // Rectificativas. overrideTipoFact = valor crudo de da.sii_tipo_fact (puede ser NULL).
+  // Solo lo tratamos como override si es un entero > 0; 0 o NULL significa "no hay override,
+  // aplica mapeo automatico F1→R1, F2→R5". Esto permite forzar R2/R3/R4 (8/9/10) en casos
+  // de concurso/incobrables/otros desde el PUT /:id/datos.
+  const esRect          = factura.es_rectificativa === true;
+  const overrideTipoFact = (factura.override_sii_tipo_fact != null && factura.override_sii_tipo_fact > 0)
+    ? factura.override_sii_tipo_fact
+    : null;
+  const rectSerie     = factura.rect_serie    || '';
+  const rectNumero    = factura.rect_numero   || '';
+  const rectFechaYmd  = factura.rect_fecha_ymd || '';
+  const rectBaseImp   = factura.rect_base_imp != null ? Number(factura.rect_base_imp) : null;
 
   const lineas = []; // cada elemento es un array de 142 valores
 
+  // Fechas del asiento — criterio fiscal (R75, corrección 2026-04-23):
+  //   pos 2  Fecha     = fecha de contabilización (hoy, fechaAsientoYmd)
+  //   pos 46 Fecha_OP  = fecha de operación       (fecha_emision de la factura, fechaFmt)
+  //   pos 47 Fecha_EX  = fecha de expedición      (hoy, fechaAsientoYmd)
+  // Hasta 2026-04-23 las pos 46 y 47 estaban invertidas.
+
   // Linea 1: Proveedor en HABER
-  // Fecha asiento (pos 2) = fecha de contabilización (hoy). Fecha_EX (pos 47) = fecha emisión.
   const l1 = new Array(142).fill('');
-  l1[0]=asiento; l1[1]=fechaOpFmt; l1[2]=ctaProveedor; l1[3]=ctaGasto;
+  l1[0]=asiento; l1[1]=fechaAsientoYmd; l1[2]=ctaProveedor; l1[3]=ctaGasto;
   l1[4]=0; l1[5]=conceptoFact; l1[6]=totalFactura;
   l1[11]=doc; l1[26]='2'; l1[27]=0;
-  l1[28]=totalFactura; l1[45]=fechaOpFmt; l1[46]=fechaFmt;
+  l1[28]=totalFactura; l1[45]=fechaFmt; l1[46]=fechaAsientoYmd;
   l1[75]='.T.'; l1[95]=totalFactura; l1[132]=conceptoLargo;
   lineas.push(l1);
 
   // Linea 2: Gasto en DEBE
   const l2 = new Array(142).fill('');
-  l2[0]=asiento; l2[1]=fechaOpFmt; l2[2]=ctaGasto; l2[3]=ctaProveedor;
+  l2[0]=asiento; l2[1]=fechaAsientoYmd; l2[2]=ctaGasto; l2[3]=ctaProveedor;
   l2[4]=baseSinIva; l2[5]=conceptoFact; l2[6]=0;
   l2[11]=doc; l2[26]='2';
-  l2[27]=baseSinIva; l2[28]=0; l2[45]=fechaOpFmt; l2[46]=fechaFmt;
+  l2[27]=baseSinIva; l2[28]=0; l2[45]=fechaFmt; l2[46]=fechaAsientoYmd;
   l2[75]='.T.'; l2[132]=conceptoLargo;
   lineas.push(l2);
 
   // Lineas IVA
   const crearIva = (base, cuota, tipo) => {
     const l = new Array(142).fill('');
-    l[0]=asiento; l[1]=fechaOpFmt; l[2]=getCuentaIva(tipo); l[3]=ctaProveedor;
+    l[0]=asiento; l[1]=fechaAsientoYmd; l[2]=getCuentaIva(tipo); l[3]=ctaProveedor;
     l[4]=cuota; l[5]=conceptoFact; l[6]=0;
     l[7]=numFactura.substring(0,8); l[8]=base;
     l[9]=tipo; l[10]=0; l[11]=doc;
     l[26]='2'; l[27]=cuota; l[28]=0; l[29]=base;
-    l[45]=fechaOpFmt; l[46]=fechaFmt;
+    l[45]=fechaFmt; l[46]=fechaAsientoYmd;
     l[61] = cifEmisor;                          // pos 62 TerNIF (C 15)
     l[62] = nombreEmisor.substring(0, 40);      // pos 63 TerNom (C 40)
     // l[63] pos 64 TerNif14 (C 9): NIF representante legal menores de 14 anios.
@@ -311,19 +340,65 @@ function construirLineasFactura(factura, numAsiento, documento, fechaOpFmt) {
     l[71]=facturaExp;
     l[72] = 'R';               // pos 73 TipoFac. 'R' = Recibida (esta app sólo maneja facturas de proveedor).
     l[73]='O'; l[75]='.T.'; l[95]=totalFactura;
-    l[116] = siiTipoClave;     // pos 117 TipoClave (N 2, marcador *15). Default 1 = Régimen general.
-    l[119] = siiTipoFact;      // pos 120 TipoFact  (N 2, marcador *18). Default 1 = F1 Factura ordinaria.
+    l[116] = siiTipoClave;     // pos 117 TipoClave  (N 2, marcador *15). Default 1 = Régimen general.
+    l[117] = siiTipoExenci;    // pos 118 TipoExenci (N 2, marcador *16). Default 1 = No exenta.
+    l[118] = siiTipoNoSuje;    // pos 119 TipoNoSuje (N 2, marcador *17). Default 2 = S1 Sujeta-No exenta.
+
+    // pos 120 TipoFact: con factura rectificativa aplica mapeo F1→R1 (Art. 80.1/80.2) y
+    // F2→R5 (simplificada). El override de la factura (da.sii_tipo_fact > 0) permite
+    // forzar R2=8 (concurso), R3=9 (incobrables) o R4=10 (otros) cuando aplique.
+    if (esRect) {
+      const mapRect = { 1: 7, 2: 11 };
+      l[119] = overrideTipoFact ?? mapRect[siiTipoFact] ?? 7;
+    } else {
+      l[119] = siiTipoFact;     // pos 120 TipoFact (N 2, marcador *18). Default 1 = F1 Factura ordinaria.
+    }
+
+    // pos 123 TipoRectif: defensa en profundidad. Si la factura NO es rectificativa,
+    // forzamos 1 ignorando el valor configurado en proveedor/factura, asi una mala
+    // configuracion del proveedor no produce asientos normales con TipoRectif != 1.
+    l[122] = esRect ? siiTipoRectif : 1;
+
+    l[125] = siiEntrPrest;     // pos 126 nEntrPrest (N 1, marcador *21). Default 3 = Prestacion de servicios.
+    l[126] = fechaAsientoYmd;  // pos 127 Decrecen  (F 8). No parametrizado: siempre = fecha del asiento.
+
+    // pos 37 Rectifica (L): .T./.F. segun es_rectificativa. Solo informado en la linea de IVA.
+    l[36] = esRect ? '.T.' : '.F.';
+
+    // Datos de la factura original rectificada (pos 33-38 + 128). Solo cuando es rect.
+    // Son opcionales: si el proveedor no incluye referencia, van vacios y el SII acepta
+    // la rectificativa "por diferencias" sin referencia (caso frecuente en esta app).
+    if (esRect) {
+      l[32] = rectSerie;                                       // pos 33 Serie_RT (C 1)
+      // pos 34 Factu_RT es numerico N 8. Si rect_numero no es puramente numerico hasta
+      // 8 digitos, queda vacio; el valor textual integro va siempre en pos 128 FactuEx_RT.
+      if (rectNumero && /^\d{1,8}$/.test(rectNumero)) {
+        l[33] = rectNumero;
+      } else {
+        l[33] = '';
+        if (rectNumero) {
+          logger.debug({ asiento: numAsiento, rect_numero: rectNumero }, '[SAGE DEBUG] rect_numero no numerico, se omite pos 34 Factu_RT');
+        }
+      }
+      l[34] = rectBaseImp != null ? rectBaseImp.toFixed(2) : '';  // pos 35 BaseImp_RT (N 16.2)
+      l[35] = base;                                               // pos 36 BaseImp_RF (N 16.2): base de la rect en esta linea de IVA
+      l[37] = rectFechaYmd;                                       // pos 38 Fecha_RT (F 8, AAAAMMDD)
+      l[127] = rectNumero;                                        // pos 128 FactuEx_RT (C 40, alfanumerico integro)
+    }
+
     l[132]=conceptoLargo; l[133]=cifEmisor; l[134]=nombreEmisor.substring(0,120);
     return l;
   };
 
   if (ivaList.length === 0) {
     const totalIva = parseFloat(d.total_iva) || 0;
-    if (totalIva > 0) lineas.push(crearIva(baseSinIva, totalIva, 21));
+    // !== 0 (no > 0): rectificativas pueden traer total_iva negativo sin desglose.
+    if (totalIva !== 0) lineas.push(crearIva(baseSinIva, totalIva, 21));
   } else {
     for (const iva of ivaList) {
       const tipo = iva.tipo || 21, base = parseFloat(iva.base)||0, cuota = parseFloat(iva.cuota)||0;
-      if (cuota > 0 || tipo === 0) lineas.push(crearIva(base, cuota, tipo));
+      // cuota !== 0 (rectificativas = cuota negativa) o tipo === 0 (exentas con cuota 0).
+      if (cuota !== 0 || tipo === 0) lineas.push(crearIva(base, cuota, tipo));
     }
   }
 
@@ -355,9 +430,10 @@ function generarFicheroSage(facturas, opts = {}) {
   let numAsiento  = asientoInicio;
   let numDoc      = documentoInicio;
 
-  // Fecha_OP (pos 46): fecha actual de generacion del archivo en formato AAAAMMDD
+  // Fecha del asiento (hoy, AAAAMMDD). Se usa en pos 2 (Fecha), pos 47 (Fecha_EX)
+  // y pos 127 (Decrecen) — todas representan "día de contabilización".
   const hoy = new Date();
-  const fechaOpFmt = String(hoy.getFullYear())
+  const fechaAsientoYmd = String(hoy.getFullYear())
     + String(hoy.getMonth() + 1).padStart(2, '0')
     + String(hoy.getDate()).padStart(2, '0');
 
@@ -365,7 +441,19 @@ function generarFicheroSage(facturas, opts = {}) {
     const d = factura.datos_extraidos || {};
     const total = parseFloat(d.total_factura) || 0;
     const documento = construirDocumento(total, numDoc);
-    registros.push(...construirLineasFactura(factura, numAsiento, documento, fechaOpFmt));
+
+    // Defensivo: el TXT de posiciones fijas pierde el signo (fmtND aplica Math.abs).
+    // Si la gestoria importa CSV el asiento cuadra; si importa TXT, los negativos
+    // se serializan sin signo y DEBE/HABER no ajustan. Dejamos traza para detectarlo
+    // en produccion si algun dia reportan descuadre en rectificativas.
+    if (total < 0) {
+      logger.warn(
+        { asiento: numAsiento, total, factura: d.numero_factura || null, drive_id: factura.id || null },
+        '[SAGE TXT] asiento con total negativo; el TXT no preserva signo. Usar CSV para rectificativas.'
+      );
+    }
+
+    registros.push(...construirLineasFactura(factura, numAsiento, documento, fechaAsientoYmd));
     numAsiento++;
     numDoc++;
   }

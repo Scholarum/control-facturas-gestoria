@@ -155,7 +155,7 @@ throw Object.assign(new Error('No autorizado'), { status: 403 });
 | `usuarios` | Usuarios del sistema (email, rol, password_hash, activo) |
 | `empresas` | Multi-empresa (nombre, cif, direccion) |
 | `usuario_empresa` | Relación N:M usuarios-empresas |
-| `drive_archivos` | Facturas sincronizadas desde Google Drive (datos_extraidos JSONB) |
+| `drive_archivos` | Facturas sincronizadas desde Google Drive (datos_extraidos **TEXT** con JSON serializado; ver nota) |
 | `proveedores` | Proveedores (razon_social, cif, cuenta_contable_id, cuenta_gasto_id, sii_tipo_clave, sii_tipo_fact) |
 | `proveedor_empresa` | Cuentas de proveedor por empresa |
 | `plan_contable` | Cuentas contables (codigo, descripcion, grupo, empresa_id) |
@@ -173,6 +173,18 @@ throw Object.assign(new Error('No autorizado'), { status: 403 });
 ### Estados de archivo (drive_archivos)
 
 `PENDIENTE` → `PROCESADA` (extracción OK) o `REVISION_MANUAL` (error extracción)
+
+### Columna `drive_archivos.datos_extraidos` — TEXT, no JSONB
+
+La columna está declarada `TEXT` (ver `src/config/migrate.js`). Almacena el JSON de la extracción Gemini serializado como string. **No** es JSONB (pese a que el contenido sea JSON). Razones históricas — la tabla se creó antes de la migración a PostgreSQL y nunca se cambió el tipo para no romper los `JSON.parse(a.datos_extraidos)` del código JS (con JSONB el driver `pg` devolvería objeto directo y esos `JSON.parse` fallarían).
+
+**Reglas obligatorias:**
+
+1. **Acceso desde SQL**: siempre con cast `::jsonb` antes de los operadores `->>` o `->`. Patrón estándar: `(da.datos_extraidos::jsonb)->>'clave'`. Sin cast los operadores dan error `operator does not exist: text ->> unknown`.
+2. **Acceso desde JS**: `JSON.parse(row.datos_extraidos)`. El driver devuelve string.
+3. **Guard frente a JSON inválido**: las filas antiguas pueden tener `datos_extraidos` vacío o corrupto. En SELECTs que castean a `jsonb`, proteger con `da.datos_extraidos ~ '^\s*\{'` antes del cast (patrón usado en todos los SELECT de `src/routes/gestion.js` y `src/config/migrate.js`). Sin este guard, una fila con texto no-JSON puede hacer fallar la consulta entera.
+
+Las columnas nuevas que vayan a parametrizar comportamientos del export SAGE o SII deben crearse **fuera del JSONB** como columnas separadas de `drive_archivos` (patrón `sii_tipo_*`, `rect_*`, `es_rectificativa`). Mucho más rápido de indexar y no dependen de casts.
 
 ### Migraciones
 
@@ -200,29 +212,94 @@ El protocolo R75 define **142 campos** por registro (ver `src/services/sageExpor
 
 Las versiones modernas de ContaPlus muestran en la UI el valor de `ConcepNew` (pos 133), **no** el `Concepto` legacy (pos 6). Por eso el nombre del proveedor va en pos 133 y no en pos 6.
 
-**Mapeo de fechas (tras cambio 2026-04-21):**
+**Mapeo de fechas (criterio fiscal correcto, tras corrección 2026-04-23):**
 - **Pos 2 — `Fecha`** (asiento) → fecha de contabilización = día en que se genera el fichero (hoy).
-- **Pos 46 — `Fecha_OP`** → fecha de operación = misma fecha de generación.
-- **Pos 47 — `Fecha_EX`** → fecha de expedición = `fecha_emision` de la factura.
+- **Pos 46 — `Fecha_OP`** → fecha de operación = `fecha_emision` de la factura.
+- **Pos 47 — `Fecha_EX`** → fecha de expedición = día en que se genera el fichero (hoy).
 
-En ContaPlus, el cuadro "Fecha" de Gestión de Asientos muestra pos 2; "F.operación" muestra pos 46; "F.expedición" muestra pos 47. Antes del cambio se ponía la fecha de emisión en pos 2 (y pos 47 vacío), lo que hacía que el asiento quedase fechado con la fecha del documento del proveedor en vez de la de contabilización.
+En ContaPlus, el cuadro "Fecha" de Gestión de Asientos muestra pos 2; "F.operación" muestra pos 46; "F.expedición" muestra pos 47.
+
+Historial de correcciones:
+- **2026-04-21**: antes de este cambio se ponía la fecha de emisión en pos 2 (y pos 47 vacío), lo que hacía que el asiento quedase fechado con la fecha del documento del proveedor en vez de la de contabilización.
+- **2026-04-23**: las pos 46 (Fecha_OP) y 47 (Fecha_EX) estaban invertidas respecto al criterio fiscal — pos 46 ponía "hoy" (debía ser fecha emisión) y pos 47 ponía fecha emisión (debía ser "hoy"). Los lotes SAGE exportados entre 2026-04-21 y 2026-04-23 llevan las fechas de operación/expedición invertidas; ContaPlus las muestra cruzadas en el Libro de IVA.
 
 **Campos SII / Libro de IVA:**
 - **Pos 72 — `FacturaEx`** (40 chars) → número de factura del emisor (`numero_factura`). Es el valor que ContaPlus muestra en el "Cuadro de impuestos" como "Nº factura expedición". Sólo se rellena en las líneas de IVA.
 - **Pos 76 — `L340`** (lógico) → `.T.` en todas las líneas del asiento (proveedor, gasto y cada IVA). Para que ContaPlus marque efectivamente la casilla "340/SII" al importar, cuando `L340=.T.` deben venir informados los campos SII asociados (pos 117 `TipoClave` y pos 120 `TipoFact`); si falta alguno de los críticos, ContaPlus descarta el flag entero (manual R75, Nota 6, pág. 12).
-- **Pos 73 — `TipoFac`** → literal `'R'` (Recibida) en todas las líneas de IVA. Esta app sólo maneja facturas de proveedor, por lo que no requiere parametrización. El soporte correcto de facturas rectificativas (que afectaría a `TipoFact` pos 120 y a `Rectifica` pos 37) queda pendiente: requiere un flag explícito en la factura, no derivado del signo del importe.
+- **Pos 73 — `TipoFac`** → literal `'R'` (Recibida) en todas las líneas de IVA. Esta app sólo maneja facturas de proveedor, por lo que no requiere parametrización.
 - **Pos 117 — `TipoClave`** (N 2, marcador *15 para 472 Deducible) → clave del régimen SII. Default `1` = operación de régimen general (caso normal español).
-- **Pos 120 — `TipoFact`** (N 2, marcador *18 para 472 Deducible) → tipo de factura SII. Default `1` = F1 Factura ordinaria.
+- **Pos 118 — `TipoExenci`** (N 2, marcador *16) → tipo de exención. Default `1` = no exenta.
+- **Pos 119 — `TipoNoSuje`** (N 2, marcador *17) → tipo de operación no sujeta. Default `2` = S1 Sujeta-No exenta.
+- **Pos 120 — `TipoFact`** (N 2, marcador *18 para 472 Deducible) → tipo de factura SII. Default `1` = F1 Factura ordinaria. Si la factura está marcada rectificativa, el exportador aplica mapeo automático F1→R1 / F2→R5 (ver "Facturas rectificativas" abajo).
+- **Pos 123 — `TipoRectif`** (N 2, marcador *20) → tipo de rectificativa. Default `2` = por diferencias. Sólo aplica cuando `es_rectificativa=true`; en facturas normales el exportador fuerza `1` como defensa en profundidad.
+- **Pos 126 — `nEntrPrest`** (N 1, marcador *21) → entrega de bienes vs prestación de servicios. Default `3` = prestación de servicios.
+- **Pos 127 — `Decrecen`** (F 8) → fecha de registro contable, siempre igual a la fecha del asiento (hoy). No parametrizado en BD; se calcula en el exportador.
 
-**Parametrización de `TipoClave` / `TipoFact`:** ambos viven como columnas `sii_tipo_clave` y `sii_tipo_fact` en dos tablas:
-- `proveedores`: `SMALLINT NOT NULL DEFAULT 1`. Valor por proveedor.
+**Parametrización de los 6 campos SII:** viven como columnas `sii_tipo_clave`, `sii_tipo_fact`, `sii_tipo_exenci`, `sii_tipo_no_suje`, `sii_tipo_rectif`, `sii_entr_prest` en dos tablas:
+- `proveedores`: `SMALLINT NOT NULL DEFAULT <d>` donde `<d>` es el default correspondiente (1/1/1/2/2/3). Valor por proveedor.
 - `drive_archivos`: `SMALLINT NULL`. Override por factura; `NULL` = heredar del proveedor.
 
-El SELECT del exportador resuelve el valor efectivo en SQL con `COALESCE(da.sii_tipo_clave, p.sii_tipo_clave, 1)` (análogo para `sii_tipo_fact`), evitando que el exportador tenga que conocer la tabla de proveedores. Las columnas se rellenan en `crearIva` únicamente; proveedor (HABER) y gasto (DEBE) no llevan campos SII.
+El SELECT del exportador resuelve el valor efectivo en SQL con `COALESCE(da.sii_tipo_X, p.sii_tipo_X, <default>)` para cada campo, evitando que el exportador tenga que conocer la tabla de proveedores. Las columnas se rellenan en `crearIva` únicamente; proveedor (HABER) y gasto (DEBE) no llevan campos SII.
 
-Edición: el endpoint `PUT /api/drive/:id/datos` acepta ambos campos como columnas separadas (fuera del JSONB `datos_extraidos`). Si la factura ya está exportada (`lote_sage_id IS NOT NULL`), el endpoint responde `409` para cambios en `sii_tipo_*` pero mantiene editables el resto de `CAMPOS_EDITABLES`.
+Edición: el endpoint `PUT /api/drive/:id/datos` acepta los 6 campos SII como columnas separadas (fuera del TEXT `datos_extraidos`). Si la factura ya está exportada (`lote_sage_id IS NOT NULL`), el endpoint responde `409` para cambios en `sii_tipo_*` y campos de rectificativa, pero mantiene editables los `CAMPOS_EDITABLES` del JSON.
 
-**Nota CSV:** `lineaCSV()` no escapa `;` ni comillas. Si algún campo de texto libre llegase a contener `;`, desplazaría columnas. Hoy los campos alimentados son controlados (números de factura, códigos, fechas); revisar escape si se introduce texto libre del usuario.
+### Facturas rectificativas
+
+Soporte completo para el mapeo SII de rectificativas (SAGE R75 pos 37 + pos 33-38 + pos 128), añadido el 2026-04-23. Cubre los casos mayoritarios de esta app: Art. 80.1/80.2 LIVA (errores, devoluciones, descuentos) con referencia opcional a factura original. Casos 80.3 (concurso) y 80.4 (incobrables) se soportan vía override manual de `sii_tipo_fact` a nivel factura.
+
+**Modelo de datos** (columnas de `drive_archivos`, fuera del JSONB `datos_extraidos`):
+- `es_rectificativa BOOLEAN NOT NULL DEFAULT FALSE` — flag propio de la factura.
+- `rect_serie VARCHAR(1)` — serie de la factura original. Opcional.
+- `rect_numero VARCHAR(40)` — número de la factura original. Opcional.
+- `rect_fecha DATE` — fecha de la factura original. Opcional.
+- `rect_base_imp NUMERIC(14,2)` — base imponible de la factura original. Opcional.
+
+Los 5 campos viven siempre como columnas, nunca dentro del JSONB. Razón: el usuario puede editarlos manualmente desde la UI; si también estuvieran en el JSONB extraído por Gemini, habría dos fuentes divergentes y cualquier consumer que leyera del JSON obtendría el valor antiguo.
+
+**Persistencia desde extractor Gemini** (`extractorService.guardarResultado`): extrae `es_rectificativa` + 4 `rect_*` del objeto `datos` antes del `JSON.stringify(datosJson)` y los persiste vía `COALESCE($valor_gemini, columna_actual)`. Semántica: `null` de Gemini significa "no detectado, respeta ediciones manuales previas"; valor explícito (incluso `false`) sobrescribe. Así, re-procesar una factura no pisa ediciones del usuario salvo que Gemini devuelva un valor explícito distinto.
+
+**Heurística `es_rectificativa` (coherente runtime + backfill, alineada el 2026-04-24)**: si Gemini no detectó explícitamente `true` (devuelve `null` o `false`) pero `total_factura < 0`, el extractor eleva el flag a `true` antes del `UPDATE`. **Sin condición sobre IVA**: una rectificativa puede venir con IVA bien desglosado (negativo coherente con la base negativa) o sin desglose; ambos casos deben capturarse. Los falsos positivos (ajustes contables con total negativo que no son rectificativas) se desmarcan manualmente desde la UI.
+
+Precedencia estricta: `Gemini true > heurística true > Gemini false > Gemini null`. Nunca baja de `true` a `false`; sólo eleva a `true` si `total<0` y Gemini no dijo `true`.
+
+El backfill retroactivo (query SQL lanzada manualmente desde Supabase SQL Editor de dev/prod tras el deploy del commit 3) usa **el mismo criterio**: `UPDATE drive_archivos SET es_rectificativa = true WHERE es_rectificativa = false AND ((datos_extraidos::jsonb)->>'total_factura')::numeric < 0`. Idempotente por la condición `WHERE es_rectificativa = false`. Versión previa de la heurística exigía `total_iva IS NULL OR = 0` — era demasiado restrictiva porque las rectificativas con IVA negativo desglosado (p.ej. MACMILLAN −37,40 € con IVA −6,49) no entraban en ese filtro.
+
+**Exportador SAGE** (`sageExporter.crearIva`):
+- **Pos 37 `Rectifica`**: `.T.` si `es_rectificativa=true`, `.F.` si no.
+- **Pos 120 `TipoFact`** con mapeo condicional:
+  - Si no rectificativa → valor efectivo de `sii_tipo_fact` (1 F1, 2 F2, etc.).
+  - Si rectificativa y hay override explícito de factura (`da.sii_tipo_fact > 0`) → valor del override (permite forzar R2=8, R3=9, R4=10 en casos raros).
+  - Si rectificativa sin override → mapeo automático: F1(1)→R1(7), F2(2)→R5(11); fallback R1 para cualquier otro caso.
+- **Pos 123 `TipoRectif`**: defensa en profundidad → si no rectificativa se fuerza `1` ignorando el valor de `sii_tipo_rectif`; si rectificativa, usa el valor resuelto.
+- **Pos 33-38 + 128** (datos factura original, sólo línea de IVA, sólo cuando `es_rectificativa=true`):
+  - Pos 33 `Serie_RT` = `rect_serie`.
+  - Pos 34 `Factu_RT` (N 8) = `rect_numero` **sólo si** cumple `/^\d{1,8}$/`; en otro caso queda vacío y se loguea `[SAGE DEBUG] rect_numero no numérico para asiento N, se omite pos 34 Factu_RT`. El valor textual íntegro va en pos 128 `FactuEx_RT` (C 40) sin restricción.
+  - Pos 35 `BaseImp_RT` = `rect_base_imp.toFixed(2)` o vacío.
+  - Pos 36 `BaseImp_RF` = base imponible de la línea de IVA actual.
+  - Pos 38 `Fecha_RT` = `rect_fecha` formateada como `AAAAMMDD`.
+  - Pos 128 `FactuEx_RT` = `rect_numero` textual íntegro.
+
+**Opción B para abonos globales** (1 rectificativa → N facturas originales): la app genera un único asiento de rectificativa sin referencia a original y con `TipoRectif=2` (por diferencias). El SII lo acepta como ajuste global. No partimos abonos en N asientos (opción A) — fuera de alcance.
+
+**Detección por Gemini**: el PROMPT_DEFAULT vigente (V2, desde 2026-04-23) incluye extracción de `isRectificativa, rectifiedSerie/Number/Date/TaxBase`. Ver sección de deploy para la migración idempotente del prompt.
+
+**Nota CSV:** `lineaCSV()` no escapa `;` ni comillas. Si algún campo de texto libre llegase a contener `;`, desplazaría columnas. Hoy los campos alimentados son controlados (números de factura, códigos, fechas, serie de rectificativa); revisar escape si se introduce texto libre del usuario. `rect_numero` admite hasta 40 caracteres alfanuméricos y **no** se escapa — si en algún caso se encuentra un número de factura con `;`, rompería la línea CSV. Query preventiva en BD dev devolvió 0 filas; replicar en prod en el merge.
+
+### Limitación conocida: formato TXT y números negativos
+
+La función `fmtND` (`src/services/sageExporter.js`) aplica `Math.abs(n)` antes de paddear, por lo que el formato TXT de posiciones fijas **no refleja el signo de los importes**. Facturas con total negativo (rectificativas, abonos) generadas en TXT no cuadran DEBE/HABER correctamente en ContaPlus al importar.
+
+El CSV (delimitado por `;`) sí preserva el signo porque `lineaCSV()` concatena los valores JS crudos sin pasar por `fmtND`; es el formato recomendado para importar a ContaPlus. Si se valida que la gestoría exclusivamente usa CSV, este tema es cosmético. Si en algún momento se pasa al TXT, hay que resolver la representación del signo en posiciones fijas conforme al manual R75 antes de hacerlo — el manual R75 define un ancho fijo sin signo explícito; habría que ver si ContaPlus admite `-` consumiendo 1 char del ancho o si hay un campo booleano separado para marcar "asiento negativo".
+
+Defensa operativa vigente: `generarFicheroSage` loguea `logger.warn('[SAGE TXT] asiento con total negativo; el TXT no preserva signo. Usar CSV para rectificativas.')` por cada asiento con `total_factura < 0`. Si la gestoría reporta descuadre en rectificativas, buscar este warning en los logs de Render confirma o descarta que hayan usado el TXT.
+
+## Mantenimiento masivo de proveedores vía Excel
+
+Flujo "exportar filtrado → editar offline → reimportar", pensado para correcciones puntuales sin pisar el resto de la base de proveedores.
+
+- `GET /api/proveedores/excel?ids=1,2,3` — exporta sólo esos proveedores (nombre de fichero `proveedores-filtrados-YYYY-MM-DD-Nreg.xlsx`). Sin `?ids` exporta todos los activos. El frontend del listado calcula los `ids` a partir de `proveedoresFiltrados` (filtrado hoy 100% cliente-side) y los manda.
+- `POST /api/proveedores/importar` — matching por **prioridad `ID → CIF → razón social`** (la columna `ID (no modificar)` va siempre como primera columna del export). Si la fila trae un `ID` que **no existe** en BD, se descarta y se reporta como error (`"Fila N: ID X no encontrado"`) — nunca crea un proveedor nuevo por una fila con ID corrupto. Si no trae ID, cae a CIF; si tampoco, a razón social. Es UPSERT estricto: los proveedores no incluidos en el fichero **no se tocan**.
+- Campos vacíos en el Excel son "no tocar" (se traducen a `COALESCE` en el UPDATE), no "borrar".
 
 ## Variables de entorno
 
@@ -254,6 +331,14 @@ CORS_ORIGIN           # Orígenes permitidos (CSV), vacío = todos en dev
 - **Backend**: Render (Node.js) — escucha el repo completo, redespliega ante cualquier commit en `main`.
 - **Frontend**: Netlify (SPA con redirect `/* → /index.html`) — `netlify.toml` define `base = "client"`.
 - **Base de datos**: Supabase (PostgreSQL)
+
+**Migración idempotente del prompt Gemini (`configuracion.prompt_gemini`)**: el `runMigrations()` compara byte-a-byte el valor actual en BD con `PROMPT_DEFAULT_V1` (la versión anterior, hardcodeada como constante literal en `src/services/extractorService.js`). Si coincide, se actualiza automáticamente al `PROMPT_DEFAULT` vigente. Si no coincide (admin customizó el prompt desde la UI de configuración), se respeta su versión y se loguea un warning claro:
+```
+[MIGRATION WARN] prompt_gemini en BD ha sido modificado manualmente. No se actualiza
+automáticamente. Para incluir detección de rectificativas, resetea desde la UI de
+configuración o aplica el nuevo PROMPT_DEFAULT manualmente.
+```
+Si el admin había customizado el prompt, tras un deploy con nuevo `PROMPT_DEFAULT` tendrá que resetearlo desde la UI (o aplicar manualmente los cambios) para que el extractor recoja las nuevas capacidades. La opción "respetar customización por defecto" evita pisar trabajo manual.
 - En producción, Express sirve el build estático del cliente desde `client/dist/`
 
 **Netlify cancela builds "sin cambios" por diseño:** al tener `base = "client"`, Netlify compara el diff del commit contra esa carpeta y si no hay cambios dentro, marca el deploy como *Canceled* (optimización integrada, no es un error). Por tanto los commits que sólo tocan backend (`src/`), CLI (`extractor.js`, `sync.js`), `CLAUDE.md` o SQL aparecerán como cancelados en Netlify — es correcto, el frontend servido sigue siendo el del último build que sí tocó `client/`.
@@ -268,6 +353,23 @@ CORS_ORIGIN           # Orígenes permitidos (CSV), vacío = todos en dev
 Dashboard dev: `https://supabase.com/dashboard/project/fothahxvwswlmnkssjqf`
 Dashboard prod: `https://supabase.com/dashboard/project/drjdkcfygevlnrvzgzan`
 
+### Checklist post-deploy (commits que tocan schema + UI)
+
+Cuando un commit añade columnas a BD y UI que las consume, tras esperar a que Render termine la migración (log `Migración PostgreSQL completada`), verificar los 3 puntos siguientes — si alguno falla, la UI queda inconsistente y el bug pasa silencioso:
+
+```sql
+-- 1. Las columnas nuevas existen en BD (incluir table_schema='public' para evitar falsos negativos).
+SELECT column_name, data_type FROM information_schema.columns
+WHERE table_schema = 'public' AND table_name = '<tabla>'
+  AND column_name IN (<lista>);
+```
+
+2. El SELECT del listado (o endpoint relevante) expone todas las columnas nuevas: buscar `da.<columna>` en `src/routes/gestion.js` (o el router que alimente la vista).
+
+3. El componente UI lee los campos desde `f.<columna>`: buscar el nombre del campo en el componente y confirmar que llega un valor (no `undefined`) desde el backend.
+
+Si se publica un commit con schema + UI y la columna no se creó en BD, los SELECT que la referencien devolverán `ERROR: column X does not exist` y el endpoint servirá 500 — el síntoma es tabla vacía o error en consola del navegador, no un bloque UI que "no aparece".
+
 ## Testing
 
 No hay framework de testing configurado. Las pruebas son manuales.
@@ -278,4 +380,5 @@ No hay framework de testing configurado. Las pruebas son manuales.
 - Testing (Jest/Vitest)
 - Pre-commit hooks
 - Gestión centralizada de secretos (pendiente migrar a Doppler/AWS SSM/Vault)
+- Normalización de CIF en el exportador SAGE: pos 62 `TerNIF` y pos 134 `TerNifNew` hoy se escriben tal cual llegan del JSONB (con guiones o barras, p.ej. `B-85294916`, `A78/603479`). ContaPlus los acepta y normaliza al importar, pero es preferible enviarlos limpios. Añadir `normalizarCIF()` que aplique `strip / - espacios` antes de volcar esos dos campos.
 - Edición optimista en panel fiscal de facturas: aplicada sólo a los dos campos SII (`sii_tipo_clave`, `sii_tipo_fact`) mediante el callback `onActualizarFacturaLocal` hilado `SeccionFacturas → TablaFacturas → PanelDetalleFiscal`. El resto de campos del panel (`numero_factura`, fechas, importes, IVA, etc.) sigue disparando `onDatosActualizados → invalidate() → refetch completo`, lo que cierra el panel expandido y pierde scroll. Patrón replicable si se priorizase.

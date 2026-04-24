@@ -4,6 +4,7 @@ import { BadgeGestion, BadgeExtraccion } from './Badge.jsx';
 import { fetchPreviewFactura, editarDatosFactura, asignarCuentaContableProveedor, crearProveedorRapido, crearCuentaContable, eliminarCuentaContable, fetchHistorialFactura } from '../api.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import { formatCurrency, formatCurrencyIva } from '../utils/formatCurrency.js';
+import { SII_CLAVE, SII_TIPO_FACT, SII_TIPO_EXENCI, SII_TIPO_NO_SUJE, SII_TIPO_RECTIF, SII_ENTR_PREST, tooltipSii } from '../constants/sii.js';
 
 // Campos obligatorios para considerar una factura sin incidencia
 const CAMPOS_OBLIGATORIOS = [
@@ -590,7 +591,8 @@ function CampoEditable({ label, valor, campo, datosOriginales, onGuardar, tipo =
 // Input inline para un campo SII (override por factura). Muestra el valor heredado
 // del proveedor como placeholder. Vacio = hereda del proveedor (NULL en BD).
 // Feedback visual: azul guardando, verde flash al OK, rojo con title al error.
-function CampoSiiInline({ label, override, heredado, campo, disabled, onGuardar }) {
+// tooltip opcional: si se pasa, el <label> lleva title="" con los valores validos.
+function CampoSiiInline({ label, override, heredado, campo, disabled, onGuardar, tooltip }) {
   const [val, setVal] = useState(override == null ? '' : String(override));
   const [status, setStatus] = useState('idle'); // idle | saving | ok | error
   const [errorMsg, setErrorMsg] = useState('');
@@ -621,7 +623,12 @@ function CampoSiiInline({ label, override, heredado, campo, disabled, onGuardar 
 
   return (
     <div>
-      <label className="block text-xs text-gray-500 mb-0.5">{label}</label>
+      <label
+        className={`block text-xs text-gray-500 mb-0.5 ${tooltip ? 'cursor-help' : ''}`}
+        title={tooltip || undefined}
+      >
+        {label}
+      </label>
       <div className="flex items-center gap-2">
         <input type="number" min="0" step="1"
           value={val}
@@ -633,6 +640,65 @@ function CampoSiiInline({ label, override, heredado, campo, disabled, onGuardar 
           title={errorMsg || undefined}
           className={`w-32 rounded border border-gray-200 px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-blue-400 transition-colors ${disabled ? 'bg-gray-50 text-gray-400 cursor-not-allowed' : bg}`} />
       </div>
+    </div>
+  );
+}
+
+// Input inline para un campo propio de factura rectificativa (rect_serie, rect_numero,
+// rect_fecha, rect_base_imp). Soporta text/date/number; vacio -> null (no rellenado).
+function CampoRectInline({ label, valor, campo, tipo, maxLength, step, disabled, onGuardar }) {
+  const [val, setVal] = useState(valor == null ? '' : String(valor));
+  const [status, setStatus] = useState('idle');
+  const [errorMsg, setErrorMsg] = useState('');
+  useEffect(() => { setVal(valor == null ? '' : String(valor)); }, [valor]);
+
+  async function guardar() {
+    const raw = val.trim();
+    let toSend;
+    if (raw === '') {
+      toSend = null;
+    } else if (tipo === 'number') {
+      const n = Number(raw);
+      if (!Number.isFinite(n)) { setVal(valor == null ? '' : String(valor)); return; }
+      toSend = n;
+    } else {
+      toSend = raw;
+    }
+    const actual = valor ?? null;
+    if (toSend === actual) return;
+    setStatus('saving'); setErrorMsg('');
+    try {
+      await onGuardar({ [campo]: toSend });
+      setStatus('ok');
+      setTimeout(() => setStatus('idle'), 500);
+    } catch (e) {
+      setStatus('error');
+      setErrorMsg(e.message || 'Error al guardar');
+      setVal(valor == null ? '' : String(valor));
+    }
+  }
+
+  const bg =
+    status === 'saving' ? 'bg-blue-50' :
+    status === 'ok'     ? 'bg-emerald-50' :
+    status === 'error'  ? 'bg-red-50' : '';
+
+  const inputType = tipo === 'number' ? 'number' : tipo === 'date' ? 'date' : 'text';
+  return (
+    <div>
+      <label className="block text-xs text-gray-500 mb-0.5">{label}</label>
+      <input
+        type={inputType}
+        value={val}
+        onChange={e => setVal(e.target.value)}
+        onBlur={guardar}
+        onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); if (e.key === 'Escape') { setVal(valor == null ? '' : String(valor)); e.currentTarget.blur(); } }}
+        disabled={disabled}
+        maxLength={maxLength}
+        step={step}
+        title={errorMsg || undefined}
+        className={`w-full rounded border border-gray-200 px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-amber-400 transition-colors ${disabled ? 'bg-gray-50 text-gray-400 cursor-not-allowed' : bg}`}
+      />
     </div>
   );
 }
@@ -658,15 +724,36 @@ function PanelDetalleFiscal({ f, onDatosActualizados, onActualizarFacturaLocal }
     if (onDatosActualizados) onDatosActualizados(f.id, result.datos_extraidos);
   }
 
-  // Guardado optimista SOLO para los dos campos SII: muta el estado local de la
+  // Guardado optimista SOLO para los campos SII: muta el estado local de la
   // lista de facturas sin invalidar el cache ni recargar la tabla. El resto de
   // campos del panel siguen usando handleGuardar (que dispara refetch).
   async function handleGuardarSiiLocal(campos) {
     const result = await editarDatosFactura(f.id, campos);
     if (onActualizarFacturaLocal) {
       onActualizarFacturaLocal(f.id, {
-        sii_tipo_clave: result.sii_tipo_clave,
-        sii_tipo_fact:  result.sii_tipo_fact,
+        sii_tipo_clave:   result.sii_tipo_clave,
+        sii_tipo_fact:    result.sii_tipo_fact,
+        sii_tipo_exenci:  result.sii_tipo_exenci,
+        sii_tipo_no_suje: result.sii_tipo_no_suje,
+        sii_tipo_rectif:  result.sii_tipo_rectif,
+        sii_entr_prest:   result.sii_entr_prest,
+      });
+    }
+  }
+
+  // Guardado optimista para los 5 campos de rectificativa. Al desmarcar el checkbox
+  // (es_rectificativa=false) los 4 rect_* NO se borran en BD: el PUT solo toca los
+  // campos que vienen en el body, asi el usuario puede alternar el flag sin perder
+  // los datos originales si se equivoca.
+  async function handleGuardarRectLocal(campos) {
+    const result = await editarDatosFactura(f.id, campos);
+    if (onActualizarFacturaLocal) {
+      onActualizarFacturaLocal(f.id, {
+        es_rectificativa: result.es_rectificativa,
+        rect_serie:       result.rect_serie,
+        rect_numero:      result.rect_numero,
+        rect_fecha:       result.rect_fecha,
+        rect_base_imp:    result.rect_base_imp,
       });
     }
   }
@@ -843,7 +930,7 @@ function PanelDetalleFiscal({ f, onDatosActualizados, onActualizarFacturaLocal }
                 Esta factura ya ha sido exportada a SAGE. Los datos SII no pueden modificarse.
               </div>
             )}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
               <CampoSiiInline
                 label="Clave régimen SII"
                 campo="sii_tipo_clave"
@@ -851,6 +938,7 @@ function PanelDetalleFiscal({ f, onDatosActualizados, onActualizarFacturaLocal }
                 heredado={f.proveedor_sii_tipo_clave ?? 1}
                 disabled={!!f.lote_sage_id}
                 onGuardar={handleGuardarSiiLocal}
+                tooltip={tooltipSii(SII_CLAVE)}
               />
               <CampoSiiInline
                 label="Tipo factura SII"
@@ -859,11 +947,89 @@ function PanelDetalleFiscal({ f, onDatosActualizados, onActualizarFacturaLocal }
                 heredado={f.proveedor_sii_tipo_fact ?? 1}
                 disabled={!!f.lote_sage_id}
                 onGuardar={handleGuardarSiiLocal}
+                tooltip={tooltipSii(SII_TIPO_FACT)}
+              />
+              <CampoSiiInline
+                label="Tipo exención"
+                campo="sii_tipo_exenci"
+                override={f.sii_tipo_exenci}
+                heredado={f.proveedor_sii_tipo_exenci ?? 1}
+                disabled={!!f.lote_sage_id}
+                onGuardar={handleGuardarSiiLocal}
+                tooltip={tooltipSii(SII_TIPO_EXENCI)}
+              />
+              <CampoSiiInline
+                label="Tipo no sujeta"
+                campo="sii_tipo_no_suje"
+                override={f.sii_tipo_no_suje}
+                heredado={f.proveedor_sii_tipo_no_suje ?? 2}
+                disabled={!!f.lote_sage_id}
+                onGuardar={handleGuardarSiiLocal}
+                tooltip={tooltipSii(SII_TIPO_NO_SUJE)}
+              />
+              <CampoSiiInline
+                label="Tipo rectificativa"
+                campo="sii_tipo_rectif"
+                override={f.sii_tipo_rectif}
+                heredado={f.proveedor_sii_tipo_rectif ?? 2}
+                disabled={!!f.lote_sage_id}
+                onGuardar={handleGuardarSiiLocal}
+                tooltip={tooltipSii(SII_TIPO_RECTIF)}
+              />
+              <CampoSiiInline
+                label="Entrega / Prestación"
+                campo="sii_entr_prest"
+                override={f.sii_entr_prest}
+                heredado={f.proveedor_sii_entr_prest ?? 3}
+                disabled={!!f.lote_sage_id}
+                onGuardar={handleGuardarSiiLocal}
+                tooltip={tooltipSii(SII_ENTR_PREST)}
               />
             </div>
             <p className="text-xs text-gray-500 mt-2">
               Dejar vacío para usar el valor configurado en el proveedor.
             </p>
+          </div>
+        </div>
+
+        {/* Datos de rectificativa */}
+        <div className="px-3 sm:px-6 pb-4">
+          <div className={`rounded-lg border px-3 py-3 ${f.es_rectificativa ? 'border-amber-200 bg-amber-50/40' : (hayIncidencia ? 'border-red-100 bg-white/40' : 'border-blue-100 bg-white/40')}`}>
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Datos de rectificativa</p>
+            {f.lote_sage_id && (
+              <div className="mb-3 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-800">
+                Esta factura ya ha sido exportada a SAGE. No se pueden modificar los campos de rectificativa.
+              </div>
+            )}
+            <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={f.es_rectificativa === true}
+                disabled={!!f.lote_sage_id}
+                onChange={e => handleGuardarRectLocal({ es_rectificativa: e.target.checked }).catch(() => {})}
+                className="h-4 w-4 rounded border-gray-300 text-amber-600 focus:ring-amber-400"
+              />
+              <span className="font-medium">Factura rectificativa</span>
+            </label>
+            {f.es_rectificativa === true && (
+              <div className="mt-3 space-y-3">
+                <div className="rounded-lg bg-amber-100/50 border border-amber-200 px-3 py-2 text-xs text-amber-800">
+                  Al exportar a SAGE, <strong>TipoFact</strong> (pos 120) y <strong>TipoRectif</strong> (pos 123) se ajustarán automáticamente según
+                  el tipo configurado en el proveedor (F1→R1 por defecto, F2→R5). Si necesitas forzar R2 (concurso),
+                  R3 (incobrables) o R4 (otros), pon <em>Tipo factura SII</em> de esta factura a 8, 9 o 10 respectivamente.
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  <CampoRectInline label="Serie"              valor={f.rect_serie}    campo="rect_serie"    tipo="text"   maxLength={1}  disabled={!!f.lote_sage_id} onGuardar={handleGuardarRectLocal} />
+                  <CampoRectInline label="Nº factura original" valor={f.rect_numero}   campo="rect_numero"   tipo="text"   maxLength={40} disabled={!!f.lote_sage_id} onGuardar={handleGuardarRectLocal} />
+                  <CampoRectInline label="Fecha original"     valor={f.rect_fecha}    campo="rect_fecha"    tipo="date"                   disabled={!!f.lote_sage_id} onGuardar={handleGuardarRectLocal} />
+                  <CampoRectInline label="Base imp. original" valor={f.rect_base_imp} campo="rect_base_imp" tipo="number" step="0.01"    disabled={!!f.lote_sage_id} onGuardar={handleGuardarRectLocal} />
+                </div>
+                <p className="text-xs text-gray-500">
+                  Si el proveedor no indica la factura original, deja estos campos vacíos. El SII acepta rectificativas
+                  &quot;por diferencias&quot; sin referencia explícita.
+                </p>
+              </div>
+            )}
           </div>
         </div>
 
