@@ -306,9 +306,9 @@ router.get('/excel', async (req, res) => {
     'Clave SII':                   r.sii_tipo_clave   ?? 1,
     'Tipo Factura SII':            r.sii_tipo_fact    ?? 1,
     'Tipo Exencion SII':           r.sii_tipo_exenci  ?? 1,
-    'Tipo No Sujeta SII':          r.sii_tipo_no_suje ?? 2,
+    'Tipo No Sujeta SII':          r.sii_tipo_no_suje ?? 1,
     'Tipo Rectificativa SII':      r.sii_tipo_rectif  ?? 2,
-    'Entrega/Prestacion SII':      r.sii_entr_prest   ?? 3,
+    'Entrega/Prestacion SII':      r.sii_entr_prest   ?? 1,
   }));
 
   const ws = XLSX.utils.json_to_sheet(filas);

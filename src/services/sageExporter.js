@@ -218,7 +218,7 @@ function fmtF(iso, lon) {
   return String(iso).replace(/-/g, '').substring(0, lon).padEnd(lon, ' ');
 }
 
-/** Logico .T. / .F. / vacio */
+/** Logico .T. / .F. / vacio (formato XBase, solo TXT — campo de 1 char) */
 function fmtL(val, lon) {
   const s = val === true ? '.T.' : val === false ? '.F.' : '';
   return s.padEnd(lon, ' ').substring(0, lon);
@@ -240,12 +240,36 @@ function lineaTXT(valores) {
   return CAMPOS.map((campo, i) => formatearCampoTXT(valores[i], campo)).join('');
 }
 
-function lineaCSV(valores) {
-  const result = [];
-  for (let i = 0; i < CAMPOS.length; i++) {
-    result.push(valores[i] || '');
+/**
+ * Serializa un valor para CSV respetando la metadata del manual R75.
+ *
+ * Formato CSV (delimitado por ;) — el que usa la gestoria al importar en
+ * ContaPlus Flex Asesorias. ContaPlus Flex SOLO activa el modulo 340/SII si
+ * los campos logicos llegan como TRUE/FALSE y NUNCA vacios. La notacion XBase
+ * `.T.`/`.F.` que figura en el manual R75 oficial no funciona en CSV
+ * (confirmado 2026-04-29 comparando contra un CSV exportado manualmente desde
+ * ContaPlus). Igualmente los numericos vacios → `0` o `0.00` segun `dec`,
+ * imitando lo que ContaPlus emite al exportar manualmente.
+ *
+ * El TXT (posiciones fijas, 1 char por L) sigue usando `.T.`/`.F.` via fmtL.
+ */
+function csvValor(valor, campo) {
+  if (campo.tipo === 'L') {
+    if (valor === true || valor === '.T.' || valor === 'TRUE') return 'TRUE';
+    return 'FALSE'; // false, '.F.', null, '', undefined → FALSE (nunca vacio)
   }
-  return result.join(';');
+  if (campo.tipo === 'N') {
+    if (valor === '' || valor == null) return campo.dec ? (0).toFixed(campo.dec) : '0';
+    const n = Number(valor);
+    if (!Number.isFinite(n)) return campo.dec ? (0).toFixed(campo.dec) : '0';
+    return campo.dec ? n.toFixed(campo.dec) : String(Math.trunc(n));
+  }
+  if (campo.tipo === 'F') return valor ? String(valor).replace(/-/g, '') : '';
+  return valor == null ? '' : String(valor);
+}
+
+function lineaCSV(valores) {
+  return CAMPOS.map((campo, i) => csvValor(valores[i], campo)).join(';');
 }
 
 // ─── Construir valores por factura ──────────────────────────────────────────
@@ -276,14 +300,15 @@ function construirLineasFactura(factura, numAsiento, documento, fechaAsientoYmd)
   const asiento       = String(numAsiento);
   const doc           = (documento || '').substring(0, 10);
   // Campos SII parametrizables por proveedor + override por factura (resueltos con COALESCE en SQL).
-  // Defaults: 1/1 = régimen general + F1 ordinaria; 1/2/2/3 = no exenta / S1 sujeta-no exenta /
-  // por diferencias / prestación de servicios (caso normal español).
+  // Defaults: 1/1/1/1/2/1 = régimen general + F1 ordinaria + no exenta + 'vacío lógico' no sujeta /
+  // por diferencias / 'vacío lógico' entrega-prestación. Los defaults 1 en sii_tipo_no_suje y
+  // sii_entr_prest replican lo que ContaPlus emite en alta manual de operación normal (2026-04-29).
   const siiTipoClave   = Number.isInteger(factura.sii_tipo_clave)   ? factura.sii_tipo_clave   : 1;
   const siiTipoFact    = Number.isInteger(factura.sii_tipo_fact)    ? factura.sii_tipo_fact    : 1;
   const siiTipoExenci  = Number.isInteger(factura.sii_tipo_exenci)  ? factura.sii_tipo_exenci  : 1;
-  const siiTipoNoSuje  = Number.isInteger(factura.sii_tipo_no_suje) ? factura.sii_tipo_no_suje : 2;
+  const siiTipoNoSuje  = Number.isInteger(factura.sii_tipo_no_suje) ? factura.sii_tipo_no_suje : 1;
   const siiTipoRectif  = Number.isInteger(factura.sii_tipo_rectif)  ? factura.sii_tipo_rectif  : 2;
-  const siiEntrPrest   = Number.isInteger(factura.sii_entr_prest)   ? factura.sii_entr_prest   : 3;
+  const siiEntrPrest   = Number.isInteger(factura.sii_entr_prest)   ? factura.sii_entr_prest   : 1;
 
   // Rectificativas. overrideTipoFact = valor crudo de da.sii_tipo_fact (puede ser NULL).
   // Solo lo tratamos como override si es un entero > 0; 0 o NULL significa "no hay override,
@@ -311,8 +336,11 @@ function construirLineasFactura(factura, numAsiento, documento, fechaAsientoYmd)
   l1[0]=asiento; l1[1]=fechaAsientoYmd; l1[2]=ctaProveedor; l1[3]=ctaGasto;
   l1[4]=0; l1[5]=conceptoFact; l1[6]=totalFactura;
   l1[11]=doc; l1[26]='2'; l1[27]=0;
-  l1[28]=totalFactura; l1[45]=fechaFmt; l1[46]=fechaAsientoYmd;
-  l1[75]='.T.'; l1[95]=totalFactura; l1[132]=conceptoLargo;
+  l1[28]=totalFactura; l1[38]='E';            // pos 39 NIC: 'E' = válido para PGC y NIC (ContaPlus en alta manual lo rellena con 'E')
+  l1[45]=fechaFmt; l1[46]=fechaAsientoYmd;
+  l1[75]='.T.';                               // pos 76 L340 — TXT usa .T., CSV se traduce a TRUE en csvValor
+  l1[95]=totalFactura; l1[115]=0;             // pos 116 EstadoSII: uso interno, siempre 0
+  l1[132]=conceptoLargo;
   lineas.push(l1);
 
   // Linea 2: Gasto en DEBE
@@ -320,8 +348,11 @@ function construirLineasFactura(factura, numAsiento, documento, fechaAsientoYmd)
   l2[0]=asiento; l2[1]=fechaAsientoYmd; l2[2]=ctaGasto; l2[3]=ctaProveedor;
   l2[4]=baseSinIva; l2[5]=conceptoFact; l2[6]=0;
   l2[11]=doc; l2[26]='2';
-  l2[27]=baseSinIva; l2[28]=0; l2[45]=fechaFmt; l2[46]=fechaAsientoYmd;
-  l2[75]='.T.'; l2[132]=conceptoLargo;
+  l2[27]=baseSinIva; l2[28]=0; l2[38]='E';    // pos 39 NIC
+  l2[45]=fechaFmt; l2[46]=fechaAsientoYmd;
+  l2[75]='.T.';                               // pos 76 L340
+  l2[115]=0;                                  // pos 116 EstadoSII
+  l2[132]=conceptoLargo;
   lineas.push(l2);
 
   // Lineas IVA
@@ -337,12 +368,15 @@ function construirLineasFactura(factura, numAsiento, documento, fechaAsientoYmd)
     l[62] = nombreEmisor.substring(0, 40);      // pos 63 TerNom (C 40)
     // l[63] pos 64 TerNif14 (C 9): NIF representante legal menores de 14 anios.
     // Debe ir vacio salvo facturacion a menor de 14, caso que esta app no soporta.
+    l[38]='E';                 // pos 39 NIC: 'E' = válido para PGC y NIC (ContaPlus en alta manual lo rellena con 'E')
     l[71]=facturaExp;
     l[72] = 'R';               // pos 73 TipoFac. 'R' = Recibida (esta app sólo maneja facturas de proveedor).
-    l[73]='O'; l[75]='.T.'; l[95]=totalFactura;
+    l[73]='O'; l[75]='.T.';    // pos 76 L340 — TXT usa .T., CSV se traduce a TRUE en csvValor
+    l[95]=totalFactura;
+    l[115]=0;                  // pos 116 EstadoSII: uso interno, siempre 0
     l[116] = siiTipoClave;     // pos 117 TipoClave  (N 2, marcador *15). Default 1 = Régimen general.
     l[117] = siiTipoExenci;    // pos 118 TipoExenci (N 2, marcador *16). Default 1 = No exenta.
-    l[118] = siiTipoNoSuje;    // pos 119 TipoNoSuje (N 2, marcador *17). Default 2 = S1 Sujeta-No exenta.
+    l[118] = siiTipoNoSuje;    // pos 119 TipoNoSuje (N 2, marcador *17). Default 1 ('vacio logico' que ContaPlus emite en alta manual).
 
     // pos 120 TipoFact: con factura rectificativa aplica mapeo F1→R1 (Art. 80.1/80.2) y
     // F2→R5 (simplificada). El override de la factura (da.sii_tipo_fact > 0) permite
@@ -359,8 +393,10 @@ function construirLineasFactura(factura, numAsiento, documento, fechaAsientoYmd)
     // configuracion del proveedor no produce asientos normales con TipoRectif != 1.
     l[122] = esRect ? siiTipoRectif : 1;
 
-    l[125] = siiEntrPrest;     // pos 126 nEntrPrest (N 1, marcador *21). Default 3 = Prestacion de servicios.
+    l[125] = siiEntrPrest;     // pos 126 nEntrPrest (N 1, marcador *21). Default 1 ('vacio logico' que ContaPlus emite en alta manual).
     l[126] = fechaAsientoYmd;  // pos 127 Decrecen  (F 8). No parametrizado: siempre = fecha del asiento.
+    l[128] = 1;                // pos 129 TipoClave1 (N 2). ContaPlus en alta manual lo rellena con 1; nuestro CSV anterior lo dejaba vacio.
+    l[129] = 1;                // pos 130 TipoClave2 (N 2). Idem TipoClave1.
 
     // pos 37 Rectifica (L): .T./.F. segun es_rectificativa. Solo informado en la linea de IVA.
     l[36] = esRect ? '.T.' : '.F.';

@@ -201,9 +201,14 @@ const tablas = [
   // sii_decrecen (pos 127 Decrecen) NO se parametriza: siempre vale la fecha
   // del asiento; se calcula en el exportador.
   `ALTER TABLE proveedores    ADD COLUMN IF NOT EXISTS sii_tipo_exenci  SMALLINT NOT NULL DEFAULT 1`,
-  `ALTER TABLE proveedores    ADD COLUMN IF NOT EXISTS sii_tipo_no_suje SMALLINT NOT NULL DEFAULT 2`,
+  // Defaults sii_tipo_no_suje=1 y sii_entr_prest=1: replican el "vacio logico" que
+  // ContaPlus Flex emite en alta manual de operacion normal (confirmado 2026-04-29).
+  // Defaults antiguos 2/3 (recomendados por el manual R75) se cambiaron porque
+  // ContaPlus en la practica no los marca asi. Los proveedores existentes con
+  // 2/3 se actualizan via UPDATE retroactivo manual en el SQL Editor de Supabase.
+  `ALTER TABLE proveedores    ADD COLUMN IF NOT EXISTS sii_tipo_no_suje SMALLINT NOT NULL DEFAULT 1`,
   `ALTER TABLE proveedores    ADD COLUMN IF NOT EXISTS sii_tipo_rectif  SMALLINT NOT NULL DEFAULT 2`,
-  `ALTER TABLE proveedores    ADD COLUMN IF NOT EXISTS sii_entr_prest   SMALLINT NOT NULL DEFAULT 3`,
+  `ALTER TABLE proveedores    ADD COLUMN IF NOT EXISTS sii_entr_prest   SMALLINT NOT NULL DEFAULT 1`,
   `ALTER TABLE drive_archivos ADD COLUMN IF NOT EXISTS sii_tipo_exenci  SMALLINT`,
   `ALTER TABLE drive_archivos ADD COLUMN IF NOT EXISTS sii_tipo_no_suje SMALLINT`,
   `ALTER TABLE drive_archivos ADD COLUMN IF NOT EXISTS sii_tipo_rectif  SMALLINT`,

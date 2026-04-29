@@ -223,20 +223,27 @@ Historial de correcciones:
 - **2026-04-21**: antes de este cambio se ponía la fecha de emisión en pos 2 (y pos 47 vacío), lo que hacía que el asiento quedase fechado con la fecha del documento del proveedor en vez de la de contabilización.
 - **2026-04-23**: las pos 46 (Fecha_OP) y 47 (Fecha_EX) estaban invertidas respecto al criterio fiscal — pos 46 ponía "hoy" (debía ser fecha emisión) y pos 47 ponía fecha emisión (debía ser "hoy"). Los lotes SAGE exportados entre 2026-04-21 y 2026-04-23 llevan las fechas de operación/expedición invertidas; ContaPlus las muestra cruzadas en el Libro de IVA.
 
+**Formato lógicos en CSV — gotcha crítico (descubierto 2026-04-29):** ContaPlus Flex Asesorías sólo activa el módulo 340/SII al importar si los campos lógicos (tipo `L`) llegan como **`TRUE`/`FALSE`** y **nunca vacíos**. La notación XBase `.T.`/`.F.` que figura en el manual R75 oficial **no funciona** en CSV — confirmado comparando un CSV nuestro contra un CSV exportado manualmente desde ContaPlus por la gestoría. Igualmente los campos numéricos vacíos deben emitirse como `0` o `0.00` (según `dec`), no como columna vacía. La traducción `.T./.F./vacío → TRUE/FALSE` y `vacío numérico → 0/0.00` se centraliza en `csvValor()` (`src/services/sageExporter.js`), que usa la metadata del array `CAMPOS` para decidir tipo y `dec`. El TXT de posiciones fijas mantiene `.T.`/`.F.` (campo de 1 char, `TRUE`/`FALSE` no caben) — la gestoría sólo usa CSV.
+
+**Literales fijos que ContaPlus emite en alta manual y nuestro CSV ahora replica:**
+- **Pos 39 `NIC`** = `'E'` en las 3 líneas (válido para PGC y NIC).
+- **Pos 116 `EstadoSII`** = `0` en las 3 líneas (manual R75: "uso interno, siempre 0").
+- **Pos 129 `TipoClave1`** = `1` y **pos 130 `TipoClave2`** = `1` en la línea de IVA.
+
 **Campos SII / Libro de IVA:**
 - **Pos 72 — `FacturaEx`** (40 chars) → número de factura del emisor (`numero_factura`). Es el valor que ContaPlus muestra en el "Cuadro de impuestos" como "Nº factura expedición". Sólo se rellena en las líneas de IVA.
-- **Pos 76 — `L340`** (lógico) → `.T.` en todas las líneas del asiento (proveedor, gasto y cada IVA). Para que ContaPlus marque efectivamente la casilla "340/SII" al importar, cuando `L340=.T.` deben venir informados los campos SII asociados (pos 117 `TipoClave` y pos 120 `TipoFact`); si falta alguno de los críticos, ContaPlus descarta el flag entero (manual R75, Nota 6, pág. 12).
+- **Pos 76 — `L340`** (lógico) → `TRUE` en todas las líneas del asiento (proveedor, gasto y cada IVA). Para que ContaPlus marque efectivamente la casilla "340/SII" al importar, cuando `L340=TRUE` deben venir informados los campos SII asociados (pos 117 `TipoClave` y pos 120 `TipoFact`); si falta alguno de los críticos, ContaPlus descarta el flag entero (manual R75, Nota 6, pág. 12).
 - **Pos 73 — `TipoFac`** → literal `'R'` (Recibida) en todas las líneas de IVA. Esta app sólo maneja facturas de proveedor, por lo que no requiere parametrización.
 - **Pos 117 — `TipoClave`** (N 2, marcador *15 para 472 Deducible) → clave del régimen SII. Default `1` = operación de régimen general (caso normal español).
 - **Pos 118 — `TipoExenci`** (N 2, marcador *16) → tipo de exención. Default `1` = no exenta.
-- **Pos 119 — `TipoNoSuje`** (N 2, marcador *17) → tipo de operación no sujeta. Default `2` = S1 Sujeta-No exenta.
+- **Pos 119 — `TipoNoSuje`** (N 2, marcador *17) → tipo de operación no sujeta. Default `1` = "vacío lógico" que ContaPlus emite en alta manual de operación normal. El manual R75 sugiere `2` (S1 Sujeta-No exenta), pero la práctica de ContaPlus Flex Asesorías es `1`. Default cambiado el 2026-04-29 (commit del fix CSV TRUE/FALSE) — los proveedores existentes con `2` se actualizan retroactivamente con `UPDATE proveedores SET sii_tipo_no_suje=1 WHERE sii_tipo_no_suje=2;` lanzado manualmente en SQL Editor de Supabase.
 - **Pos 120 — `TipoFact`** (N 2, marcador *18 para 472 Deducible) → tipo de factura SII. Default `1` = F1 Factura ordinaria. Si la factura está marcada rectificativa, el exportador aplica mapeo automático F1→R1 / F2→R5 (ver "Facturas rectificativas" abajo).
 - **Pos 123 — `TipoRectif`** (N 2, marcador *20) → tipo de rectificativa. Default `2` = por diferencias. Sólo aplica cuando `es_rectificativa=true`; en facturas normales el exportador fuerza `1` como defensa en profundidad.
-- **Pos 126 — `nEntrPrest`** (N 1, marcador *21) → entrega de bienes vs prestación de servicios. Default `3` = prestación de servicios.
+- **Pos 126 — `nEntrPrest`** (N 1, marcador *21) → entrega de bienes vs prestación de servicios. Default `1` = "vacío lógico" que ContaPlus emite en alta manual. El manual R75 sugiere `3` (prestación de servicios), pero la práctica es `1`. Mismo cambio del 2026-04-29; UPDATE retroactivo: `UPDATE proveedores SET sii_entr_prest=1 WHERE sii_entr_prest=3;`.
 - **Pos 127 — `Decrecen`** (F 8) → fecha de registro contable, siempre igual a la fecha del asiento (hoy). No parametrizado en BD; se calcula en el exportador.
 
 **Parametrización de los 6 campos SII:** viven como columnas `sii_tipo_clave`, `sii_tipo_fact`, `sii_tipo_exenci`, `sii_tipo_no_suje`, `sii_tipo_rectif`, `sii_entr_prest` en dos tablas:
-- `proveedores`: `SMALLINT NOT NULL DEFAULT <d>` donde `<d>` es el default correspondiente (1/1/1/2/2/3). Valor por proveedor.
+- `proveedores`: `SMALLINT NOT NULL DEFAULT <d>` donde `<d>` es el default correspondiente (1/1/1/1/2/1, tras el cambio del 2026-04-29). Valor por proveedor.
 - `drive_archivos`: `SMALLINT NULL`. Override por factura; `NULL` = heredar del proveedor.
 
 El SELECT del exportador resuelve el valor efectivo en SQL con `COALESCE(da.sii_tipo_X, p.sii_tipo_X, <default>)` para cada campo, evitando que el exportador tenga que conocer la tabla de proveedores. Las columnas se rellenan en `crearIva` únicamente; proveedor (HABER) y gasto (DEBE) no llevan campos SII.
