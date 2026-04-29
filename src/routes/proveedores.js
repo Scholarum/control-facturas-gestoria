@@ -155,6 +155,9 @@ function parseSiiEntero(val) {
 // aqui tambien define el orden que aparece en las cabeceras del Excel de export.
 const CAMPOS_SII_PROVEEDOR = ['sii_tipo_clave', 'sii_tipo_fact', 'sii_tipo_exenci', 'sii_tipo_no_suje', 'sii_tipo_rectif', 'sii_entr_prest'];
 
+// Columnas IRPF de proveedor — modelo "proveedor manda".
+const CAMPOS_IRPF_PROVEEDOR = ['aplica_irpf', 'irpf_porcentaje', 'irpf_clave', 'irpf_subcuenta'];
+
 // Parsea los 6 campos SII del body y devuelve {values, error}. values[c] puede ser:
 //   number  → valor explicito a insertar/actualizar
 //   undefined → no viene en el body, mantener default/valor actual en BD.
@@ -168,6 +171,66 @@ function parseCamposSiiBody(body) {
   return { values };
 }
 
+// Normaliza booleanos del body que pueden llegar como bool o string ("true"/"false")
+// desde Excel/JSON-multipart. Devuelve true|false|null si no es interpretable.
+function parseBooleano(val) {
+  if (val === true || val === 'true'  || val === 'TRUE'  || val === 1) return true;
+  if (val === false || val === 'false' || val === 'FALSE' || val === 0) return false;
+  return null;
+}
+
+// Parsea los 4 campos IRPF del body con la siguiente semantica:
+//   - 'aplica_irpf' ausente del body → ignora los 4; ningun campo IRPF se toca (return {values: {}}).
+//   - 'aplica_irpf' = false → fuerza los 3 restantes a NULL (limpieza al desmarcar).
+//   - 'aplica_irpf' = true  → exige los 3 restantes informados y validos. La subcuenta
+//     se valida contra plan_contable (debe existir y empezar por '4751'). Asincrono.
+//
+// Convencion de cliente: el modal proveedor y la edicion inline mandan SIEMPRE los 4
+// campos juntos. Edicion parcial de un solo campo IRPF sin 'aplica_irpf' = no-op.
+//
+// Devuelve {values, error}. values mapea cada columna a su valor a persistir o
+// undefined si no se debe tocar.
+async function parseCamposIrpfBody(body, db) {
+  if (!('aplica_irpf' in body)) {
+    return { values: {} };
+  }
+  const aplica = parseBooleano(body.aplica_irpf);
+  if (aplica === null) return { error: 'aplica_irpf debe ser true o false' };
+
+  if (aplica === false) {
+    return { values: { aplica_irpf: false, irpf_porcentaje: null, irpf_clave: null, irpf_subcuenta: null } };
+  }
+
+  // aplica = true: exigir los 3 informados.
+  const pct = body.irpf_porcentaje;
+  if (pct === undefined || pct === null || pct === '') return { error: 'irpf_porcentaje requerido cuando aplica_irpf=true' };
+  const pctN = Number(pct);
+  if (!Number.isFinite(pctN) || pctN < 0 || pctN > 100) return { error: 'irpf_porcentaje debe ser numero entre 0 y 100' };
+
+  const claveRaw = body.irpf_clave;
+  if (claveRaw === undefined || claveRaw === null || claveRaw === '') return { error: 'irpf_clave requerida cuando aplica_irpf=true' };
+  const claveN = Number(claveRaw);
+  if (!Number.isInteger(claveN) || claveN < 1 || claveN > 11) return { error: 'irpf_clave debe ser entero entre 1 y 11' };
+
+  const sub = String(body.irpf_subcuenta || '').trim();
+  if (!sub) return { error: 'irpf_subcuenta requerida cuando aplica_irpf=true' };
+  if (!/^4751\d*$/.test(sub)) return { error: `irpf_subcuenta debe empezar por '4751': ${sub}` };
+  const fila = await db.one(
+    `SELECT codigo FROM plan_contable WHERE codigo = $1 AND activo = true LIMIT 1`,
+    [sub]
+  );
+  if (!fila) return { error: `subcuenta IRPF '${sub}' no existe en plan contable. Crea la subcuenta antes de asignarla al proveedor.` };
+
+  return {
+    values: {
+      aplica_irpf:     true,
+      irpf_porcentaje: pctN,
+      irpf_clave:      claveN,
+      irpf_subcuenta:  sub,
+    },
+  };
+}
+
 // POST / - crear proveedor
 router.post('/', requireAdmin, async (req, res) => {
   const { razon_social, nombre_carpeta, cif, cuenta_contable_id, cuenta_gasto_id, empresa_id } = req.body;
@@ -178,6 +241,9 @@ router.post('/', requireAdmin, async (req, res) => {
   if (siiErr) return res.status(400).json({ ok: false, error: siiErr });
 
   const db  = getDb();
+  const { values: irpf, error: irpfErr } = await parseCamposIrpfBody(req.body, db);
+  if (irpfErr) return res.status(400).json({ ok: false, error: irpfErr });
+
   if (nombre_carpeta?.trim()) {
     const dup = await db.one('SELECT id FROM proveedores WHERE nombre_carpeta = $1 AND activo = true', [nombre_carpeta.trim()]);
     if (dup) return res.status(409).json({ ok: false, error: `La carpeta "${nombre_carpeta.trim()}" ya esta asignada a otro proveedor` });
@@ -187,6 +253,12 @@ router.post('/', requireAdmin, async (req, res) => {
   const vals = [razon_social.trim(), nombre_carpeta?.trim() || null, cif ? cif.trim().toUpperCase() : null];
   for (const c of CAMPOS_SII_PROVEEDOR) {
     if (sii[c] !== undefined) { cols.push(c); vals.push(sii[c]); }
+  }
+  // Campos IRPF: si parseCamposIrpfBody devolvio values vacio, no se incluye ninguno
+  // (aplica_irpf cae en su DEFAULT FALSE y los otros 3 quedan NULL). Si devolvio
+  // aplica_irpf=true, los 4 vienen ya validados (subcuenta existe y empieza por 4751).
+  for (const c of CAMPOS_IRPF_PROVEEDOR) {
+    if (irpf[c] !== undefined) { cols.push(c); vals.push(irpf[c]); }
   }
   const placeholders = vals.map((_, i) => `$${i + 1}`).join(', ');
   const row = await db.one(
@@ -232,6 +304,9 @@ router.put('/:id', requireAdmin, async (req, res) => {
   }
 
   const db = getDb();
+  const { values: irpfParsed, error: irpfErr } = await parseCamposIrpfBody(b, db);
+  if (irpfErr) return res.status(400).json({ ok: false, error: irpfErr });
+
   if ('nombre_carpeta' in b && b.nombre_carpeta?.trim()) {
     const dup = await db.one('SELECT id FROM proveedores WHERE nombre_carpeta = $1 AND activo = true AND id <> $2', [b.nombre_carpeta.trim(), id]);
     if (dup) return res.status(409).json({ ok: false, error: `La carpeta "${b.nombre_carpeta.trim()}" ya esta asignada a otro proveedor` });
@@ -241,6 +316,8 @@ router.put('/:id', requireAdmin, async (req, res) => {
   // parcial (p.ej. editar solo CIF inline) no pisa con NULL los demas campos.
   // SII de proveedor es NOT NULL; si viene null explicito (siiParsed[c] === undefined
   // tras pasar por parseSiiEntero) lo ignoramos en el UPDATE.
+  // IRPF: parseCamposIrpfBody devuelve {} si no viene aplica_irpf en el body; si viene
+  // false fuerza los 3 restantes a NULL; si viene true los 4 ya estan validados.
   const sets = [];
   const vals = [];
   if ('razon_social'   in b) { sets.push(`razon_social   = $${vals.length + 1}`); vals.push(b.razon_social.trim()); }
@@ -248,6 +325,9 @@ router.put('/:id', requireAdmin, async (req, res) => {
   if ('cif'            in b) { sets.push(`cif            = $${vals.length + 1}`); vals.push(b.cif ? b.cif.trim().toUpperCase() : null); }
   for (const c of siiPresentes) {
     if (siiParsed[c] !== undefined) { sets.push(`${c} = $${vals.length + 1}`); vals.push(siiParsed[c]); }
+  }
+  for (const c of CAMPOS_IRPF_PROVEEDOR) {
+    if (c in irpfParsed) { sets.push(`${c} = $${vals.length + 1}`); vals.push(irpfParsed[c]); }
   }
   sets.push(`updated_at = NOW()`);
   vals.push(id);

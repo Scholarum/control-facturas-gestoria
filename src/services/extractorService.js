@@ -379,16 +379,23 @@ function validarCoherenciaImportes(datos) {
   const total     = Number(datos.total_factura)  || 0;
   const sinIva    = Number(datos.total_sin_iva)  || 0;
   const totalIva  = Number(datos.total_iva)      || 0;
+  const irpf      = Number(datos.irpf_cuota)     || 0;
   const iva = Array.isArray(datos.iva) ? datos.iva : [];
 
   if (total === 0) return avisos; // No validar facturas sin importe
 
-  // Coherencia base + IVA = total (tolerancia 0.05€)
+  // Coherencia base + IVA - IRPF = total a pagar (tolerancia 0.05€).
+  // total_factura es el "Total a pagar" neto, ya descontado IRPF (ver decision D1
+  // sobre semantica de totalIncludingVat en el prompt Gemini). Si no hay IRPF,
+  // la formula colapsa al chequeo clasico base + IVA = total.
   if (sinIva && totalIva) {
-    const suma = round2(sinIva + totalIva);
+    const suma = round2(sinIva + totalIva - irpf);
     const diff = Math.abs(suma - Math.abs(total));
     if (diff > 0.05) {
-      avisos.push(`Base (${sinIva}) + IVA (${totalIva}) = ${suma}, pero total es ${total} (diff: ${round2(diff)})`);
+      const detalle = irpf !== 0
+        ? `Base (${sinIva}) + IVA (${totalIva}) - IRPF (${irpf}) = ${suma}, pero total es ${total} (diff: ${round2(diff)})`
+        : `Base (${sinIva}) + IVA (${totalIva}) = ${suma}, pero total es ${total} (diff: ${round2(diff)})`;
+      avisos.push(detalle);
     }
   }
 

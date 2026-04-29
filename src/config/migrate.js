@@ -229,6 +229,27 @@ const tablas = [
   `ALTER TABLE drive_archivos ADD COLUMN IF NOT EXISTS rect_fecha       DATE`,
   `ALTER TABLE drive_archivos ADD COLUMN IF NOT EXISTS rect_base_imp    NUMERIC(14,2)`,
 
+  // Soporte retenciones IRPF — modelo "proveedor manda".
+  // En proveedores: 4 columnas. aplica_irpf gobierna; cuando es true los otros 3 estan
+  // informados (validacion a nivel aplicacion en POST/PUT proveedores). Cuando es false
+  // los otros 3 quedan NULL.
+  //   - aplica_irpf:     flag maestro
+  //   - irpf_porcentaje: tipo aplicado (0-100, decimal). Tipicos: 7, 15, 19.
+  //   - irpf_clave:      codigo SAGE pos 87 nClaveIRPF (1-11, marcador *7).
+  //   - irpf_subcuenta:  codigo de la subcuenta 4751xxx (HP retenciones practicadas)
+  //                      validada contra plan_contable al guardar el proveedor.
+  // En drive_archivos: 2 columnas con los datos extraidos del PDF por factura.
+  // NULL = sin IRPF; valor = IRPF detectado. El porcentaje y la clave se toman del
+  // proveedor (no se persisten por factura), salvo informativos en datos_extraidos
+  // (irpf_porcentaje_extraido, irpf_clave_extraida) para que la UI muestre alertas
+  // si difieren del proveedor.
+  `ALTER TABLE proveedores    ADD COLUMN IF NOT EXISTS aplica_irpf      BOOLEAN NOT NULL DEFAULT FALSE`,
+  `ALTER TABLE proveedores    ADD COLUMN IF NOT EXISTS irpf_porcentaje  NUMERIC(5,2)`,
+  `ALTER TABLE proveedores    ADD COLUMN IF NOT EXISTS irpf_clave       SMALLINT`,
+  `ALTER TABLE proveedores    ADD COLUMN IF NOT EXISTS irpf_subcuenta   VARCHAR(12)`,
+  `ALTER TABLE drive_archivos ADD COLUMN IF NOT EXISTS irpf_base        NUMERIC(14,2)`,
+  `ALTER TABLE drive_archivos ADD COLUMN IF NOT EXISTS irpf_cuota       NUMERIC(14,2)`,
+
   // Indices y restricciones
   `CREATE INDEX IF NOT EXISTS idx_proveedores_cif ON proveedores (UPPER(TRIM(cif))) WHERE activo = true AND cif IS NOT NULL`,
   `CREATE INDEX IF NOT EXISTS idx_proveedores_carpeta ON proveedores (nombre_carpeta) WHERE activo = true AND nombre_carpeta IS NOT NULL`,
