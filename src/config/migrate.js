@@ -1,6 +1,6 @@
 const { getDb } = require('./database');
 const logger = require('./logger');
-const { PROMPT_DEFAULT, PROMPT_DEFAULT_V1 } = require('../services/extractorService');
+const { PROMPT_DEFAULT, PROMPT_DEFAULT_V1, PROMPT_DEFAULT_V2 } = require('../services/extractorService');
 
 // ─── Schema ───────────────────────────────────────────────────────────────────
 
@@ -722,11 +722,12 @@ async function runMigrations() {
     }
   }
 
-  // ─── Migracion idempotente: prompt Gemini V1 → V2 ───────────────────────────
-  // El V2 anyade deteccion de rectificativas. Si el prompt en BD coincide
-  // byte-a-byte con V1, se actualiza automaticamente. Si el admin lo customizo
-  // (no coincide con V1 ni con V2), respetamos su version y avisamos por log.
-  // Si la fila no existe, ensurePromptSeeded creara el V2 tras las migraciones.
+  // ─── Migracion idempotente: prompt Gemini → V3 ──────────────────────────────
+  // Cadena: V1 → V3 (deteccion rectificativas + IRPF) y V2 → V3 (anyade IRPF).
+  // Si el prompt en BD coincide byte-a-byte con V1 o V2, se actualiza al V3 vigente.
+  // Si el admin lo customizo (no coincide con ninguna version conocida), respetamos
+  // su version y avisamos por log. Si la fila no existe, ensurePromptSeeded creara
+  // el V3 tras las migraciones.
   const promptRow = await db.one("SELECT valor FROM configuracion WHERE clave = 'prompt_gemini'");
   if (promptRow) {
     if (promptRow.valor === PROMPT_DEFAULT_V1) {
@@ -734,13 +735,19 @@ async function runMigrations() {
         `UPDATE configuracion SET valor = $1, updated_at = NOW() WHERE clave = 'prompt_gemini'`,
         [PROMPT_DEFAULT]
       );
-      logger.info('[MIGRATION] prompt_gemini actualizado de V1 a V2 (deteccion de rectificativas)');
+      logger.info('[MIGRATION] prompt_gemini actualizado de V1 a V3 (rectificativas + IRPF)');
+    } else if (promptRow.valor === PROMPT_DEFAULT_V2) {
+      await db.query(
+        `UPDATE configuracion SET valor = $1, updated_at = NOW() WHERE clave = 'prompt_gemini'`,
+        [PROMPT_DEFAULT]
+      );
+      logger.info('[MIGRATION] prompt_gemini actualizado de V2 a V3 (deteccion de retencion IRPF)');
     } else if (promptRow.valor === PROMPT_DEFAULT) {
-      // Ya esta en V2, no hacer nada.
+      // Ya esta en V3, no hacer nada.
     } else {
       logger.warn(
         '[MIGRATION WARN] prompt_gemini en BD ha sido modificado manualmente. ' +
-        'No se actualiza automaticamente. Para incluir deteccion de rectificativas, ' +
+        'No se actualiza automaticamente. Para incluir deteccion de IRPF, ' +
         'resetea desde la UI de configuracion o aplica el nuevo PROMPT_DEFAULT manualmente.'
       );
     }

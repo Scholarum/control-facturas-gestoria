@@ -75,10 +75,13 @@ Si no encuentras un campo de texto, devuelve null. Nunca inventes datos.
 
 Responde SOLO con el JSON. Ningún carácter fuera del objeto JSON.`;
 
-// PROMPT_DEFAULT — version vigente (V2). Incluye deteccion de facturas
-// rectificativas y extraccion opcional de datos de la factura original
-// rectificada (serie, numero, fecha, base imponible).
-const PROMPT_DEFAULT = `Analiza los documentos PDF que te pidamos.
+// PROMPT_DEFAULT_V2 — version intermedia (pre-IRPF). Anyade deteccion de facturas
+// rectificativas y extraccion opcional de datos de la factura original. Conservada
+// como literal para que la migracion idempotente pueda detectarla byte-a-byte y
+// actualizarla al V3 vigente. NO modificar este texto: si lo tocas, la cadena de
+// migracion deja de detectar las instalaciones que estan en V2 y los admins
+// tendran que resetear el prompt manualmente.
+const PROMPT_DEFAULT_V2 = `Analiza los documentos PDF que te pidamos.
 Tienes que extraer los datos de la factura con el máximo detalle fiscal posible.
 
 Devuelve ÚNICAMENTE un objeto JSON válido con la siguiente estructura, sin texto adicional, sin markdown, sin explicaciones:
@@ -141,6 +144,112 @@ Si 'isRectificativa' es true, intenta extraer también los datos de la factura o
 IMPORTANTE: muchas rectificativas NO traen referencia a la factura original. En ese caso, mantén los 4 campos 'rectified*' a null aunque 'isRectificativa' sea true. No inventes datos.
 
 Si 'isRectificativa' es false o null, los 4 campos 'rectified*' deben ser null.
+
+Si no encuentras un campo de texto, devuelve null. Nunca inventes datos.
+
+Responde SOLO con el JSON. Ningún carácter fuera del objeto JSON.`;
+
+// PROMPT_DEFAULT — version vigente (V3). Anyade deteccion de retenciones IRPF y
+// trazabilidad explicita del "Total a pagar" (irpfDeducidoEnTotal) para saber si
+// el total devuelto es extraccion literal del PDF o calculo a partir de base/IVA/IRPF.
+// Mantiene compatibilidad con V2 (todos los campos rectificativa siguen presentes).
+const PROMPT_DEFAULT = `Analiza los documentos PDF que te pidamos.
+Tienes que extraer los datos de la factura con el máximo detalle fiscal posible.
+
+Devuelve ÚNICAMENTE un objeto JSON válido con la siguiente estructura, sin texto adicional, sin markdown, sin explicaciones:
+
+{
+  "invoiceNumber": "string o null",
+  "issueDate": "YYYY-MM-DD o null",
+  "issuerName": "string o null",
+  "issuerCif": "string o null",
+  "receiverName": "string o null",
+  "receiverCif": "string o null",
+  "taxBase0": 0,
+  "taxBase4": 0,
+  "taxBase10": 0,
+  "taxBase21": 0,
+  "vatAmount0": 0,
+  "vatAmount4": 0,
+  "vatAmount10": 0,
+  "vatAmount21": 0,
+  "totalExcludingVat": 0,
+  "totalVat": 0,
+  "totalIncludingVat": 0,
+  "paymentMethod": "string o null",
+  "paymentDate": "YYYY-MM-DD o null",
+  "isRectificativa": null,
+  "rectifiedSerie": null,
+  "rectifiedNumber": null,
+  "rectifiedDate": null,
+  "rectifiedTaxBase": null,
+  "irpfBase": null,
+  "irpfPorcentaje": null,
+  "irpfCuota": null,
+  "irpfClave": null,
+  "irpfDeducidoEnTotal": null
+}
+
+Instrucciones clave:
+
+Si hay varios tipos de IVA, desglósalos en sus campos correspondientes (taxBase4, taxBase21, etc.).
+
+Si alguno de los tipos de IVA indicados no existen en la factura, devuelve el valor 0 tanto en la base imponible como en el total del impuesto.
+
+Normaliza todos los números: usa PUNTO para decimales (ej: 15.50) y no uses separadores de miles. Esto es obligatorio para que el JSON sea válido.
+
+Las fechas deben estar SIEMPRE en formato YYYY-MM-DD. Si el año tiene 2 dígitos, asume 20XX.
+
+En el campo 'issuerName', extrae SIEMPRE el nombre COMPLETO con su forma jurídica legal como 'S.A.', 'S.L.', 'S.L.U.', etc. Ejemplo: Si ves 'Iberdrola S.A.', devuelve 'Iberdrola S.A.'.
+
+En el campo 'issuerCif', extrae el CIF/NIF del emisor (quien emite la factura).
+
+En el campo 'receiverName', busca el nombre del destinatario en secciones como 'Datos del cliente', 'Cliente:', 'Facturar a:', 'Abono a:' o similar.
+
+En el campo 'receiverCif', extrae el CIF/NIF del receptor (quien recibe la factura).
+
+SEMÁNTICA CRÍTICA DE 'totalIncludingVat':
+
+'totalIncludingVat' debe ser SIEMPRE el TOTAL A PAGAR neto, ya descontada cualquier retención IRPF si la factura la lleva. NO es el bruto base+IVA. Procedimiento:
+
+1. Si en el PDF aparece un literal "Total a pagar", "Importe a pagar", "Total factura", "Líquido a pagar" o equivalente que indique cantidad final que el cliente abona, extráelo LITERALMENTE en 'totalIncludingVat' y devuelve 'irpfDeducidoEnTotal': true si la factura tiene IRPF y el literal lo refleja descontado, false si el literal NO descuenta IRPF, null si no hay IRPF en la factura.
+
+2. Si no hay literal de "Total a pagar" claro, calcula 'totalIncludingVat' = totalExcludingVat + totalVat - irpfCuota (si hay IRPF) o totalExcludingVat + totalVat (si no hay). En ese caso devuelve 'irpfDeducidoEnTotal': true (el cálculo siempre descuenta IRPF si existe).
+
+3. Coherencia obligatoria: si hay IRPF y devuelves 'totalIncludingVat' literal con 'irpfDeducidoEnTotal': false (es decir, el PDF lleva un total bruto sin descontar IRPF), pon también el cálculo neto en un campo aparte. Esta app trata 'totalIncludingVat' como neto a pagar; si dudas, calcula y marca 'irpfDeducidoEnTotal': true.
+
+DETECCIÓN DE FACTURAS RECTIFICATIVAS:
+
+En 'isRectificativa' devuelve true si el documento se autodescribe explícitamente como una rectificativa. Señales que lo indican: títulos o textos como 'FACTURA RECTIFICATIVA', 'NOTA DE ABONO', 'NOTA DE CRÉDITO', 'FACTURA DE ABONO', 'CORRECCIÓN DE FACTURA', menciones explícitas a 'Art. 80 LIVA' o 'Ley del IVA art. 80', o literales equivalentes en inglés ('CREDIT NOTE', 'CORRECTED INVOICE') cuando el proveedor factura internacionalmente. Devuelve false si el documento es una factura ordinaria normal. Devuelve null SOLO si no puedes determinarlo — esto es excepcional, la mayoría de facturas son claramente ordinarias. Importante: un total negativo por sí solo NO basta para marcar true; tiene que haber texto que lo autodescriba como rectificativa.
+
+Si 'isRectificativa' es true, intenta extraer también los datos de la factura original que se rectifica, si aparecen en el documento:
+- 'rectifiedSerie': serie de la factura original (1 carácter, p.ej. 'A', 'B'). Si no se menciona, null.
+- 'rectifiedNumber': número de la factura original (texto, hasta 40 caracteres). Si no se menciona, null.
+- 'rectifiedDate': fecha de la factura original en formato YYYY-MM-DD. Si no se menciona, null.
+- 'rectifiedTaxBase': base imponible de la factura original (número decimal positivo). Si no se menciona, null.
+
+IMPORTANTE: muchas rectificativas NO traen referencia a la factura original. En ese caso, mantén los 4 campos 'rectified*' a null aunque 'isRectificativa' sea true. No inventes datos.
+
+Si 'isRectificativa' es false o null, los 4 campos 'rectified*' deben ser null.
+
+DETECCIÓN DE RETENCIÓN IRPF:
+
+Detecta retención IRPF si encuentras texto como "Retención IRPF", "IRPF", "Retención del X%", "-15% IRPF", "I.R.P.F.", "Retención profesional", "Retención arrendamiento", "Retenciones a cuenta", o líneas con porcentajes negativos aplicados sobre la base imponible (típicamente 7%, 15%, 19%).
+
+Si detectas retención, rellena:
+- 'irpfBase': base imponible sobre la que se calcula la retención (decimal positivo). Habitualmente coincide con 'totalExcludingVat' pero puede ser distinta.
+- 'irpfPorcentaje': porcentaje aplicado (decimal positivo, p.ej. 15.00, 7.00, 19.00).
+- 'irpfCuota': importe de la retención (decimal positivo: euros descontados al proveedor).
+- 'irpfClave': código del tipo de retención según contexto:
+    1 = General profesionales (caso por defecto si es factura de un profesional sin más detalle)
+    2 = Arrendamientos dinerarios (Modelo 115, alquiler de local con pago en metálico)
+    3 = Arrendamientos en especie (Modelo 115, raro)
+    4-11 = Subtipos G.01-G.04 de actividades profesionales (sólo si el PDF los menciona explícitamente)
+  Si no puedes determinar la clave con certeza, déjala a null y la asignará el usuario o el proveedor en BD.
+
+Si NO hay rastro de IRPF en el PDF, los 5 campos IRPF (incluido 'irpfDeducidoEnTotal') deben ir a null. NO inventes una retención.
+
+Coherencia: si 'irpfBase' e 'irpfPorcentaje' están informados, 'irpfCuota' debería cumplir 'irpfCuota ≈ irpfBase * irpfPorcentaje / 100' (margen 0.05€). Si los 3 vienen del PDF y no cumplen la igualdad, prioriza el valor literal de 'irpfCuota' del PDF.
 
 Si no encuentras un campo de texto, devuelve null. Nunca inventes datos.
 
@@ -304,6 +413,16 @@ function mapearRespuestaGemini(raw) {
                : null;
   const rectBaseRaw = raw.rectifiedTaxBase;
 
+  // Campos IRPF (prompt V3): irpf_base e irpf_cuota se persisten como columnas
+  // separadas en drive_archivos. Los campos informativos extraidos de Gemini
+  // (porcentaje, clave, deducido_en_total) viajan en el JSONB datos_extraidos
+  // para que la UI muestre alertas si el porcentaje detectado por Gemini no
+  // coincide con el que tiene configurado el proveedor (commit 4 — alertas).
+  // null = "Gemini no detecto IRPF / version pre-V3 sin el campo".
+  const irpfDed = raw.irpfDeducidoEnTotal === true  ? true
+                : raw.irpfDeducidoEnTotal === false ? false
+                : null;
+
   return {
     numero_factura:    raw.invoiceNumber   ?? null,
     fecha_emision:     parseFechaFlexible(raw.issueDate),
@@ -322,6 +441,12 @@ function mapearRespuestaGemini(raw) {
     rect_numero:       raw.rectifiedNumber ?? null,
     rect_fecha:        parseFechaFlexible(raw.rectifiedDate),
     rect_base_imp:     rectBaseRaw != null ? Number(rectBaseRaw) : null,
+    // IRPF: los 2 primeros van a columnas; los 3 siguientes al JSONB (alertas UI).
+    irpf_base:                    raw.irpfBase  != null ? Number(raw.irpfBase)  : null,
+    irpf_cuota:                   raw.irpfCuota != null ? Number(raw.irpfCuota) : null,
+    irpf_porcentaje_extraido:     raw.irpfPorcentaje != null ? Number(raw.irpfPorcentaje) : null,
+    irpf_clave_extraida:          Number.isInteger(raw.irpfClave) ? raw.irpfClave : null,
+    irpf_deducido_en_total:       irpfDed,
   };
 }
 
@@ -487,13 +612,25 @@ async function guardarResultado(id, estado, datos, error) {
   }
 
   // Fuente unica de verdad: los 5 campos de rectificativa (es_rectificativa + 4 rect_*)
-  // viven EXCLUSIVAMENTE como columnas separadas de drive_archivos, nunca dentro del
-  // string JSON de datos_extraidos. Asi las ediciones manuales desde la UI no divergen
-  // con lo que extrajo Gemini en su dia.
+  // y los 2 campos IRPF de factura (irpf_base, irpf_cuota) viven EXCLUSIVAMENTE como
+  // columnas separadas de drive_archivos, nunca dentro del string JSON de
+  // datos_extraidos. Asi las ediciones manuales desde la UI no divergen con lo que
+  // extrajo Gemini en su dia.
+  //
+  // Los campos informativos IRPF que Gemini puede detectar (porcentaje, clave y
+  // deducido_en_total) NO se persisten en columnas — el porcentaje y la clave los
+  // toma siempre del proveedor (modelo "proveedor manda"). Pero quedan dentro de
+  // datos_extraidos (JSONB) como informacion auxiliar para que la UI compare con
+  // el proveedor y alerte si difiere (commit 4).
   //
   // COALESCE($n, columna): null de Gemini = "no detectado, respeta ediciones manuales
   // previas"; valor explicito (incluso false) = "sobrescribe el valor actual".
-  const { es_rectificativa, rect_serie, rect_numero, rect_fecha, rect_base_imp, ...datosJson } = datos;
+  const {
+    es_rectificativa,
+    rect_serie, rect_numero, rect_fecha, rect_base_imp,
+    irpf_base, irpf_cuota,
+    ...datosJson
+  } = datos;
 
   // Heuristica de fallback: si Gemini no detecto explicitamente rectificativa (null)
   // o dijo false, pero la factura tiene total negativo, la marcamos como rectificativa.
@@ -523,8 +660,10 @@ async function guardarResultado(id, estado, datos, error) {
          rect_serie       = COALESCE($5, rect_serie),
          rect_numero      = COALESCE($6, rect_numero),
          rect_fecha       = COALESCE($7::date, rect_fecha),
-         rect_base_imp    = COALESCE($8, rect_base_imp)
-     WHERE id = $9`,
+         rect_base_imp    = COALESCE($8, rect_base_imp),
+         irpf_base        = COALESCE($9, irpf_base),
+         irpf_cuota       = COALESCE($10, irpf_cuota)
+     WHERE id = $11`,
     [
       estado,
       JSON.stringify(datosJson),
@@ -534,6 +673,8 @@ async function guardarResultado(id, estado, datos, error) {
       rect_numero ?? null,
       rect_fecha ?? null,
       rect_base_imp ?? null,
+      irpf_base ?? null,
+      irpf_cuota ?? null,
       id,
     ]
   );
@@ -680,7 +821,7 @@ async function ejecutarExtraccion(ids, onProgress = () => {}) {
 
 module.exports = {
   getPrompt, savePrompt, ensurePromptSeeded, resetPromptToDefault,
-  PROMPT_DEFAULT, PROMPT_DEFAULT_V1,
+  PROMPT_DEFAULT, PROMPT_DEFAULT_V1, PROMPT_DEFAULT_V2,
   procesarArchivo, ejecutarExtraccion,
   buildGeminiModel, normalizarTotales, validarDatos, guardarResultado,
 };
