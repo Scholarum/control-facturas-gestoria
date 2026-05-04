@@ -9,11 +9,11 @@ import BuscadorAvanzado, { FILTROS_VACIO } from '../components/proveedores/Busca
 import FilaProveedorEditable from '../components/proveedores/FilaProveedorEditable.jsx';
 import ModalProveedor from '../components/proveedores/ModalProveedor.jsx';
 import ModalImportar from '../components/proveedores/ModalImportar.jsx';
-import { SII_CLAVE, SII_TIPO_FACT, SII_TIPO_EXENCI, SII_TIPO_NO_SUJE, SII_TIPO_RECTIF, SII_ENTR_PREST, IRPF_CLAVES, TOOLTIP_IRPF_PORCENTAJE, tooltipSii } from '../constants/sii.js';
+import { TOOLTIP_IRPF_PORCENTAJE } from '../constants/sii.js';
 
-// Cabeceras de la tabla de proveedores. Las SII llevan tooltip nativo con los
-// valores validos (title=""), lista cargada desde client/src/constants/sii.js.
-// La primera columna es el chevron de expansion (panel IRPF) — sin tooltip.
+// Cabeceras de la tabla de proveedores. La primera columna es el chevron de
+// expansion (panel SII + IRPF) — sin tooltip. Los 6 campos SII se editan desde
+// el panel expandible, no inline en la tabla, para no saturar el ancho horizontal.
 const CABECERAS_TABLA = [
   { label: '', className: 'w-8' },
   { label: 'Razon Social' },
@@ -21,14 +21,8 @@ const CABECERAS_TABLA = [
   { label: 'CIF' },
   { label: 'Cta. Contable' },
   { label: 'Cta. Gasto' },
-  { label: 'Clave SII',      tooltip: tooltipSii(SII_CLAVE) },
-  { label: 'Tipo Fact. SII', tooltip: tooltipSii(SII_TIPO_FACT) },
-  { label: 'Exenc.',         tooltip: tooltipSii(SII_TIPO_EXENCI) },
-  { label: 'No Suj.',        tooltip: tooltipSii(SII_TIPO_NO_SUJE) },
-  { label: 'Rectif.',        tooltip: tooltipSii(SII_TIPO_RECTIF) },
-  { label: 'Entr/Prest',     tooltip: tooltipSii(SII_ENTR_PREST) },
   { label: 'IRPF %',         tooltip: TOOLTIP_IRPF_PORCENTAJE },
-  { label: 'Cta. IRPF',      tooltip: 'Subcuenta 4751xxx (HP retenciones practicadas).\nPara activar/desactivar IRPF o cambiar la clave, expande la fila con la flecha de la izquierda.' },
+  { label: 'Cta. IRPF',      tooltip: 'Subcuenta 4751xxx (HP retenciones practicadas).\nPara activar/desactivar IRPF, cambiar la clave o ajustar campos SII, expande la fila con la flecha de la izquierda.' },
   { label: '' },
 ];
 

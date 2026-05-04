@@ -1,54 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { editarProveedor, asignarCuentasEmpresa, crearCuentaContable, eliminarCuentaContable } from '../../api.js';
-import PanelIrpfProveedor from './PanelIrpfProveedor.jsx';
-
-// ─── Celda numerica SII editable inline (con feedback visual guardando/ok/error) ─
-
-function CeldaNumeroSii({ valor, onGuardar, soloLectura, className = '' }) {
-  const [val, setVal] = useState(valor == null ? '' : String(valor));
-  const [status, setStatus] = useState('idle'); // idle | saving | ok | error
-  const [errorMsg, setErrorMsg] = useState('');
-  useEffect(() => { setVal(valor == null ? '' : String(valor)); }, [valor]);
-
-  async function guardar() {
-    const raw = val.trim();
-    if (raw === '') { setVal(valor == null ? '' : String(valor)); return; }
-    const n = Number(raw);
-    if (!Number.isInteger(n) || n < 0) { setVal(valor == null ? '' : String(valor)); return; }
-    if (n === valor) return;
-    setStatus('saving'); setErrorMsg('');
-    try {
-      await onGuardar(n);
-      setStatus('ok');
-      setTimeout(() => setStatus('idle'), 500);
-    } catch (e) {
-      setStatus('error'); setErrorMsg(e.message || 'Error al guardar');
-      setVal(valor == null ? '' : String(valor));
-    }
-  }
-
-  const bg =
-    status === 'saving' ? 'bg-blue-50' :
-    status === 'ok'     ? 'bg-emerald-50' :
-    status === 'error'  ? 'bg-red-50' : '';
-
-  return (
-    <td className={`px-2 py-1 ${className}`}>
-      <input
-        type="number" min="0" step="1"
-        value={val}
-        onChange={e => setVal(e.target.value)}
-        onBlur={guardar}
-        onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); if (e.key === 'Escape') { setVal(valor == null ? '' : String(valor)); e.currentTarget.blur(); } }}
-        readOnly={soloLectura}
-        title={errorMsg || undefined}
-        className={`w-16 rounded border border-transparent px-2 py-1 text-xs text-center transition-colors
-          ${soloLectura ? 'cursor-not-allowed opacity-70' : 'hover:border-gray-300 focus:border-blue-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-200'}
-          ${bg}`} />
-    </td>
-  );
-}
+import PanelConfigFiscal from './PanelConfigFiscal.jsx';
 
 // ─── Celda IRPF % editable inline (decimal 0-100, deshabilitada si no aplica) ──
 
@@ -575,18 +528,6 @@ export default function FilaProveedorEditable({
         <CeldaCuenta valor={p.cuenta_gasto_codigo} valorDesc={p.cuenta_gasto_desc}
           cuentas={cuentasGasto} razonSocial={p.razon_social}
           onGuardar={id => guardarCuenta('gasto', id)} onCuentaCreada={onCuentaCreada} />
-        <CeldaNumeroSii valor={p.sii_tipo_clave ?? 1}
-          onGuardar={v => guardarCampo('sii_tipo_clave', v)} soloLectura={soloLectura} />
-        <CeldaNumeroSii valor={p.sii_tipo_fact ?? 1}
-          onGuardar={v => guardarCampo('sii_tipo_fact', v)} soloLectura={soloLectura} />
-        <CeldaNumeroSii valor={p.sii_tipo_exenci ?? 1}
-          onGuardar={v => guardarCampo('sii_tipo_exenci', v)} soloLectura={soloLectura} />
-        <CeldaNumeroSii valor={p.sii_tipo_no_suje ?? 2}
-          onGuardar={v => guardarCampo('sii_tipo_no_suje', v)} soloLectura={soloLectura} />
-        <CeldaNumeroSii valor={p.sii_tipo_rectif ?? 2}
-          onGuardar={v => guardarCampo('sii_tipo_rectif', v)} soloLectura={soloLectura} />
-        <CeldaNumeroSii valor={p.sii_entr_prest ?? 3}
-          onGuardar={v => guardarCampo('sii_entr_prest', v)} soloLectura={soloLectura} />
         <CeldaNumeroIrpfPorcentaje
           valor={p.aplica_irpf ? p.irpf_porcentaje : null}
           habilitada={!!p.aplica_irpf && !soloLectura}
@@ -611,7 +552,7 @@ export default function FilaProveedorEditable({
       {expandida && (
         <tr className="bg-gray-50">
           <td colSpan={numColumnas} className="p-0">
-            <PanelIrpfProveedor
+            <PanelConfigFiscal
               proveedor={p}
               planContable={planContable}
               onGuardado={onGuardado}
