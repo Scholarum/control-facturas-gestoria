@@ -717,9 +717,24 @@ async function guardarResultado(id, estado, datos, error) {
 
 async function procesarArchivo(drive, model, archivo, prompt) {
   let tmpPath = null;
+  // Convencion: archivos subidos via [DEV] Subida Local llevan google_id con
+  // prefijo 'DEV_' (ver src/routes/devUpload.js). Para esos, el PDF vive en el
+  // filesystem de Render en archivo.ruta_completa — NO descargar de Drive,
+  // porque Drive responde 404 a IDs que no son suyos.
+  const esLocal = String(archivo.google_id || '').startsWith('DEV_');
   const t0 = Date.now();
   try {
-    tmpPath = await descargarPdfTmp(drive, archivo.google_id);
+    if (esLocal) {
+      tmpPath = archivo.ruta_completa;
+      if (!tmpPath || !fs.existsSync(tmpPath)) {
+        throw new Error(
+          `LOCAL_NOT_FOUND: PDF local no existe en ${tmpPath || '(ruta vacia)'}. ` +
+          `Posible causa: redeploy de Render limpio el filesystem efimero. Vuelve a subir el archivo desde [DEV] Subida Local.`
+        );
+      }
+    } else {
+      tmpPath = await descargarPdfTmp(drive, archivo.google_id);
+    }
     const sizeKB = Math.round(fs.statSync(tmpPath).size / 1024);
     const datos = await llamarGemini(model, tmpPath, prompt);
     const ms = Date.now() - t0;
@@ -758,7 +773,9 @@ async function procesarArchivo(drive, model, archivo, prompt) {
     await guardarResultado(archivo.id, 'REVISION_MANUAL', null, motivo);
     return { estado: 'REVISION_MANUAL', error: motivo };
   } finally {
-    if (tmpPath && fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath);
+    // Solo borrar si lo descargamos nosotros (Drive → os.tmpdir()). Los archivos
+    // locales viven en temp_uploads/ y deben preservarse para futuros re-analisis.
+    if (!esLocal && tmpPath && fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath);
   }
 }
 
