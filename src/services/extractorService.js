@@ -149,11 +149,13 @@ Si no encuentras un campo de texto, devuelve null. Nunca inventes datos.
 
 Responde SOLO con el JSON. Ningún carácter fuera del objeto JSON.`;
 
-// PROMPT_DEFAULT — version vigente (V3). Anyade deteccion de retenciones IRPF y
-// trazabilidad explicita del "Total a pagar" (irpfDeducidoEnTotal) para saber si
-// el total devuelto es extraccion literal del PDF o calculo a partir de base/IVA/IRPF.
-// Mantiene compatibilidad con V2 (todos los campos rectificativa siguen presentes).
-const PROMPT_DEFAULT = `Analiza los documentos PDF que te pidamos.
+// PROMPT_DEFAULT_V3_SIN_REGLAS — version intermedia previa a la incorporacion de
+// reglas especificas de identificacion fiscal por proveedor. Conservada como literal
+// (byte-a-byte) para que la migracion idempotente pueda detectar via SHA-256 las
+// instalaciones que esten exactamente en este estado y migrarlas automaticamente
+// al PROMPT_DEFAULT vigente. NO modificar este texto: si lo tocas, el hash deja de
+// coincidir y los admins tendran que resetear el prompt manualmente desde la UI.
+const PROMPT_DEFAULT_V3_SIN_REGLAS = `Analiza los documentos PDF que te pidamos.
 Tienes que extraer los datos de la factura con el máximo detalle fiscal posible.
 
 Devuelve ÚNICAMENTE un objeto JSON válido con la siguiente estructura, sin texto adicional, sin markdown, sin explicaciones:
@@ -254,6 +256,37 @@ Coherencia: si 'irpfBase' e 'irpfPorcentaje' están informados, 'irpfCuota' debe
 Si no encuentras un campo de texto, devuelve null. Nunca inventes datos.
 
 Responde SOLO con el JSON. Ningún carácter fuera del objeto JSON.`;
+
+// REGLAS_OVERRIDE_FISCAL — overrides de identificacion fiscal por proveedor.
+// Cuando aparezca un nuevo proveedor donde Gemini falla repetidamente al extraer
+// CIF/VAT, se anyade aqui. Si la lista crece >10 reglas, migrar a tabla
+// proveedor_overrides_extraccion (ver CLAUDE.md, seccion "Reglas de identificacion
+// fiscal en PROMPT_DEFAULT").
+const REGLAS_OVERRIDE_FISCAL = `REGLAS ESPECÍFICAS DE IDENTIFICACIÓN FISCAL POR PROVEEDOR:
+
+Estas reglas tienen prioridad sobre cualquier otro valor de CIF/NIF/VAT que aparezca en el documento. Si detectas alguno de estos proveedores, usa siempre los valores indicados aquí, ignorando lo que diga el PDF:
+
+- Si el proveedor (issuerName) es "Aduna 2021, S.A.U" o cualquier variante con prefijo (p. ej. "DISPE, ADUNA 2021, S.A.U", "ACL, ADUNA 2021, S.A.U") y el receptor (receiverName) contiene "R.S. SCHOLARUM DIGITAL SL", el CIF del receptor (receiverCif) debe ser SIEMPRE B86610821.
+
+- Si el proveedor es MAILJET (cualquier variante de razón social, p. ej. "Mailjet SAS", "MAILJET S.A.S."), el VAT number / CIF del emisor (issuerCif) debe ser SIEMPRE FR67524536992.
+
+- Si el proveedor es "IONOS Cloud S.L.U." (cualquier variante, p. ej. "1&1 IONOS Cloud SLU"), el CIF del emisor debe ser SIEMPRE B85049435.
+`;
+
+// PROMPT_DEFAULT — version vigente (V3+reglas). Se construye sobre PROMPT_DEFAULT_V3_SIN_REGLAS
+// insertando REGLAS_OVERRIDE_FISCAL inmediatamente antes del cierre del prompt
+// (las dos lineas finales "Si no encuentras..." y "Responde SOLO con el JSON...").
+// Asi cuando se anyaden reglas nuevas, se editan SOLO en REGLAS_OVERRIDE_FISCAL,
+// no se duplica el texto del V3 entero.
+//
+// La migracion idempotente compara hashes SHA-256 (ver migrate.js): si el prompt
+// en BD coincide con V1, V2 o V3_SIN_REGLAS, se actualiza automaticamente al
+// PROMPT_DEFAULT vigente. Si no coincide con ninguna version conocida, se loguea
+// WARN y el admin debe resetear desde la UI de configuracion.
+const PROMPT_DEFAULT = PROMPT_DEFAULT_V3_SIN_REGLAS.replace(
+  '\nSi no encuentras un campo de texto, devuelve null. Nunca inventes datos.\n',
+  `\n${REGLAS_OVERRIDE_FISCAL}\nSi no encuentras un campo de texto, devuelve null. Nunca inventes datos.\n`
+);
 
 // ─── Prompt: lectura y escritura en BD ───────────────────────────────────────
 
@@ -821,7 +854,7 @@ async function ejecutarExtraccion(ids, onProgress = () => {}) {
 
 module.exports = {
   getPrompt, savePrompt, ensurePromptSeeded, resetPromptToDefault,
-  PROMPT_DEFAULT, PROMPT_DEFAULT_V1, PROMPT_DEFAULT_V2,
+  PROMPT_DEFAULT, PROMPT_DEFAULT_V1, PROMPT_DEFAULT_V2, PROMPT_DEFAULT_V3_SIN_REGLAS,
   procesarArchivo, ejecutarExtraccion,
   buildGeminiModel, normalizarTotales, validarDatos, guardarResultado,
 };

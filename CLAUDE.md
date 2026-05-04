@@ -339,13 +339,24 @@ CORS_ORIGIN           # Orígenes permitidos (CSV), vacío = todos en dev
 - **Frontend**: Netlify (SPA con redirect `/* → /index.html`) — `netlify.toml` define `base = "client"`.
 - **Base de datos**: Supabase (PostgreSQL)
 
-**Migración idempotente del prompt Gemini (`configuracion.prompt_gemini`)**: el `runMigrations()` compara byte-a-byte el valor actual en BD con `PROMPT_DEFAULT_V1` (la versión anterior, hardcodeada como constante literal en `src/services/extractorService.js`). Si coincide, se actualiza automáticamente al `PROMPT_DEFAULT` vigente. Si no coincide (admin customizó el prompt desde la UI de configuración), se respeta su versión y se loguea un warning claro:
+**Migración idempotente del prompt Gemini (`configuracion.prompt_gemini`)**: el `runMigrations()` compara el valor actual en BD con todas las versiones conocidas del prompt vía hashes **SHA-256** calculados en runtime (`src/config/migrate.js`). Si el hash en BD coincide con el de `PROMPT_DEFAULT_V1`, `PROMPT_DEFAULT_V2` o `PROMPT_DEFAULT_V3_SIN_REGLAS`, se actualiza automáticamente al `PROMPT_DEFAULT` vigente. Si el hash es desconocido (admin customizó el prompt desde la UI de configuración), se respeta su versión y se loguea WARN con los chars y el prefijo del hash para diagnóstico:
 ```
-[MIGRATION WARN] prompt_gemini en BD ha sido modificado manualmente. No se actualiza
-automáticamente. Para incluir detección de rectificativas, resetea desde la UI de
-configuración o aplica el nuevo PROMPT_DEFAULT manualmente.
+[MIGRATION WARN] prompt_gemini en BD con hash desconocido. Posible customizacion del admin.
+No se actualiza automaticamente. Resetea desde la UI de configuracion para incorporar
+reglas de identificacion fiscal.   { chars: 6851, sha: '7a3f9e2b1c4d' }
 ```
-Si el admin había customizado el prompt, tras un deploy con nuevo `PROMPT_DEFAULT` tendrá que resetearlo desde la UI (o aplicar manualmente los cambios) para que el extractor recoja las nuevas capacidades. La opción "respetar customización por defecto" evita pisar trabajo manual.
+**Por qué SHA-256 y no comparación literal byte-a-byte**: el 2026-05-01 se observó un bug donde la comparación literal V2→V3 fallaba pese a que en apariencia el prompt en BD coincidía con `PROMPT_DEFAULT_V2` — había diferencias de whitespace tras un reset desde la UI. El hash es estructuralmente equivalente a la comparación literal (también detecta diferencias de 1 byte) pero más mantenible: cuando una versión obsoleta deje de tener instalaciones activas, podemos borrar su literal y dejar sólo el hash hardcoded en lugar de los miles de chars del prompt entero.
+
+Si el admin había customizado el prompt, tras un deploy con nuevo `PROMPT_DEFAULT` tendrá que resetearlo desde la UI (o aplicar manualmente los cambios) para que el extractor recoja las nuevas capacidades.
+
+**Reglas de identificación fiscal en `PROMPT_DEFAULT` (V3+reglas, desde 2026-05-04):** el prompt vigente incorpora overrides para proveedores donde Gemini extrae mal el CIF/VAT de forma sistemática. La constante `REGLAS_OVERRIDE_FISCAL` en `extractorService.js` se inserta dentro de `PROMPT_DEFAULT_V3_SIN_REGLAS` (vía `replace`) inmediatamente antes del cierre del prompt; así, añadir una regla nueva no obliga a duplicar los ~6.5KB del V3.
+
+Reglas activas:
+- **Aduna 2021 S.A.U** (incluye variantes con prefijo "DISPE,", "ACL,", etc.) cuando el receptor contiene `R.S. SCHOLARUM DIGITAL SL` → `receiverCif=B86610821`.
+- **Mailjet** (cualquier variante de razón social) → `issuerCif=FR67524536992`.
+- **IONOS Cloud S.L.U.** (cualquier variante, p.ej. `1&1 IONOS Cloud SLU`) → `issuerCif=B85049435`.
+
+**Heurística para escalar**: cuando aparezca un nuevo proveedor con el mismo patrón (Gemini falla repetidamente al extraer su CIF/VAT), se añade aquí. Si la lista crece por encima de ~10 reglas o si se necesitan sustituir valores no triviales (más allá de un CIF), migrar a una tabla `proveedor_overrides_extraccion (cif_emisor TEXT, campo TEXT, valor_correcto TEXT)` y aplicar los overrides en `mapearRespuestaGemini` después de Gemini, en lugar de en el prompt. Razón: prompts con muchas reglas hacen que Gemini ignore las del final.
 - En producción, Express sirve el build estático del cliente desde `client/dist/`
 
 **Netlify cancela builds "sin cambios" por diseño:** al tener `base = "client"`, Netlify compara el diff del commit contra esa carpeta y si no hay cambios dentro, marca el deploy como *Canceled* (optimización integrada, no es un error). Por tanto los commits que sólo tocan backend (`src/`), CLI (`extractor.js`, `sync.js`), `CLAUDE.md` o SQL aparecerán como cancelados en Netlify — es correcto, el frontend servido sigue siendo el del último build que sí tocó `client/`.

@@ -1,6 +1,12 @@
+const crypto = require('crypto');
 const { getDb } = require('./database');
 const logger = require('./logger');
-const { PROMPT_DEFAULT, PROMPT_DEFAULT_V1, PROMPT_DEFAULT_V2 } = require('../services/extractorService');
+const {
+  PROMPT_DEFAULT,
+  PROMPT_DEFAULT_V1,
+  PROMPT_DEFAULT_V2,
+  PROMPT_DEFAULT_V3_SIN_REGLAS,
+} = require('../services/extractorService');
 
 // ─── Schema ───────────────────────────────────────────────────────────────────
 
@@ -722,33 +728,50 @@ async function runMigrations() {
     }
   }
 
-  // ─── Migracion idempotente: prompt Gemini → V3 ──────────────────────────────
-  // Cadena: V1 → V3 (deteccion rectificativas + IRPF) y V2 → V3 (anyade IRPF).
-  // Si el prompt en BD coincide byte-a-byte con V1 o V2, se actualiza al V3 vigente.
-  // Si el admin lo customizo (no coincide con ninguna version conocida), respetamos
-  // su version y avisamos por log. Si la fila no existe, ensurePromptSeeded creara
-  // el V3 tras las migraciones.
+  // ─── Migracion idempotente: prompt Gemini → V3+reglas ──────────────────────
+  // Comparacion por SHA-256 (no byte-a-byte literal). Resuelve el bug observado
+  // el 2026-05-01 donde la comparacion literal V2→V3 fallaba por whitespace tras
+  // un reset desde la UI: el hash es robusto frente a esos detalles porque NO
+  // hay diferencias de whitespace en SHA-256 — si difiere por 1 byte, los hashes
+  // tambien difieren, pero al menos no fallamos por encoding/normalization
+  // intermedios que JavaScript pueda aplicar al string al pasar por la UI.
+  //
+  // Cadena: V1, V2 o V3_SIN_REGLAS → V3+reglas. Si el hash en BD no coincide con
+  // ninguna version conocida (admin customizo el prompt), WARN y el admin debe
+  // resetear desde la UI. Si la fila no existe, ensurePromptSeeded creara el
+  // V3+reglas tras las migraciones.
+  const sha = (s) => crypto.createHash('sha256').update(s).digest('hex');
+  const HASH_VIGENTE = sha(PROMPT_DEFAULT);
+  const HASHES_OBSOLETOS = new Map([
+    [sha(PROMPT_DEFAULT_V1),            'V1'],
+    [sha(PROMPT_DEFAULT_V2),            'V2'],
+    [sha(PROMPT_DEFAULT_V3_SIN_REGLAS), 'V3 sin reglas'],
+  ]);
+
   const promptRow = await db.one("SELECT valor FROM configuracion WHERE clave = 'prompt_gemini'");
   if (promptRow) {
-    if (promptRow.valor === PROMPT_DEFAULT_V1) {
+    const hashActual = sha(promptRow.valor);
+    const chars = (promptRow.valor || '').length;
+    const shaPrefix = hashActual.slice(0, 12);
+
+    if (hashActual === HASH_VIGENTE) {
+      logger.info({ chars, sha: shaPrefix }, '[MIGRATION] prompt_gemini ya vigente (V3+reglas)');
+    } else if (HASHES_OBSOLETOS.has(hashActual)) {
+      const desde = HASHES_OBSOLETOS.get(hashActual);
       await db.query(
         `UPDATE configuracion SET valor = $1, updated_at = NOW() WHERE clave = 'prompt_gemini'`,
         [PROMPT_DEFAULT]
       );
-      logger.info('[MIGRATION] prompt_gemini actualizado de V1 a V3 (rectificativas + IRPF)');
-    } else if (promptRow.valor === PROMPT_DEFAULT_V2) {
-      await db.query(
-        `UPDATE configuracion SET valor = $1, updated_at = NOW() WHERE clave = 'prompt_gemini'`,
-        [PROMPT_DEFAULT]
+      logger.info(
+        { desde, chars, sha: shaPrefix, sha_nuevo: HASH_VIGENTE.slice(0, 12) },
+        '[MIGRATION] prompt_gemini actualizado a V3+reglas'
       );
-      logger.info('[MIGRATION] prompt_gemini actualizado de V2 a V3 (deteccion de retencion IRPF)');
-    } else if (promptRow.valor === PROMPT_DEFAULT) {
-      // Ya esta en V3, no hacer nada.
     } else {
       logger.warn(
-        '[MIGRATION WARN] prompt_gemini en BD ha sido modificado manualmente. ' +
-        'No se actualiza automaticamente. Para incluir deteccion de IRPF, ' +
-        'resetea desde la UI de configuracion o aplica el nuevo PROMPT_DEFAULT manualmente.'
+        { chars, sha: shaPrefix },
+        '[MIGRATION WARN] prompt_gemini en BD con hash desconocido. ' +
+        'Posible customizacion del admin. No se actualiza automaticamente. ' +
+        'Resetea desde la UI de configuracion para incorporar reglas de identificacion fiscal.'
       );
     }
   }
