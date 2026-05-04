@@ -58,7 +58,8 @@ export const SII_TIPO_NO_SUJE = {
   nombre: 'Tipo No Sujeta',
   marcador: '*17',
   valores: [
-    { value: 2, label: 'S1 Sujeta-No exenta', esDefault: true },
+    { value: 1, label: '(vacío lógico — default ContaPlus en alta manual)', esDefault: true },
+    { value: 2, label: 'S1 Sujeta-No exenta' },
     { value: 3, label: 'S2 Sujeta-No exenta - Inversión sujeto pasivo' },
   ],
 };
@@ -77,8 +78,9 @@ export const SII_ENTR_PREST = {
   nombre: 'Entrega / Prestación',
   marcador: '*21',
   valores: [
+    { value: 1, label: '(vacío lógico — default ContaPlus en alta manual)', esDefault: true },
     { value: 2, label: 'Entrega de bienes' },
-    { value: 3, label: 'Prestación de servicios', esDefault: true },
+    { value: 3, label: 'Prestación de servicios' },
   ],
 };
 

@@ -794,9 +794,9 @@ router.post('/exportar-sage', requireAuth, express.json(), async (req, res) => {
            COALESCE(da.sii_tipo_clave,   p.sii_tipo_clave,   1) AS sii_tipo_clave,
            COALESCE(da.sii_tipo_fact,    p.sii_tipo_fact,    1) AS sii_tipo_fact,
            COALESCE(da.sii_tipo_exenci,  p.sii_tipo_exenci,  1) AS sii_tipo_exenci,
-           COALESCE(da.sii_tipo_no_suje, p.sii_tipo_no_suje, 2) AS sii_tipo_no_suje,
+           COALESCE(da.sii_tipo_no_suje, p.sii_tipo_no_suje, 1) AS sii_tipo_no_suje,
            COALESCE(da.sii_tipo_rectif,  p.sii_tipo_rectif,  2) AS sii_tipo_rectif,
-           COALESCE(da.sii_entr_prest,   p.sii_entr_prest,   3) AS sii_entr_prest,
+           COALESCE(da.sii_entr_prest,   p.sii_entr_prest,   1) AS sii_entr_prest,
            da.sii_tipo_fact AS override_sii_tipo_fact,
            da.es_rectificativa, da.rect_serie, da.rect_numero, da.rect_base_imp,
            TO_CHAR(da.rect_fecha, 'YYYYMMDD') AS rect_fecha_ymd
