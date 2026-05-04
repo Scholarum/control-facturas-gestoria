@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { editarProveedor, asignarCuentasEmpresa, crearCuentaContable, eliminarCuentaContable } from '../../api.js';
+import PanelIrpfProveedor from './PanelIrpfProveedor.jsx';
 
 // ─── Celda numerica SII editable inline (con feedback visual guardando/ok/error) ─
 
@@ -482,8 +483,25 @@ export function CeldaCuenta({ valor, valorDesc, cuentas, onGuardar, onCuentaCrea
 // onGuardado recibe un patch parcial: { id, ...camposActualizados }. El padre hace
 // setProveedores(prev => prev.map(x => x.id === patch.id ? { ...x, ...patch } : x))
 // sin refetchear la lista completa.
-export default function FilaProveedorEditable({ proveedor: p, planContable, empresaId, onGuardado, onEliminar, onCuentaCreada, soloLectura = false }) {
+//
+// Fila expandible: cuando expandida=true, renderizamos un <tr> adicional con el
+// panel de gestion IRPF (PanelIrpfProveedor). Solo una fila puede estar expandida
+// a la vez — el padre (Proveedores.jsx) controla el filaExpandidaId.
+export default function FilaProveedorEditable({
+  proveedor: p, planContable, empresaId, onGuardado, onEliminar, onCuentaCreada, soloLectura = false,
+  expandida = false, onToggleExpandir,
+  numColumnas,
+}) {
   const [error, setError] = useState('');
+  const rowRef = useRef(null);
+
+  // Scroll automatico cuando se expande la fila para que el panel quede visible.
+  // 'nearest' evita scroll si ya esta visible.
+  useEffect(() => {
+    if (expandida && rowRef.current) {
+      rowRef.current.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    }
+  }, [expandida]);
 
   async function guardarCampo(campo, valor) {
     try {
@@ -534,48 +552,73 @@ export default function FilaProveedorEditable({ proveedor: p, planContable, empr
   );
 
   return (
-    <tr className={`hover:bg-gray-50 transition-colors ${error ? 'bg-red-50' : ''}`}>
-      <CeldaTexto valor={p.razon_social} onGuardar={v => guardarCampo('razon_social', v)} placeholder="Razon social" className="font-medium" />
-      <CeldaTexto valor={p.nombre_carpeta} onGuardar={v => guardarCampo('nombre_carpeta', v)} placeholder="Carpeta Drive" />
-      <CeldaTexto valor={p.cif} onGuardar={v => guardarCampo('cif', v)} placeholder="CIF" mono />
-      <CeldaCuenta valor={p.cuenta_contable_codigo} valorDesc={p.cuenta_contable_desc}
-        cuentas={cuentas4} grupo="4" razonSocial={p.razon_social}
-        onGuardar={id => guardarCuenta('contable', id)} onCuentaCreada={onCuentaCreada} />
-      <CeldaCuenta valor={p.cuenta_gasto_codigo} valorDesc={p.cuenta_gasto_desc}
-        cuentas={cuentasGasto} razonSocial={p.razon_social}
-        onGuardar={id => guardarCuenta('gasto', id)} onCuentaCreada={onCuentaCreada} />
-      <CeldaNumeroSii valor={p.sii_tipo_clave ?? 1}
-        onGuardar={v => guardarCampo('sii_tipo_clave', v)} soloLectura={soloLectura} />
-      <CeldaNumeroSii valor={p.sii_tipo_fact ?? 1}
-        onGuardar={v => guardarCampo('sii_tipo_fact', v)} soloLectura={soloLectura} />
-      <CeldaNumeroSii valor={p.sii_tipo_exenci ?? 1}
-        onGuardar={v => guardarCampo('sii_tipo_exenci', v)} soloLectura={soloLectura} />
-      <CeldaNumeroSii valor={p.sii_tipo_no_suje ?? 2}
-        onGuardar={v => guardarCampo('sii_tipo_no_suje', v)} soloLectura={soloLectura} />
-      <CeldaNumeroSii valor={p.sii_tipo_rectif ?? 2}
-        onGuardar={v => guardarCampo('sii_tipo_rectif', v)} soloLectura={soloLectura} />
-      <CeldaNumeroSii valor={p.sii_entr_prest ?? 3}
-        onGuardar={v => guardarCampo('sii_entr_prest', v)} soloLectura={soloLectura} />
-      <CeldaNumeroIrpfPorcentaje
-        valor={p.aplica_irpf ? p.irpf_porcentaje : null}
-        habilitada={!!p.aplica_irpf && !soloLectura}
-        onGuardar={v => guardarCampoIrpf({ irpf_porcentaje: v })}
-      />
-      <CeldaSubcuentaIrpf
-        valor={p.aplica_irpf ? p.irpf_subcuenta : null}
-        habilitada={!!p.aplica_irpf && !soloLectura}
-        cuentas4751={cuentas4751}
-        onGuardar={v => guardarCampoIrpf({ irpf_subcuenta: v })}
-      />
-      <td className="px-2 py-2 text-center">
-        {error && <span className="text-[10px] text-red-500 block mb-1">{error}</span>}
-        <button onClick={onEliminar} title="Eliminar proveedor"
-          className="text-gray-300 hover:text-red-500 transition-colors">
-          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-          </svg>
-        </button>
-      </td>
-    </tr>
+    <>
+      <tr ref={rowRef} className={`hover:bg-gray-50 transition-colors ${error ? 'bg-red-50' : ''} ${expandida ? 'bg-blue-50/40' : ''}`}>
+        <td className="px-2 py-2 w-8 text-center">
+          <button
+            onClick={onToggleExpandir}
+            title={expandida ? 'Colapsar IRPF' : 'Expandir IRPF'}
+            aria-label={expandida ? 'Colapsar fila' : 'Expandir fila'}
+            className="text-gray-400 hover:text-blue-600 transition-colors"
+          >
+            <svg className={`h-4 w-4 transition-transform ${expandida ? 'rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+            </svg>
+          </button>
+        </td>
+        <CeldaTexto valor={p.razon_social} onGuardar={v => guardarCampo('razon_social', v)} placeholder="Razon social" className="font-medium" />
+        <CeldaTexto valor={p.nombre_carpeta} onGuardar={v => guardarCampo('nombre_carpeta', v)} placeholder="Carpeta Drive" />
+        <CeldaTexto valor={p.cif} onGuardar={v => guardarCampo('cif', v)} placeholder="CIF" mono />
+        <CeldaCuenta valor={p.cuenta_contable_codigo} valorDesc={p.cuenta_contable_desc}
+          cuentas={cuentas4} grupo="4" razonSocial={p.razon_social}
+          onGuardar={id => guardarCuenta('contable', id)} onCuentaCreada={onCuentaCreada} />
+        <CeldaCuenta valor={p.cuenta_gasto_codigo} valorDesc={p.cuenta_gasto_desc}
+          cuentas={cuentasGasto} razonSocial={p.razon_social}
+          onGuardar={id => guardarCuenta('gasto', id)} onCuentaCreada={onCuentaCreada} />
+        <CeldaNumeroSii valor={p.sii_tipo_clave ?? 1}
+          onGuardar={v => guardarCampo('sii_tipo_clave', v)} soloLectura={soloLectura} />
+        <CeldaNumeroSii valor={p.sii_tipo_fact ?? 1}
+          onGuardar={v => guardarCampo('sii_tipo_fact', v)} soloLectura={soloLectura} />
+        <CeldaNumeroSii valor={p.sii_tipo_exenci ?? 1}
+          onGuardar={v => guardarCampo('sii_tipo_exenci', v)} soloLectura={soloLectura} />
+        <CeldaNumeroSii valor={p.sii_tipo_no_suje ?? 2}
+          onGuardar={v => guardarCampo('sii_tipo_no_suje', v)} soloLectura={soloLectura} />
+        <CeldaNumeroSii valor={p.sii_tipo_rectif ?? 2}
+          onGuardar={v => guardarCampo('sii_tipo_rectif', v)} soloLectura={soloLectura} />
+        <CeldaNumeroSii valor={p.sii_entr_prest ?? 3}
+          onGuardar={v => guardarCampo('sii_entr_prest', v)} soloLectura={soloLectura} />
+        <CeldaNumeroIrpfPorcentaje
+          valor={p.aplica_irpf ? p.irpf_porcentaje : null}
+          habilitada={!!p.aplica_irpf && !soloLectura}
+          onGuardar={v => guardarCampoIrpf({ irpf_porcentaje: v })}
+        />
+        <CeldaSubcuentaIrpf
+          valor={p.aplica_irpf ? p.irpf_subcuenta : null}
+          habilitada={!!p.aplica_irpf && !soloLectura}
+          cuentas4751={cuentas4751}
+          onGuardar={v => guardarCampoIrpf({ irpf_subcuenta: v })}
+        />
+        <td className="px-2 py-2 text-center">
+          {error && <span className="text-[10px] text-red-500 block mb-1">{error}</span>}
+          <button onClick={onEliminar} title="Eliminar proveedor"
+            className="text-gray-300 hover:text-red-500 transition-colors">
+            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+            </svg>
+          </button>
+        </td>
+      </tr>
+      {expandida && (
+        <tr className="bg-gray-50">
+          <td colSpan={numColumnas} className="p-0">
+            <PanelIrpfProveedor
+              proveedor={p}
+              planContable={planContable}
+              onGuardado={onGuardado}
+            />
+          </td>
+        </tr>
+      )}
+    </>
   );
 }

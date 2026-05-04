@@ -13,7 +13,9 @@ import { SII_CLAVE, SII_TIPO_FACT, SII_TIPO_EXENCI, SII_TIPO_NO_SUJE, SII_TIPO_R
 
 // Cabeceras de la tabla de proveedores. Las SII llevan tooltip nativo con los
 // valores validos (title=""), lista cargada desde client/src/constants/sii.js.
+// La primera columna es el chevron de expansion (panel IRPF) — sin tooltip.
 const CABECERAS_TABLA = [
+  { label: '', className: 'w-8' },
   { label: 'Razon Social' },
   { label: 'Nombre Carpeta' },
   { label: 'CIF' },
@@ -26,20 +28,20 @@ const CABECERAS_TABLA = [
   { label: 'Rectif.',        tooltip: tooltipSii(SII_TIPO_RECTIF) },
   { label: 'Entr/Prest',     tooltip: tooltipSii(SII_ENTR_PREST) },
   { label: 'IRPF %',         tooltip: TOOLTIP_IRPF_PORCENTAJE },
-  { label: 'Cta. IRPF',      tooltip: 'Subcuenta 4751xxx (HP retenciones practicadas).\nSólo aplica si el proveedor está marcado "aplica IRPF".\nLa clave IRPF (1-11) se edita desde el modal del proveedor.' },
+  { label: 'Cta. IRPF',      tooltip: 'Subcuenta 4751xxx (HP retenciones practicadas).\nPara activar/desactivar IRPF o cambiar la clave, expande la fila con la flecha de la izquierda.' },
   { label: '' },
 ];
 
+// Form del modal "+ Nuevo proveedor". NO incluye campos IRPF — esos se gestionan
+// desde el panel expandido (PanelIrpfProveedor) tras crear el proveedor. Razon:
+// para activar IRPF en proveedores existentes (que es el caso 99% de las veces)
+// hace falta expandir desde la tabla, asi que centralizamos toda la gestion IRPF
+// alli y evitamos duplicar JSX y validacion en 2 sitios.
 const FORM_VACIO = {
   razon_social: '', nombre_carpeta: '', cif: '',
   cuenta_contable_id: '', cuenta_gasto_id: '',
   sii_tipo_clave: 1, sii_tipo_fact: 1,
   sii_tipo_exenci: 1, sii_tipo_no_suje: 2, sii_tipo_rectif: 2, sii_entr_prest: 3,
-  // IRPF: aplica_irpf gobierna; los otros 3 sólo se rellenan si es true. Ver
-  // src/routes/proveedores.js parseCamposIrpfBody para la validacion exigida
-  // por el backend (porcentaje 0-100, clave 1-11, subcuenta debe existir en
-  // plan_contable y empezar por '4751').
-  aplica_irpf: false, irpf_porcentaje: '', irpf_clave: '', irpf_subcuenta: '',
 };
 
 export default function Proveedores() {
@@ -49,6 +51,8 @@ export default function Proveedores() {
   const [loading,       setLoading]       = useState(true);
   const [modal,         setModal]         = useState(null);
   const [modalImportar, setModalImportar] = useState(false);
+  // Solo una fila puede estar expandida a la vez. null = ninguna.
+  const [filaExpandidaId, setFilaExpandidaId] = useState(null);
   const [form,          setForm]          = useState(FORM_VACIO);
   const [guardando,     setGuardando]     = useState(false);
   const [importando,    setImportando]    = useState(false);
@@ -123,10 +127,8 @@ export default function Proveedores() {
       sii_tipo_no_suje:   p.sii_tipo_no_suje ?? 2,
       sii_tipo_rectif:    p.sii_tipo_rectif  ?? 2,
       sii_entr_prest:     p.sii_entr_prest   ?? 3,
-      aplica_irpf:        !!p.aplica_irpf,
-      irpf_porcentaje:    p.irpf_porcentaje ?? '',
-      irpf_clave:         p.irpf_clave      ?? '',
-      irpf_subcuenta:     p.irpf_subcuenta  ?? '',
+      // IRPF: NO se gestiona desde el modal — se hace desde PanelIrpfProveedor
+      // (panel expandible de la fila). Ver nota en FORM_VACIO.
     });
     setModal({ proveedor: p });
     setErrorModal('');
@@ -147,12 +149,9 @@ export default function Proveedores() {
         sii_tipo_no_suje:   form.sii_tipo_no_suje === '' ? undefined : form.sii_tipo_no_suje,
         sii_tipo_rectif:    form.sii_tipo_rectif  === '' ? undefined : form.sii_tipo_rectif,
         sii_entr_prest:     form.sii_entr_prest   === '' ? undefined : form.sii_entr_prest,
-        // IRPF: el backend exige aplica_irpf en el body para tocar IRPF (ver
-        // parseCamposIrpfBody). Si false, ignora los otros 3 y los fuerza a NULL.
-        aplica_irpf:        !!form.aplica_irpf,
-        irpf_porcentaje:    form.aplica_irpf ? Number(form.irpf_porcentaje) : null,
-        irpf_clave:         form.aplica_irpf ? Number(form.irpf_clave)      : null,
-        irpf_subcuenta:     form.aplica_irpf ? form.irpf_subcuenta          : null,
+        // IRPF: el modal NO toca IRPF. parseCamposIrpfBody solo procesa IRPF
+        // si aplica_irpf esta en el body — al omitirlo, no se altera ningun
+        // campo IRPF en BD. Toda la gestion vive en PanelIrpfProveedor.
         empresa_id:         empresaActiva?.id || null,
       };
       if (modal === 'nuevo') {
@@ -274,7 +273,7 @@ export default function Proveedores() {
                     <th
                       key={`${h.label}-${i}`}
                       title={h.tooltip || undefined}
-                      className={`px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap ${h.tooltip ? 'cursor-help' : ''}`}
+                      className={`px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap ${h.tooltip ? 'cursor-help' : ''} ${h.className || ''}`}
                     >
                       {h.label}
                     </th>
@@ -289,6 +288,9 @@ export default function Proveedores() {
                     planContable={planContable}
                     empresaId={empresaActiva?.id}
                     soloLectura={!puedeEditar('proveedores')}
+                    expandida={filaExpandidaId === p.id}
+                    onToggleExpandir={() => setFilaExpandidaId(prev => prev === p.id ? null : p.id)}
+                    numColumnas={CABECERAS_TABLA.length}
                     onGuardado={patch => setProveedores(prev => prev.map(x => x.id === patch.id ? { ...x, ...patch } : x))}
                     onEliminar={() => eliminar(p)}
                     onCuentaCreada={nueva => {
