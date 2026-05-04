@@ -444,6 +444,7 @@ export default function FilaProveedorEditable({
   proveedor: p, planContable, empresaId, onGuardado, onEliminar, onCuentaCreada, soloLectura = false,
   expandida = false, onToggleExpandir,
   numColumnas,
+  precargaIrpf = null,
 }) {
   const [error, setError] = useState('');
   const rowRef = useRef(null);
@@ -556,6 +557,7 @@ export default function FilaProveedorEditable({
               proveedor={p}
               planContable={planContable}
               onGuardado={onGuardado}
+              precargaIrpf={precargaIrpf}
             />
           </td>
         </tr>

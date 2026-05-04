@@ -38,7 +38,14 @@ const FORM_VACIO = {
   sii_tipo_exenci: 1, sii_tipo_no_suje: 2, sii_tipo_rectif: 2, sii_entr_prest: 3,
 };
 
-export default function Proveedores() {
+// solicitudIrpf y onSolicitudConsumida llegan desde App.jsx cuando el usuario
+// pulsa "Actualizar proveedor" en el panel fiscal de una factura (estado B del
+// bloque IRPF). Shape: { proveedorId, aplica_irpf, irpf_porcentaje, irpf_clave }.
+// Al montar Proveedores con una solicitud activa, expandimos la fila del
+// proveedor y pasamos los valores como precarga al PanelConfigFiscal. Tras
+// consumirla llamamos onSolicitudConsumida() para que App.jsx limpie el state
+// y subsiguientes navegaciones a /proveedores no muestren la precarga vieja.
+export default function Proveedores({ solicitudIrpf = null, onSolicitudConsumida } = {}) {
   const { empresaActiva, puedeEditar } = useAuth();
   const [proveedores,   setProveedores]   = useState([]);
   const [planContable,  setPlanContable]  = useState([]);
@@ -64,6 +71,20 @@ export default function Proveedores() {
       .catch(() => setError('Error al cargar datos'))
       .finally(() => setLoading(false));
   }, [empresaActiva]);
+
+  // Consumir solicitudIrpf: si llegamos desde el panel fiscal con una solicitud,
+  // expandimos la fila del proveedor cuando los datos esten cargados. La precarga
+  // viaja como prop hasta PanelConfigFiscal vía FilaProveedorEditable. Tras
+  // marcarlo expandido llamamos onSolicitudConsumida para que el state en App.jsx
+  // se limpie y al volver a /proveedores otra vez no se reaplique la precarga.
+  useEffect(() => {
+    if (!solicitudIrpf || loading) return;
+    setFilaExpandidaId(solicitudIrpf.proveedorId);
+    // Limpiar la solicitud en App tras un tick — el render con la precarga se
+    // ejecuta antes; usamos setTimeout(0) para que el panel ya este montado.
+    const t = setTimeout(() => { if (onSolicitudConsumida) onSolicitudConsumida(); }, 50);
+    return () => clearTimeout(t);
+  }, [solicitudIrpf, loading, onSolicitudConsumida]);
 
   const proveedoresFiltrados = proveedores.filter(p => {
     const f = filtros;
@@ -285,6 +306,7 @@ export default function Proveedores() {
                     expandida={filaExpandidaId === p.id}
                     onToggleExpandir={() => setFilaExpandidaId(prev => prev === p.id ? null : p.id)}
                     numColumnas={CABECERAS_TABLA.length}
+                    precargaIrpf={solicitudIrpf && solicitudIrpf.proveedorId === p.id ? solicitudIrpf : null}
                     onGuardado={patch => setProveedores(prev => prev.map(x => x.id === patch.id ? { ...x, ...patch } : x))}
                     onEliminar={() => eliminar(p)}
                     onCuentaCreada={nueva => {

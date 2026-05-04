@@ -114,6 +114,16 @@ El panel `PanelConfigFiscal` envía SII + IRPF en un único PUT al pulsar "Guard
 
 **Riesgo last-write-wins**: si dos pestañas editan el mismo proveedor a la vez, la última en guardar pisa los cambios IRPF de la otra. No es específico de IRPF y no es bloqueante; si el patrón de uso lo requiriese, añadir versionado optimista (`updated_at` como `If-Match`) — fuera del alcance del commit IRPF.
 
+**Bloque IRPF en panel fiscal de factura (`PanelDetalleFiscal` en `TablaFacturas.jsx`, desde commit 4 IRPF 2026-05-04):** entre los bloques "Datos SII" y "Datos de rectificativa". Renderiza uno de 4 estados según la combinación `f.irpf_cuota` + `f.proveedor_aplica_irpf`:
+- **Estado A** (factura con IRPF + proveedor con `aplica_irpf=true`): caso normal. Bloque verde con resumen base/cuota/% efectivo, inputs `CampoNumeroIrpfInline` editables (bloqueados si `lote_sage_id != null`). Muestra clave + subcuenta del proveedor + indicador de confianza `IndicadorConfianzaIrpf`.
+- **Estado B** (factura con IRPF + proveedor sin marcar): aviso amber + botón **"Actualizar proveedor"** que llama a `onIrAProveedorParaIrpf(f.proveedor_id, valoresPrecarga)`. Esa prop se hila desde `App.jsx → SeccionFacturas → TablaFacturas → PanelDetalleFiscal`; al pulsarla, App.jsx hace `setTab('proveedores')` + setea `solicitudIrpf={ proveedorId, aplica_irpf:true, irpf_porcentaje, irpf_clave }`. `Proveedores.jsx` consume la solicitud al montar (auto-expande la fila + pasa la precarga a `PanelConfigFiscal`) y llama `onSolicitudConsumida()` para limpiar el state.
+- **Estado C** (factura sin IRPF + proveedor con `aplica_irpf=true`): aviso amber + botón **"Calcular IRPF"** que ejecuta `handleGuardarIrpfLocal({ irpf_base: total_sin_iva, irpf_cuota: total_sin_iva * proveedor_irpf_porcentaje / 100 })` directamente, sin paso intermedio de confirmación. Si el cálculo está mal, el usuario edita inline después.
+- **Estado D** (factura sin IRPF + proveedor sin IRPF): bloque oculto.
+
+**Indicador de confianza** (`IndicadorConfianzaIrpf`) lee `irpf_clave_inferida_origen` del JSONB `datos_extraidos` (lo rellena el extractor V3.1) y mapea a 7 etiquetas con color: verde (`explicit_text`), 4 amarillas (`issuer_nif_pattern`, `porcentaje_19`, `porcentaje_15_or_7`, `concept_keyword`), naranja (`fallback_default`). Cuando origen es null, distinguimos: si `irpf_clave_extraida` también es null → "Clave no determinada" (rojo, pide acción); si está informada → "Asignada manualmente" (gris).
+
+**Autocompletado defensivo `irpf_base` en backend** (`PUT /api/drive/:id/datos`): si el body trae `irpf_cuota` pero `irpf_base` está NULL en BD y tampoco viene en el body, el handler autocompleta `irpf_base = total_sin_iva` (del JSONB). Razón: cuota sin base genera estado inconsistente que rompería el exportador SAGE (commit 5 IRPF). Validación adicional: `cuota <= base + 0.01` con margen, error 400 si no cumple.
+
 **Database helpers (config/database.js):**
 - `db.query(sql, params)` — query genérica
 - `db.one(sql, params)` — una fila o null

@@ -219,6 +219,11 @@ router.get('/', async (req, res) => {
         p.sii_entr_prest   AS proveedor_sii_entr_prest,
         da.es_rectificativa, da.rect_serie, da.rect_numero, da.rect_base_imp,
         TO_CHAR(da.rect_fecha, 'YYYY-MM-DD') AS rect_fecha,
+        da.irpf_base, da.irpf_cuota,
+        p.aplica_irpf       AS proveedor_aplica_irpf,
+        p.irpf_porcentaje   AS proveedor_irpf_porcentaje,
+        p.irpf_clave        AS proveedor_irpf_clave,
+        p.irpf_subcuenta    AS proveedor_irpf_subcuenta,
         la.nombre_fichero AS lote_a3_nombre, la.fecha AS lote_a3_fecha
       ${joinBlock}
       ORDER BY da.id DESC
@@ -1196,6 +1201,27 @@ const CAMPOS_SII_FACTURA = ['sii_tipo_clave', 'sii_tipo_fact', 'sii_tipo_exenci'
 // Campos propios de rectificativa (columnas de drive_archivos, tambien fuera del JSONB).
 // Mismo bloqueo por lote_sage_id que los SII. Validadores por tipo — ver PUT /:id/datos.
 const CAMPOS_RECT_FACTURA = ['es_rectificativa', 'rect_serie', 'rect_numero', 'rect_fecha', 'rect_base_imp'];
+
+// Campos IRPF de factura (columnas de drive_archivos, fuera del JSONB).
+// Mismo bloqueo por lote_sage_id. Coherencia: cuota <= base. Autocompletado:
+// si llega cuota y base esta NULL en BD, se autocompleta base = total_sin_iva
+// (defensa contra estados inconsistentes que romperian el exportador SAGE).
+const CAMPOS_IRPF_FACTURA = ['irpf_base', 'irpf_cuota'];
+const VALIDADORES_IRPF = {
+  irpf_base: (v) => {
+    if (v === null || v === '') return { value: null };
+    const n = Number(v);
+    if (!Number.isFinite(n) || n < 0) return { error: 'irpf_base debe ser numero >= 0 o null' };
+    return { value: n };
+  },
+  irpf_cuota: (v) => {
+    if (v === null || v === '') return { value: null };
+    const n = Number(v);
+    if (!Number.isFinite(n) || n < 0) return { error: 'irpf_cuota debe ser numero >= 0 o null' };
+    return { value: n };
+  },
+};
+
 const VALIDADORES_RECT = {
   es_rectificativa: (v) => typeof v === 'boolean'
     ? { value: v }
@@ -1230,12 +1256,13 @@ router.put('/:id/datos', requireAuth, express.json(), async (req, res) => {
   const archivo = await db.one('SELECT * FROM drive_archivos WHERE id = $1', [id]);
   if (!archivo) return res.status(404).json({ ok: false, error: 'Archivo no encontrado' });
 
-  // Detectar que campos SII + rectificativa vienen en el body (undefined = no tocar).
+  // Detectar que campos SII + rectificativa + IRPF vienen en el body (undefined = no tocar).
   const siiPresentes  = CAMPOS_SII_FACTURA.filter(c => req.body[c] !== undefined);
   const rectPresentes = CAMPOS_RECT_FACTURA.filter(c => req.body[c] !== undefined);
+  const irpfPresentes = CAMPOS_IRPF_FACTURA.filter(c => req.body[c] !== undefined);
 
-  if (archivo.lote_sage_id && (siiPresentes.length > 0 || rectPresentes.length > 0)) {
-    return res.status(409).json({ ok: false, error: 'Factura ya exportada a SAGE, campos SII / rectificativa no editables' });
+  if (archivo.lote_sage_id && (siiPresentes.length > 0 || rectPresentes.length > 0 || irpfPresentes.length > 0)) {
+    return res.status(409).json({ ok: false, error: 'Factura ya exportada a SAGE, campos SII / rectificativa / IRPF no editables' });
   }
 
   // Validacion SII: null o '' = volver a heredar del proveedor (NULL en BD), entero >= 0 = override.
@@ -1260,6 +1287,34 @@ router.put('/:id/datos', requireAuth, express.json(), async (req, res) => {
     rectNuevos[c] = value;
   }
 
+  // Validacion IRPF: parseo individual + coherencia + autocompletado.
+  const irpfNuevos = {};
+  for (const c of irpfPresentes) {
+    const { value, error } = VALIDADORES_IRPF[c](req.body[c]);
+    if (error) return res.status(400).json({ ok: false, error });
+    irpfNuevos[c] = value;
+  }
+  // Autocompletado defensivo: si llega cuota informada y la base actual en BD
+  // es NULL (y el body no la trae), autocompletamos base = total_sin_iva del JSON.
+  // Razon: cuota sin base genera estado inconsistente que rompe el exportador SAGE
+  // (commit 5 IRPF). Forzar la coherencia aqui evita parches downstream.
+  if (irpfPresentes.includes('irpf_cuota') && irpfNuevos.irpf_cuota != null
+      && !irpfPresentes.includes('irpf_base') && archivo.irpf_base == null) {
+    const datos = archivo.datos_extraidos ? JSON.parse(archivo.datos_extraidos) : {};
+    const totalSinIva = Number(datos.total_sin_iva);
+    if (Number.isFinite(totalSinIva) && totalSinIva > 0) {
+      irpfNuevos.irpf_base = totalSinIva;
+      irpfPresentes.push('irpf_base');
+    }
+  }
+  // Coherencia: cuota <= base (margen 0.01). baseEf y cuotaEf cogen el valor
+  // nuevo si viene en el body, o el actual de BD si no.
+  const baseEf  = irpfPresentes.includes('irpf_base')  ? irpfNuevos.irpf_base  : (archivo.irpf_base  != null ? Number(archivo.irpf_base)  : null);
+  const cuotaEf = irpfPresentes.includes('irpf_cuota') ? irpfNuevos.irpf_cuota : (archivo.irpf_cuota != null ? Number(archivo.irpf_cuota) : null);
+  if (baseEf != null && cuotaEf != null && cuotaEf > baseEf + 0.01) {
+    return res.status(400).json({ ok: false, error: `irpf_cuota (${cuotaEf}) no puede ser mayor que irpf_base (${baseEf})` });
+  }
+
   const datosActuales = archivo.datos_extraidos ? JSON.parse(archivo.datos_extraidos) : {};
   const cambios = {};
   const anteriores = {};
@@ -1277,7 +1332,7 @@ router.put('/:id/datos', requireAuth, express.json(), async (req, res) => {
   }
 
   const hayCambiosJson = Object.keys(cambios).length > 0;
-  if (!hayCambiosJson && siiPresentes.length === 0 && rectPresentes.length === 0) {
+  if (!hayCambiosJson && siiPresentes.length === 0 && rectPresentes.length === 0 && irpfPresentes.length === 0) {
     return res.status(400).json({ ok: false, error: 'No hay campos que modificar' });
   }
 
@@ -1305,6 +1360,14 @@ router.put('/:id/datos', requireAuth, express.json(), async (req, res) => {
     cambios[c] = rectNuevos[c];
   }
 
+  for (const c of irpfPresentes) {
+    // Nombre de columna de CAMPOS_IRPF_FACTURA (lista blanca). NUMERIC(14,2) en BD,
+    // el driver pg acepta number directamente.
+    await db.query(`UPDATE drive_archivos SET ${c} = $1 WHERE id = $2`, [irpfNuevos[c], id]);
+    anteriores[c] = archivo[c] != null ? Number(archivo[c]) : null;
+    cambios[c] = irpfNuevos[c];
+  }
+
   await registrarEvento({
     evento:    'EDICION_DATOS_FACTURA',
     usuarioId: req.usuario?.id ?? null,
@@ -1320,8 +1383,8 @@ router.put('/:id/datos', requireAuth, express.json(), async (req, res) => {
     },
   }).catch(() => {});
 
-  // Responder con el valor actual de los 11 campos SII + rectificativa (nuevo si se
-  // edito, previo en caso contrario). El frontend lo usa para update optimista.
+  // Responder con el valor actual de los 13 campos SII + rectificativa + IRPF (nuevo
+  // si se edito, previo en caso contrario). El frontend lo usa para update optimista.
   const siiResp = {};
   for (const c of CAMPOS_SII_FACTURA) {
     siiResp[c] = siiPresentes.includes(c) ? siiNuevos[c] : (archivo[c] ?? null);
@@ -1337,7 +1400,15 @@ router.put('/:id/datos', requireAuth, express.json(), async (req, res) => {
       rectResp[c] = archivo[c] ?? null;
     }
   }
-  res.json({ ok: true, data: { datos_extraidos: nuevosDatos, ...siiResp, ...rectResp } });
+  const irpfResp = {};
+  for (const c of CAMPOS_IRPF_FACTURA) {
+    if (irpfPresentes.includes(c)) {
+      irpfResp[c] = irpfNuevos[c];
+    } else {
+      irpfResp[c] = archivo[c] != null ? Number(archivo[c]) : null;
+    }
+  }
+  res.json({ ok: true, data: { datos_extraidos: nuevosDatos, ...siiResp, ...rectResp, ...irpfResp } });
 });
 
 // ─── GET /api/drive/carpetas — listar carpetas de proveedores en Drive ───────

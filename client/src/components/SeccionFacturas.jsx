@@ -214,6 +214,7 @@ export default function SeccionFacturas({
   modoGestoria = 'v2',
   focusFacturaId,
   onClearFocus,
+  onIrAProveedorParaIrpf,   // (proveedorId, valoresPrecarga) → navega a Proveedores y expande la fila
 }) {
   const esV1 = modoGestoria === 'v1';
   const [facturas,      setFacturas]     = useState([]);
@@ -771,6 +772,7 @@ export default function SeccionFacturas({
         modoGestoria={modoGestoria}
         focusFacturaId={focusFacturaId}
         onClearFocus={onClearFocus}
+        onIrAProveedorParaIrpf={onIrAProveedorParaIrpf}
       />
     </div>
   );

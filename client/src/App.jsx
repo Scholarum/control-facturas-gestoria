@@ -36,6 +36,12 @@ function AppInner() {
 
   const [tab,             setTab]             = useState('facturas');
   const [subTab,          setSubTab]          = useState('pendientes');
+  // Solicitud de navegacion factura → proveedor para configurar IRPF (estado B
+  // del bloque IRPF en PanelDetalleFiscal). null = sin solicitud activa. La
+  // shape es { proveedorId, aplica_irpf, irpf_porcentaje, irpf_clave }. Se setea
+  // al pulsar "Actualizar proveedor" desde el panel fiscal y se consume en
+  // Proveedores.jsx (auto-expande la fila del proveedor + precarga el panel).
+  const [solicitudIrpf,   setSolicitudIrpf]   = useState(null);
   const [loading,         setLoading]         = useState(true);
   const [error,           setError]           = useState(null);
   const [exportandoTotal, setExportandoTotal] = useState(false);
@@ -121,6 +127,14 @@ function AppInner() {
   }
 
   function handleEliminarFactura() { invalidate(); }
+
+  // Disparado desde PanelDetalleFiscal (estado B del bloque IRPF). Cambia tab
+  // a "proveedores" + setea solicitudIrpf con la precarga. Proveedores.jsx la
+  // consume en su useEffect inicial y la limpia via onSolicitudConsumida.
+  function irAProveedorParaIrpf(proveedorId, valoresPrecarga) {
+    setSolicitudIrpf({ proveedorId, ...valoresPrecarga });
+    setTab('proveedores');
+  }
 
   async function handleProveedorActualizado() {
     invalidateProveedores();
@@ -602,7 +616,12 @@ function AppInner() {
         {tab === 'usuarios' && puedeVer('usuarios') && <Usuarios />}
 
         {/* ── Pestaña Proveedores ── */}
-        {tab === 'proveedores' && puedeVer('proveedores') && <Proveedores />}
+        {tab === 'proveedores' && puedeVer('proveedores') && (
+          <Proveedores
+            solicitudIrpf={solicitudIrpf}
+            onSolicitudConsumida={() => setSolicitudIrpf(null)}
+          />
+        )}
 
         {/* ── Pestaña Empresas ── */}
         {tab === 'empresas' && puedeVer('configuracion') && <Empresas />}
@@ -765,6 +784,7 @@ function AppInner() {
                 onDatosActualizados={!esV1 ? handleDatosActualizados : undefined}
                 onProveedorActualizado={!esV1 ? handleProveedorActualizado : undefined}
                 focusFacturaId={focusFacturaId} onClearFocus={() => setFocusFacturaId(null)}
+                onIrAProveedorParaIrpf={irAProveedorParaIrpf}
               />
             )}
             {subTab === 'descargadas' && (
@@ -783,6 +803,7 @@ function AppInner() {
                 onDatosActualizados={!esV1 ? handleDatosActualizados : undefined}
                 onProveedorActualizado={!esV1 ? handleProveedorActualizado : undefined}
                 focusFacturaId={focusFacturaId} onClearFocus={() => setFocusFacturaId(null)}
+                onIrAProveedorParaIrpf={irAProveedorParaIrpf}
               />
             )}
             {!esV1 && subTab === 'cc_asignada' && (
@@ -802,6 +823,7 @@ function AppInner() {
                 onDatosActualizados={handleDatosActualizados}
                 onProveedorActualizado={handleProveedorActualizado}
                 focusFacturaId={focusFacturaId} onClearFocus={() => setFocusFacturaId(null)}
+                onIrAProveedorParaIrpf={irAProveedorParaIrpf}
               />
             )}
             {subTab === 'contabilizadas' && (
@@ -817,6 +839,7 @@ function AppInner() {
                 onEstadoActualizado={handleEstadoActualizado}
                 onAsignarCG={!esV1 ? handleAsignarCG : undefined}
                 focusFacturaId={focusFacturaId} onClearFocus={() => setFocusFacturaId(null)}
+                onIrAProveedorParaIrpf={irAProveedorParaIrpf}
               />
             )}
 

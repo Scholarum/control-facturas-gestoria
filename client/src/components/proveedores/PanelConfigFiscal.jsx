@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { editarProveedor } from '../../api.js';
 import {
   SII_CLAVE, SII_TIPO_FACT, SII_TIPO_EXENCI, SII_TIPO_NO_SUJE, SII_TIPO_RECTIF, SII_ENTR_PREST,
@@ -19,7 +19,7 @@ import {
 // Sincronizacion con la tabla: tras guardar, onGuardado actualiza el proveedor
 // en el padre y React re-renderiza la fila → las celdas inline IRPF % y Cta. IRPF
 // ven aplica_irpf actualizado y se habilitan/deshabilitan automaticamente.
-export default function PanelConfigFiscal({ proveedor: p, planContable, onGuardado }) {
+export default function PanelConfigFiscal({ proveedor: p, planContable, onGuardado, precargaIrpf = null }) {
   // ─── Estado SII ────────────────────────────────────────────────────────────
   const [siiClave,    setSiiClave]    = useState(p.sii_tipo_clave   ?? 1);
   const [siiFact,     setSiiFact]     = useState(p.sii_tipo_fact    ?? 1);
@@ -29,10 +29,34 @@ export default function PanelConfigFiscal({ proveedor: p, planContable, onGuarda
   const [siiEntrPrest, setSiiEntrPrest] = useState(p.sii_entr_prest ?? 1);
 
   // ─── Estado IRPF ───────────────────────────────────────────────────────────
-  const [aplica, setAplica] = useState(!!p.aplica_irpf);
-  const [pct,    setPct]    = useState(p.irpf_porcentaje == null ? '' : String(p.irpf_porcentaje));
-  const [clave,  setClave]  = useState(p.irpf_clave == null ? '' : p.irpf_clave);
+  // Si hay precarga (llegada desde el panel fiscal de una factura via App.jsx),
+  // los useState iniciales la usan en vez de los valores actuales del proveedor.
+  // Asi al expandir la fila por primera vez, el panel arranca con los valores
+  // sugeridos. La subcuenta NUNCA se precarga (el usuario debe elegir).
+  const initAplica = precargaIrpf?.aplica_irpf ?? !!p.aplica_irpf;
+  const initPct    = precargaIrpf?.irpf_porcentaje != null && precargaIrpf.irpf_porcentaje !== ''
+    ? String(precargaIrpf.irpf_porcentaje)
+    : (p.irpf_porcentaje == null ? '' : String(p.irpf_porcentaje));
+  const initClave  = precargaIrpf?.irpf_clave != null && precargaIrpf.irpf_clave !== ''
+    ? precargaIrpf.irpf_clave
+    : (p.irpf_clave == null ? '' : p.irpf_clave);
+  const [aplica, setAplica] = useState(initAplica);
+  const [pct,    setPct]    = useState(initPct);
+  const [clave,  setClave]  = useState(initClave);
   const [sub,    setSub]    = useState(p.irpf_subcuenta || '');
+
+  // Si la precarga llega DESPUES de montar (caso raro: la fila ya estaba
+  // expandida cuando se navega), aplicamos los valores via useEffect.
+  useEffect(() => {
+    if (!precargaIrpf) return;
+    if (precargaIrpf.aplica_irpf != null)     setAplica(!!precargaIrpf.aplica_irpf);
+    if (precargaIrpf.irpf_porcentaje != null && precargaIrpf.irpf_porcentaje !== '') {
+      setPct(String(precargaIrpf.irpf_porcentaje));
+    }
+    if (precargaIrpf.irpf_clave != null && precargaIrpf.irpf_clave !== '') {
+      setClave(precargaIrpf.irpf_clave);
+    }
+  }, [precargaIrpf]);
 
   const [guardando, setGuardando] = useState(false);
   const [error,     setError]     = useState('');
