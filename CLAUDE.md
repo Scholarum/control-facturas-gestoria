@@ -312,6 +312,19 @@ Flujo "exportar filtrado → editar offline → reimportar", pensado para correc
 - `POST /api/proveedores/importar` — matching por **prioridad `ID → CIF → razón social`** (la columna `ID (no modificar)` va siempre como primera columna del export). Si la fila trae un `ID` que **no existe** en BD, se descarta y se reporta como error (`"Fila N: ID X no encontrado"`) — nunca crea un proveedor nuevo por una fila con ID corrupto. Si no trae ID, cae a CIF; si tampoco, a razón social. Es UPSERT estricto: los proveedores no incluidos en el fichero **no se tocan**.
 - Campos vacíos en el Excel son "no tocar" (se traducen a `COALESCE` en el UPDATE), no "borrar".
 
+## Conciliación de Mayor
+
+La conciliación cruza el Mayor contable que la gestoría devuelve con las facturas de la app, para detectar discrepancias y facturas no contabilizadas. Dos endpoints:
+
+- **V1** (`POST /api/conciliacion`): legacy, cruce simple por número de factura.
+- **V2** (`POST /api/conciliacion/v2/ejecutar`): vigente, matching por Fecha + Importe + Referencia simplificada del concepto.
+
+**Filtro de facturas en el cruce (desde 2026-05-04):** ambas versiones consideran SOLO facturas con `estado = 'PROCESADA'` (extracción Gemini OK) **Y** `estado_gestion = 'CONTABILIZADA'`. Las pendientes, descargadas y CC_ASIGNADA no entran porque por definición no están en el Mayor de la gestoría — incluirlas generaba ruido constante de "factura no encontrada en el Mayor". El filtro vive en `src/services/conciliacionService.js` en las 3 queries que cargan facturas (`obtenerFacturasDrive` para V1 y las 2 ramas de `obtenerFacturasPorProveedor` para V2). Si en el futuro hace falta incluir otros estados, modificar las 3 a la vez.
+
+**Banner UI para conciliaciones antiguas**: las conciliaciones guardadas en `historial_conciliaciones` antes del fix se calcularon con el criterio antiguo (incluían no-contabilizadas → ruido en `SIN_MATCH`). El frontend muestra un banner amber al cargar una conciliación del historial si su `creado_en < FECHA_FIX_FILTRO_CONTABILIZADAS` (constante hardcoded en `client/src/pages/Conciliacion.jsx`). El endpoint `GET /api/conciliacion/historial/:id` devuelve `creado_en` para alimentar la comparación. Si se cambia la fecha del cherry-pick a main, ajustar la constante en el frontend para que coincida con la fecha real de prod.
+
+Las conciliaciones históricas NO se relanzan retroactivamente — el `resultado_json` ya guardado refleja el cruce del momento. El usuario decide caso a caso si lanzar una nueva.
+
 ## Variables de entorno
 
 Ver `.env.example` para el template. Variables necesarias:

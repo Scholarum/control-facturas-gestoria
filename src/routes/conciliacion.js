@@ -166,7 +166,7 @@ router.get('/historial/:id', resolveUser, async (req, res) => {
   const db  = getDb();
 
   const row = await db.one(
-    'SELECT resultado_json, version FROM historial_conciliaciones WHERE id = $1',
+    'SELECT resultado_json, version, creado_en FROM historial_conciliaciones WHERE id = $1',
     [id]
   );
   if (!row) return res.status(404).json({ ok: false, error: 'No encontrado' });
@@ -197,7 +197,9 @@ router.get('/historial/:id', resolveUser, async (req, res) => {
     vinculosManuales = await db.all('SELECT * FROM conciliacion_vinculos_manuales ORDER BY creado_en');
   }
 
-  res.json({ ok: true, data: { ...resultado, conciliacionId: id, lineaEstados: buildLineaEstados(lineas), lineasHistorial: historial, vinculosManuales } });
+  // creado_en se incluye para que la UI muestre banner en conciliaciones
+  // anteriores al fix de filtro estado_gestion='CONTABILIZADA' (2026-05-04).
+  res.json({ ok: true, data: { ...resultado, conciliacionId: id, creado_en: row.creado_en, lineaEstados: buildLineaEstados(lineas), lineasHistorial: historial, vinculosManuales } });
 });
 
 // ─── GET /api/conciliacion/historial/:id/revisiones ──────────────────────────

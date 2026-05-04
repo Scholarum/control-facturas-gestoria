@@ -43,8 +43,13 @@ const round2 = n => Math.round((n || 0) * 100) / 100;
 
 async function obtenerFacturasDrive(proveedor, fechaDesde, fechaHasta) {
   const db       = getDb();
+  // Filtro estado_gestion='CONTABILIZADA' (2026-05-04): la conciliacion solo cruza
+  // facturas que efectivamente estan en el Mayor de la gestoria. Pendientes,
+  // descargadas y CC_ASIGNADA no entran porque por definicion no aparecen en el
+  // Mayor — incluirlas generaba ruido constante de "factura no encontrada en el
+  // Mayor". Ver CLAUDE.md, seccion "Conciliacion de Mayor".
   const archivos = await db.all(
-    "SELECT * FROM drive_archivos WHERE proveedor = $1 AND estado = 'PROCESADA'",
+    "SELECT * FROM drive_archivos WHERE proveedor = $1 AND estado = 'PROCESADA' AND estado_gestion = 'CONTABILIZADA'",
     [proveedor]
   );
 
@@ -114,7 +119,7 @@ async function ejecutarConciliacion(proveedor, fechaDesde, fechaHasta, entradasS
 
   if (!facturasDrive.length) {
     throw Object.assign(
-      new Error(`No hay facturas procesadas para "${proveedor}" en el rango de fechas indicado.`),
+      new Error(`No hay facturas contabilizadas para "${proveedor}" en el rango de fechas indicado. Recuerda: la conciliacion solo cruza facturas con estado "Contabilizada".`),
       { status: 404 }
     );
   }
@@ -207,10 +212,12 @@ async function obtenerFacturasPorProveedor(nombreCarpeta, proveedorId, cifProvee
   let archivos;
   const filtroEmpresa = empresaId ? `AND da.empresa_id = ${parseInt(empresaId, 10)}` : '';
 
+  // Filtro estado_gestion='CONTABILIZADA' (2026-05-04): igual que V1, ver razon
+  // en obtenerFacturasDrive y en CLAUDE.md (seccion "Conciliacion de Mayor").
   if (proveedorId) {
     archivos = await db.all(`
       SELECT da.* FROM drive_archivos da
-      WHERE da.estado = 'PROCESADA' ${filtroEmpresa}
+      WHERE da.estado = 'PROCESADA' AND da.estado_gestion = 'CONTABILIZADA' ${filtroEmpresa}
         AND (
           da.proveedor = $1
           OR (
@@ -224,7 +231,7 @@ async function obtenerFacturasPorProveedor(nombreCarpeta, proveedorId, cifProvee
   } else {
     if (nombreCarpeta) {
       archivos = await db.all(
-        `SELECT * FROM drive_archivos WHERE proveedor = $1 AND estado = 'PROCESADA' ${filtroEmpresa}`,
+        `SELECT * FROM drive_archivos WHERE proveedor = $1 AND estado = 'PROCESADA' AND estado_gestion = 'CONTABILIZADA' ${filtroEmpresa}`,
         [nombreCarpeta]
       );
     } else {

@@ -18,6 +18,18 @@ const FASES = {
   ERROR: 'error',
 };
 
+// Fecha del fix que añadio el filtro estado_gestion='CONTABILIZADA' a la
+// conciliacion de Mayor. Las conciliaciones guardadas en el historial con
+// fecha anterior se calcularon SIN ese filtro (incluian facturas no
+// contabilizadas → ruido espurio en SIN_MATCH). El banner avisa al usuario.
+// Si el cherry-pick a main es otro dia, ajustar a la fecha real de prod.
+const FECHA_FIX_FILTRO_CONTABILIZADAS = '2026-05-04';
+
+function esConciliacionAnteriorAlFix(creadoEnIso) {
+  if (!creadoEnIso) return false;            // conciliacion nueva (no viene del historial) → sin banner
+  return String(creadoEnIso).slice(0, 10) < FECHA_FIX_FILTRO_CONTABILIZADAS;
+}
+
 function fmtFecha(iso) {
   if (!iso) return '\u2014';
   const [y, m, d] = iso.split('-');
@@ -388,6 +400,20 @@ export default function Conciliacion({ proveedores }) {
             Nueva conciliacion
           </button>
         </div>
+        {esConciliacionAnteriorAlFix(resultado.creado_en) && (
+          <div className="rounded-lg bg-amber-50 border border-amber-200 px-4 py-3 text-sm text-amber-800 flex items-start gap-3">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+            </svg>
+            <div>
+              <p className="font-medium">Conciliación anterior al filtro de "Contabilizadas"</p>
+              <p className="mt-0.5">
+                Esta conciliación se calculó antes del {fmtFecha(FECHA_FIX_FILTRO_CONTABILIZADAS)} con el criterio antiguo: incluía todas las facturas extraídas (pendientes, descargadas y CC asignadas), no sólo las contabilizadas. Por eso puede aparecer ruido en <strong>"Sin match"</strong> (facturas que no estaban realmente en el Mayor porque aún no se habían contabilizado).
+                Para resultados con el criterio actual, lanza una nueva conciliación.
+              </p>
+            </div>
+          </div>
+        )}
         {resultadoVersion === 'v2' ? (
           <ResultadoConciliacionV2
             resultadosPorProveedor={resultado.resultadosPorProveedor}
