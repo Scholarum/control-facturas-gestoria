@@ -769,8 +769,34 @@ router.post('/sage-preview', requireAuth, express.json(), async (req, res) => {
   }});
 });
 
+// Valida fecha_exportacion del modal SAGE. Devuelve {valor, error}:
+//   valor = string 'YYYY-MM-DD' valido en rango ±180 dias desde hoy,
+//   valor = null si no viene en el body (fallback a hoy en el exportador),
+//   error = mensaje claro si formato/rango invalido.
+function validarFechaExportacion(iso) {
+  if (iso === undefined || iso === null || iso === '') return { valor: null };
+  if (typeof iso !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) {
+    return { error: 'fecha_exportacion debe tener formato YYYY-MM-DD' };
+  }
+  const [y, m, d] = iso.split('-').map(Number);
+  const ts = Date.UTC(y, m - 1, d);
+  // Comprobar que la fecha es real (Date.UTC acepta 2026-02-31 y normaliza a marzo).
+  const back = new Date(ts);
+  if (back.getUTCFullYear() !== y || back.getUTCMonth() !== m - 1 || back.getUTCDate() !== d) {
+    return { error: `fecha_exportacion no es una fecha real: ${iso}` };
+  }
+  // Rango ±180 dias en UTC (evita drift por horario de verano).
+  const ahora = new Date();
+  const hoyTs = Date.UTC(ahora.getUTCFullYear(), ahora.getUTCMonth(), ahora.getUTCDate());
+  const dias = Math.round((ts - hoyTs) / 86400000);
+  if (dias < -180 || dias > 180) {
+    return { error: `fecha_exportacion fuera de rango (±180 días desde hoy): ${iso} (${dias} días)` };
+  }
+  return { valor: iso };
+}
+
 router.post('/exportar-sage', requireAuth, express.json(), async (req, res) => {
-  const { ids, asiento_inicio, documento_inicio, contabilizar: marcarContabilizada } = req.body;
+  const { ids, asiento_inicio, documento_inicio, fecha_exportacion, contabilizar: marcarContabilizada } = req.body;
   if (!ids?.length) return res.status(400).json({ ok: false, error: 'ids requeridos' });
 
   // Validación: enteros positivos
@@ -783,6 +809,9 @@ router.post('/exportar-sage', requireAuth, express.json(), async (req, res) => {
   }
   const asientoInicio   = parseInt(asiento_inicio,   10);
   const documentoInicio = parseInt(documento_inicio, 10);
+
+  const { valor: fechaExportacion, error: fechaErr } = validarFechaExportacion(fecha_exportacion);
+  if (fechaErr) return res.status(400).json({ ok: false, error: fechaErr });
 
   const db = getDb();
   const archivos = await db.all(`
@@ -857,9 +886,10 @@ router.post('/exportar-sage', requireAuth, express.json(), async (req, res) => {
     }
   }
 
-  // Generar ficheros con asiento + documento globales correlativos
+  // Generar ficheros con asiento + documento globales correlativos.
+  // fechaExportacion (opcional) override para pos 2/47/127. Null = fallback a hoy.
   const { contenidoTXT, contenidoCSV, asientoFin, documentoFin } =
-    generarFicheroSage(facturasConDatos, { asientoInicio, documentoInicio });
+    generarFicheroSage(facturasConDatos, { asientoInicio, documentoInicio, fechaExportacion });
 
   const fechaStr = new Date().toISOString().slice(0, 10);
   const nombreFichero = `diario-sage-${fechaStr}`;

@@ -213,11 +213,15 @@ El protocolo R75 define **142 campos** por registro (ver `src/services/sageExpor
 Las versiones modernas de ContaPlus muestran en la UI el valor de `ConcepNew` (pos 133), **no** el `Concepto` legacy (pos 6). Por eso el nombre del proveedor va en pos 133 y no en pos 6.
 
 **Mapeo de fechas (criterio fiscal correcto, tras corrección 2026-04-23):**
-- **Pos 2 — `Fecha`** (asiento) → fecha de contabilización = día en que se genera el fichero (hoy).
-- **Pos 46 — `Fecha_OP`** → fecha de operación = `fecha_emision` de la factura.
-- **Pos 47 — `Fecha_EX`** → fecha de expedición = día en que se genera el fichero (hoy).
+- **Pos 2 — `Fecha`** (asiento) → fecha de contabilización. Por defecto, día en que se genera el fichero (hoy). **Overridable** desde el modal SAGE (campo "Fecha de exportación", desde 2026-05-04).
+- **Pos 46 — `Fecha_OP`** → fecha de operación = `fecha_emision` de la factura. **No overridable**: dato fiscal del PDF.
+- **Pos 47 — `Fecha_EX`** → fecha de expedición = misma que pos 2 (mismo override).
+- **Pos 127 — `Decrecen`** → fecha de registro contable SII = misma que pos 2 (mismo override).
+- **Pos 38 — `Fecha_RT`** (sólo rectificativas) → fecha del PDF original. **No overridable**.
 
 En ContaPlus, el cuadro "Fecha" de Gestión de Asientos muestra pos 2; "F.operación" muestra pos 46; "F.expedición" muestra pos 47.
+
+**Override de la fecha de exportación (desde 2026-05-04)**: el modal SAGE incluye un campo `<input type="date">` "Fecha de exportación" cuyo valor por defecto es hoy (calculado en local time, no UTC, para no derivar al día anterior en madrugadas con offset CEST). Si el usuario cambia la fecha, las pos 2 / 47 / 127 reciben ese valor (formato `AAAAMMDD`) en lugar de hoy. Una sola fecha por lote: aplica a todas las facturas del lote igual. Validación de rango: `±180 días` desde hoy (servidor, en `validarFechaExportacion` de `src/routes/gestion.js`); fuera de rango devuelve 400. El nombre del fichero (`diario-sage-AAAA-MM-DD.csv`) sigue usando la fecha real de generación, no el override — describe cuándo se exportó, lo cual es útil para auditoría.
 
 Historial de correcciones:
 - **2026-04-21**: antes de este cambio se ponía la fecha de emisión en pos 2 (y pos 47 vacío), lo que hacía que el asiento quedase fechado con la fecha del documento del proveedor en vez de la de contabilización.
