@@ -779,6 +779,24 @@ function CampoNumeroIrpfInline({ label, valor, campo, disabled, onGuardar }) {
   );
 }
 
+// Input controlado para el modo preview de IRPF (Estado C tras pulsar "Calcular IRPF").
+// Sin state interno: el value y onChange los gestiona el padre via irpfPreview state,
+// asi se mantienen coherentes ambos inputs aunque el usuario edite el segundo sin
+// hacer blur del primero (ver guardarPreviewYSalir + onBlur con relatedTarget).
+function PreviewInputIrpf({ label, valor, onChange }) {
+  return (
+    <div>
+      <p className="text-xs text-gray-400 mb-0.5">{label}</p>
+      <input
+        type="number" min="0" step="0.01"
+        value={valor === '' || valor == null ? '' : valor}
+        onChange={e => onChange(e.target.value === '' ? '' : Number(e.target.value))}
+        className="w-full rounded border border-sky-300 bg-sky-50/50 px-2 py-1 text-sm text-right focus:outline-none focus:ring-2 focus:ring-sky-400 transition-colors"
+      />
+    </div>
+  );
+}
+
 function PanelDetalleFiscal({ f, onDatosActualizados, onActualizarFacturaLocal, onIrAProveedorParaIrpf }) {
   const d   = f.datos_extraidos || {};
   const iva = Array.isArray(d.iva) ? d.iva : [];
@@ -831,18 +849,47 @@ function PanelDetalleFiscal({ f, onDatosActualizados, onActualizarFacturaLocal, 
     }
   }
 
-  // Estado C: el proveedor aplica IRPF pero la factura no tiene retencion
-  // detectada. Calculamos base=total_sin_iva y cuota=base*porcentaje_proveedor/100,
-  // guardamos directamente. Si el calculo esta mal, el usuario ajusta inline despues.
-  async function calcularIrpfYGuardar() {
+  // Estado C → preview: el proveedor aplica IRPF pero la factura no tiene
+  // retencion detectada. "Calcular IRPF" NO persiste; setea un state local
+  // irpfPreview con los valores calculados. El bloque cambia visualmente al
+  // Estado A en modo preview (banner azul + inputs editables). Al hacer blur
+  // fuera de los inputs preview, guardarPreviewYSalir persiste ambos campos
+  // a la vez en BD. Si el usuario navega fuera sin hacer blur, irpfPreview
+  // se descarta y al volver vera Estado C otra vez (BD intacta).
+  //
+  // Razon del modelo preview-only: si guardabamos directamente al pulsar
+  // "Calcular IRPF" y luego el usuario desactivaba IRPF en el proveedor, la
+  // factura quedaba con datos calculados huerfanos en Estado B sin manera
+  // facil de revertir. Ver CLAUDE.md, "Bloque IRPF en panel fiscal".
+  const [irpfPreview, setIrpfPreview] = useState(null);
+
+  function calcularIrpfPreview() {
     const totalSinIva = parseFloat(d.total_sin_iva) || 0;
     const pct = parseFloat(f.proveedor_irpf_porcentaje) || 0;
     if (totalSinIva <= 0 || pct <= 0) return;
     const cuotaCalc = Math.round(totalSinIva * pct) / 100;
-    await handleGuardarIrpfLocal({
-      irpf_base:  totalSinIva,
-      irpf_cuota: cuotaCalc,
-    });
+    setIrpfPreview({ base: totalSinIva, cuota: cuotaCalc });
+  }
+
+  async function guardarPreviewYSalir() {
+    if (!irpfPreview) return;
+    const base  = Number(irpfPreview.base);
+    const cuota = Number(irpfPreview.cuota);
+    if (!Number.isFinite(base) || !Number.isFinite(cuota) || base < 0 || cuota < 0) return;
+    if (cuota > base + 0.01) return;  // mensaje rojo en el banner avisa al usuario
+    try {
+      await handleGuardarIrpfLocal({ irpf_base: base, irpf_cuota: cuota });
+      setIrpfPreview(null);   // limpia SOLO si el guardado fue OK; si falla el preview se mantiene
+    } catch (_e) {
+      // El error sera visible via los handlers superiores; preservamos el preview
+      // para que el usuario pueda reintentar sin perder valores tecleados.
+    }
+  }
+
+  async function quitarIrpfFactura() {
+    if (!window.confirm('¿Seguro que quieres quitar la retención IRPF de esta factura? Los valores Base y Cuota se vaciarán.')) return;
+    try { await handleGuardarIrpfLocal({ irpf_base: null, irpf_cuota: null }); }
+    catch (_e) { /* error visible via toast/log */ }
   }
 
   // Guardado optimista para los 5 campos de rectificativa. Al desmarcar el checkbox
@@ -1096,36 +1143,71 @@ function PanelDetalleFiscal({ f, onDatosActualizados, onActualizarFacturaLocal, 
           </div>
         </div>
 
-        {/* Retencion IRPF — 4 estados:
-             A: factura con IRPF + proveedor con aplica_irpf=true → caso normal (verde, editable)
+        {/* Retencion IRPF — 4 estados (con preview en C):
+             A: factura con IRPF + proveedor con aplica_irpf=true → caso normal (verde, editable, boton Quitar IRPF)
+                Variante A-preview: irpfPreview != null → mismo bloque pero banner azul + inputs preview
              B: factura con IRPF + proveedor con aplica_irpf=false → alerta + boton "Actualizar proveedor"
-             C: factura sin IRPF + proveedor con aplica_irpf=true → alerta + boton "Calcular IRPF"
+             C: factura sin IRPF + proveedor con aplica_irpf=true → alerta + boton "Calcular IRPF" (preview)
              D: factura sin IRPF + proveedor sin IRPF → bloque oculto */}
         {(() => {
-          const tieneIrpfFactura  = f.irpf_cuota != null;
-          const proveedorAplica   = f.proveedor_aplica_irpf === true;
-          const mostrarBloque     = tieneIrpfFactura || proveedorAplica;
+          // Valores efectivos: si hay preview, ganan al de BD. Asi el modo preview
+          // activa el render del Estado A aunque BD tenga irpf_base/cuota=null.
+          const baseEf  = irpfPreview?.base  ?? (f.irpf_base  != null ? Number(f.irpf_base)  : null);
+          const cuotaEf = irpfPreview?.cuota ?? (f.irpf_cuota != null ? Number(f.irpf_cuota) : null);
+          const tieneIrpfFactura = cuotaEf != null;
+          const proveedorAplica  = f.proveedor_aplica_irpf === true;
+          const mostrarBloque    = tieneIrpfFactura || proveedorAplica;
           if (!mostrarBloque) return null;  // Estado D
 
-          const baseN  = f.irpf_base  != null ? Number(f.irpf_base)  : null;
-          const cuotaN = f.irpf_cuota != null ? Number(f.irpf_cuota) : null;
-          const porcentajeEfectivo = (baseN && baseN > 0 && cuotaN != null)
-            ? ((cuotaN / baseN) * 100).toFixed(2) : null;
+          const enModoPreview      = irpfPreview != null;
+          const cuotaSuperaBase    = enModoPreview
+            && Number.isFinite(Number(irpfPreview.cuota))
+            && Number.isFinite(Number(irpfPreview.base))
+            && Number(irpfPreview.cuota) > Number(irpfPreview.base) + 0.01;
+          const baseNumEf          = baseEf  != null ? Number(baseEf)  : null;
+          const cuotaNumEf         = cuotaEf != null ? Number(cuotaEf) : null;
+          const porcentajeEfectivo = (baseNumEf && baseNumEf > 0 && cuotaNumEf != null)
+            ? ((cuotaNumEf / baseNumEf) * 100).toFixed(2) : null;
 
-          // Estado A: caso normal
+          // Estado A (incluida variante A-preview)
           if (tieneIrpfFactura && proveedorAplica) {
             return (
               <div className="px-3 sm:px-6 pb-4">
                 <div className="rounded-lg border border-emerald-200 bg-emerald-50/40 px-3 py-3">
                   <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Retención IRPF</p>
+                  {enModoPreview && (
+                    <div className="mb-3 rounded-lg bg-sky-50 border border-sky-200 px-3 py-2 text-xs text-sky-800">
+                      Cálculo previsualizado: base <strong>{Number(irpfPreview.base).toFixed(2)}€</strong> y cuota <strong>{Number(irpfPreview.cuota).toFixed(2)}€</strong>.
+                      Edita los valores si es necesario y haz <strong>blur fuera del bloque</strong> para guardar.
+                      {cuotaSuperaBase && (
+                        <div className="mt-2 text-red-600">
+                          La cuota IRPF no puede ser mayor que la base. Corrige los valores antes de guardar.
+                        </div>
+                      )}
+                    </div>
+                  )}
                   {f.lote_sage_id && (
                     <div className="mb-3 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-800">
                       Esta factura ya ha sido exportada a SAGE. La retención IRPF no puede modificarse.
                     </div>
                   )}
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                    <CampoNumeroIrpfInline label="Base IRPF (€)" valor={baseN}  campo="irpf_base"  disabled={!!f.lote_sage_id} onGuardar={handleGuardarIrpfLocal} />
-                    <CampoNumeroIrpfInline label="Cuota IRPF (€)" valor={cuotaN} campo="irpf_cuota" disabled={!!f.lote_sage_id} onGuardar={handleGuardarIrpfLocal} />
+                  <div
+                    onBlur={enModoPreview ? (e => { if (!e.currentTarget.contains(e.relatedTarget)) guardarPreviewYSalir(); }) : undefined}
+                    className="grid grid-cols-1 sm:grid-cols-3 gap-3"
+                  >
+                    {enModoPreview ? (
+                      <>
+                        <PreviewInputIrpf label="Base IRPF (€)"  valor={irpfPreview.base}
+                          onChange={v => setIrpfPreview(p => ({ ...p, base: v }))} />
+                        <PreviewInputIrpf label="Cuota IRPF (€)" valor={irpfPreview.cuota}
+                          onChange={v => setIrpfPreview(p => ({ ...p, cuota: v }))} />
+                      </>
+                    ) : (
+                      <>
+                        <CampoNumeroIrpfInline label="Base IRPF (€)"  valor={baseNumEf}  campo="irpf_base"  disabled={!!f.lote_sage_id} onGuardar={handleGuardarIrpfLocal} />
+                        <CampoNumeroIrpfInline label="Cuota IRPF (€)" valor={cuotaNumEf} campo="irpf_cuota" disabled={!!f.lote_sage_id} onGuardar={handleGuardarIrpfLocal} />
+                      </>
+                    )}
                     <div>
                       <p className="text-xs text-gray-400 mb-0.5">% efectivo</p>
                       <p className="text-sm font-mono pt-1.5">{porcentajeEfectivo != null ? `${porcentajeEfectivo}%` : '—'}</p>
@@ -1138,6 +1220,18 @@ function PanelDetalleFiscal({ f, onDatosActualizados, onActualizarFacturaLocal, 
                     )}
                     <IndicadorConfianzaIrpf origen={d.irpf_clave_inferida_origen} claveExtraida={d.irpf_clave_extraida} />
                   </div>
+                  {/* Boton "Quitar IRPF": solo visible en Estado A real (no en preview).
+                       Permite revertir manualmente cuando IRPF se asigno por error. */}
+                  {!enModoPreview && (
+                    <div className="mt-3 flex justify-end">
+                      <button
+                        onClick={quitarIrpfFactura}
+                        disabled={!!f.lote_sage_id}
+                        className="text-xs text-red-600 hover:text-red-700 hover:underline disabled:text-gray-400 disabled:no-underline disabled:cursor-not-allowed">
+                        Quitar IRPF
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
             );
@@ -1145,13 +1239,13 @@ function PanelDetalleFiscal({ f, onDatosActualizados, onActualizarFacturaLocal, 
 
           // Estado B: factura con IRPF, proveedor sin marcar
           if (tieneIrpfFactura && !proveedorAplica) {
-            const pctSugerido = baseN && baseN > 0 ? Math.round((cuotaN / baseN) * 10000) / 100 : '';
+            const pctSugerido = baseNumEf && baseNumEf > 0 ? Math.round((cuotaNumEf / baseNumEf) * 10000) / 100 : '';
             return (
               <div className="px-3 sm:px-6 pb-4">
                 <div className="rounded-lg border border-amber-200 bg-amber-50/40 px-3 py-3">
                   <p className="text-xs font-semibold uppercase mb-2 text-amber-900">Retención IRPF detectada — proveedor sin marcar</p>
                   <p className="text-xs text-amber-800 mb-3">
-                    Esta factura tiene retención IRPF detectada (base <strong>{baseN ?? '—'}€</strong>, cuota <strong>{cuotaN ?? '—'}€</strong>)
+                    Esta factura tiene retención IRPF detectada (base <strong>{baseNumEf ?? '—'}€</strong>, cuota <strong>{cuotaNumEf ?? '—'}€</strong>)
                     pero el proveedor <em>{f.razon_social || f.proveedor || '?'}</em> no está marcado como "aplica IRPF".
                     Configura el proveedor para que las próximas facturas reflejen la retención automáticamente.
                   </p>
@@ -1171,8 +1265,9 @@ function PanelDetalleFiscal({ f, onDatosActualizados, onActualizarFacturaLocal, 
             );
           }
 
-          // Estado C: proveedor con IRPF, factura sin retencion detectada
-          // (tieneIrpfFactura=false && proveedorAplica=true por la condicion del cierre)
+          // Estado C: proveedor con IRPF, factura sin retencion detectada y sin preview activo.
+          // El boton "Calcular IRPF" llama a calcularIrpfPreview (no persiste); tras eso el
+          // bloque pasa al Estado A en modo preview gracias a baseEf/cuotaEf con irpfPreview.
           const totalSinIva = parseFloat(d.total_sin_iva) || 0;
           const pctProv     = parseFloat(f.proveedor_irpf_porcentaje) || 0;
           const cuotaCalc   = totalSinIva > 0 && pctProv > 0 ? Math.round(totalSinIva * pctProv) / 100 : 0;
@@ -1184,10 +1279,11 @@ function PanelDetalleFiscal({ f, onDatosActualizados, onActualizarFacturaLocal, 
                 <p className="text-xs text-amber-800 mb-3">
                   El proveedor está configurado para aplicar IRPF ({f.proveedor_irpf_porcentaje}%, clave {f.proveedor_irpf_clave})
                   pero no se ha detectado retención en esta factura. Verifica el PDF; si efectivamente lleva retención,
-                  pulsa <em>Calcular IRPF</em> para rellenar los valores con el cálculo automático (base × {f.proveedor_irpf_porcentaje}%).
+                  pulsa <em>Calcular IRPF</em> para previsualizar los valores con el cálculo automático (base × {f.proveedor_irpf_porcentaje}%).
+                  Los valores no se guardan hasta que confirmes con <em>blur</em>.
                 </p>
                 <button
-                  onClick={() => calcularIrpfYGuardar().catch(() => {})}
+                  onClick={calcularIrpfPreview}
                   disabled={!puedeCalc}
                   title={
                     f.lote_sage_id ? 'Factura ya exportada a SAGE, no editable' :
