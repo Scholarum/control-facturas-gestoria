@@ -361,6 +361,32 @@ Reglas activas:
 - **IONOS Cloud S.L.U.** (cualquier variante, p.ej. `1&1 IONOS Cloud SLU`) → `issuerCif=B85049435`.
 
 **Heurística para escalar**: cuando aparezca un nuevo proveedor con el mismo patrón (Gemini falla repetidamente al extraer su CIF/VAT), se añade aquí. Si la lista crece por encima de ~10 reglas o si se necesitan sustituir valores no triviales (más allá de un CIF), migrar a una tabla `proveedor_overrides_extraccion (cif_emisor TEXT, campo TEXT, valor_correcto TEXT)` y aplicar los overrides en `mapearRespuestaGemini` después de Gemini, en lugar de en el prompt. Razón: prompts con muchas reglas hacen que Gemini ignore las del final.
+
+**Inferencia de `irpfClave` (V3.1, desde 2026-05-04 tarde):** el prompt V3 inicial sólo asignaba `irpfClave` cuando el PDF mencionaba literalmente "G.01"/"Mod. 115"/"actividad profesional". En la práctica, casi ninguna factura de autónomo lleva esos textos, así que Gemini devolvía `irpfClave=null` masivamente. La V3.1 introduce una cadena de 7 reglas en orden, parando en la primera que coincida:
+
+1. **Texto explícito** (`explicit_text`): "G.01"–"G.04", "Mod. 115", "actividad profesional/empresarial". Mapeo directo según el texto, con dinerario por defecto y "en especie" sólo si el PDF lo dice.
+2. **Porcentaje 19%** (`porcentaje_19`, margen ±0.5): clave 2 (arrendamiento dinerario, Mod. 115).
+3. **Concepto arrendamiento** (`concept_keyword`): "alquiler", "arrendamiento", "renta mensual", "local", "oficina", "nave", "garaje" → clave 2.
+4. **NIF persona física** (`issuer_nif_pattern`): `issuerCif` matchea `^\d{8}[A-Z]$` o NIE `^[XYZ]\d{7}[A-Z]$` → clave 1 (autónomo).
+5. **Porcentaje 15% o 7%** (`porcentaje_15_or_7`): clave 1 (profesionales general; 7% = recién dados de alta, 2 primeros años).
+6. **Concepto profesional** (`concept_keyword`): "honorarios", "consultoría", "asesoría", "marketing", etc. → clave 1.
+7. **Fallback** (`fallback_default`): si nada coincidió, clave 1 con marca de baja confianza.
+
+El campo `irpfClaveInferida` (string del set anterior) viaja en el JSONB `datos_extraidos` como `irpf_clave_inferida_origen` para que la UI del panel fiscal muestre nivel de confianza (commit 4 IRPF). Valor `null` cuando no hay IRPF detectado o cuando Gemini devolvió un valor fuera del set conocido (descartado por `mapearRespuestaGemini`).
+
+**Construcción del `PROMPT_DEFAULT` y aserciones**: el prompt vigente se construye por composición de literales mediante dos `.replace()` sobre `PROMPT_DEFAULT_V3_RULES_BASIC` (sustituye el bloque IRPF entero por el TUNED y añade `"irpfClaveInferida": null` al esquema JSON). Para protegerse de drift silencioso si alguien edita uno de los literales sin actualizar el patrón del replace, hay dos aserciones al cargar el módulo (`extractorService.js`):
+1. `includes()` de fragmentos característicos del bloque TUNED.
+2. SHA-256 del `PROMPT_DEFAULT` resultante = `PROMPT_DEFAULT_HASH_ESPERADO` hardcodeado. Si no coinciden, throw — el server no levanta y Render reporta fallo de deploy.
+
+Tras una modificación intencional del prompt: recalcular el hash (`node -e "const e=require('./src/services/extractorService'); console.log(require('crypto').createHash('sha256').update(e.PROMPT_DEFAULT).digest('hex'))"`) y actualizar `PROMPT_DEFAULT_HASH_ESPERADO` con el nuevo valor.
+
+**Cadena de migraciones del prompt en BD (`migrate.js`):** versiones obsoletas que se actualizan automáticamente al `PROMPT_DEFAULT` vigente (V3.1) si su hash SHA-256 coincide:
+- V1 (1904 chars, sha `c19cec1e6b60`).
+- V2 (3650 chars, sha `39041edd9b02`) — añadía rectificativas.
+- V3 sin reglas (6555 chars, sha `820d502a05d4`) — añadía IRPF básico.
+- V3 + reglas básico (7432 chars, sha `3058cf4a90e3`) — añadía `REGLAS_OVERRIDE_FISCAL` pero sin afinar `irpfClave`.
+
+Si el hash en BD no coincide con ninguno → WARN (admin customizó el prompt; debe resetear desde la UI para incorporar la versión vigente).
 - En producción, Express sirve el build estático del cliente desde `client/dist/`
 
 **Netlify cancela builds "sin cambios" por diseño:** al tener `base = "client"`, Netlify compara el diff del commit contra esa carpeta y si no hay cambios dentro, marca el deploy como *Canceled* (optimización integrada, no es un error). Por tanto los commits que sólo tocan backend (`src/`), CLI (`extractor.js`, `sync.js`), `CLAUDE.md` o SQL aparecerán como cancelados en Netlify — es correcto, el frontend servido sigue siendo el del último build que sí tocó `client/`.

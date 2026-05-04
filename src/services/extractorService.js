@@ -273,20 +273,130 @@ Estas reglas tienen prioridad sobre cualquier otro valor de CIF/NIF/VAT que apar
 - Si el proveedor es "IONOS Cloud S.L.U." (cualquier variante, p. ej. "1&1 IONOS Cloud SLU"), el CIF del emisor debe ser SIEMPRE B85049435.
 `;
 
-// PROMPT_DEFAULT — version vigente (V3+reglas). Se construye sobre PROMPT_DEFAULT_V3_SIN_REGLAS
-// insertando REGLAS_OVERRIDE_FISCAL inmediatamente antes del cierre del prompt
-// (las dos lineas finales "Si no encuentras..." y "Responde SOLO con el JSON...").
-// Asi cuando se anyaden reglas nuevas, se editan SOLO en REGLAS_OVERRIDE_FISCAL,
-// no se duplica el texto del V3 entero.
-//
-// La migracion idempotente compara hashes SHA-256 (ver migrate.js): si el prompt
-// en BD coincide con V1, V2 o V3_SIN_REGLAS, se actualiza automaticamente al
-// PROMPT_DEFAULT vigente. Si no coincide con ninguna version conocida, se loguea
-// WARN y el admin debe resetear desde la UI de configuracion.
-const PROMPT_DEFAULT = PROMPT_DEFAULT_V3_SIN_REGLAS.replace(
+// PROMPT_DEFAULT_V3_RULES_BASIC — V3 + reglas de identificacion fiscal pero SIN
+// afinar la deteccion de irpfClave. Vigente entre 2026-05-04 y 2026-05-XX. Conservado
+// como literal para que la migracion idempotente lo detecte y migre al V3.1 vigente.
+const PROMPT_DEFAULT_V3_RULES_BASIC = PROMPT_DEFAULT_V3_SIN_REGLAS.replace(
   '\nSi no encuentras un campo de texto, devuelve null. Nunca inventes datos.\n',
   `\n${REGLAS_OVERRIDE_FISCAL}\nSi no encuentras un campo de texto, devuelve null. Nunca inventes datos.\n`
 );
+
+// BLOQUE_IRPF_BASIC — bloque "DETECCIÓN DE RETENCIÓN IRPF" tal como esta en
+// PROMPT_DEFAULT_V3_SIN_REGLAS / V3_RULES_BASIC. Lo conservamos como literal
+// para sustituirlo por BLOQUE_IRPF_TUNED via .replace() al construir PROMPT_DEFAULT.
+// CRITICO: este string debe ser BYTE-A-BYTE identico al que aparece dentro del
+// V3_SIN_REGLAS. Si lo editas aqui sin actualizar tambien _SIN_REGLAS, la
+// asercion de hash al cargar el modulo lo detectara y el server no levanta.
+const BLOQUE_IRPF_BASIC = `DETECCIÓN DE RETENCIÓN IRPF:
+
+Detecta retención IRPF si encuentras texto como "Retención IRPF", "IRPF", "Retención del X%", "-15% IRPF", "I.R.P.F.", "Retención profesional", "Retención arrendamiento", "Retenciones a cuenta", o líneas con porcentajes negativos aplicados sobre la base imponible (típicamente 7%, 15%, 19%).
+
+Si detectas retención, rellena:
+- 'irpfBase': base imponible sobre la que se calcula la retención (decimal positivo). Habitualmente coincide con 'totalExcludingVat' pero puede ser distinta.
+- 'irpfPorcentaje': porcentaje aplicado (decimal positivo, p.ej. 15.00, 7.00, 19.00).
+- 'irpfCuota': importe de la retención (decimal positivo: euros descontados al proveedor).
+- 'irpfClave': código del tipo de retención según contexto:
+    1 = General profesionales (caso por defecto si es factura de un profesional sin más detalle)
+    2 = Arrendamientos dinerarios (Modelo 115, alquiler de local con pago en metálico)
+    3 = Arrendamientos en especie (Modelo 115, raro)
+    4-11 = Subtipos G.01-G.04 de actividades profesionales (sólo si el PDF los menciona explícitamente)
+  Si no puedes determinar la clave con certeza, déjala a null y la asignará el usuario o el proveedor en BD.
+
+Si NO hay rastro de IRPF en el PDF, los 5 campos IRPF (incluido 'irpfDeducidoEnTotal') deben ir a null. NO inventes una retención.
+
+Coherencia: si 'irpfBase' e 'irpfPorcentaje' están informados, 'irpfCuota' debería cumplir 'irpfCuota ≈ irpfBase * irpfPorcentaje / 100' (margen 0.05€). Si los 3 vienen del PDF y no cumplen la igualdad, prioriza el valor literal de 'irpfCuota' del PDF.`;
+
+// BLOQUE_IRPF_TUNED — version V3.1 con clasificacion de irpfClave por reglas
+// ordenadas. Sustituye al BASIC mediante .replace() al construir PROMPT_DEFAULT.
+// Anyade el campo de salida 'irpfClaveInferida' para trazabilidad del nivel de
+// confianza (la app del commit 4 IRPF lo usara para alertas en UI).
+const BLOQUE_IRPF_TUNED = `DETECCIÓN DE RETENCIÓN IRPF:
+
+Detecta retención IRPF si encuentras texto como "Retención IRPF", "IRPF", "Retención del X%", "-15% IRPF", "I.R.P.F.", "Retención profesional", "Retención arrendamiento", "Retenciones a cuenta", o líneas con porcentajes negativos aplicados sobre la base imponible (típicamente 7%, 15%, 19%).
+
+Si detectas retención, rellena:
+- 'irpfBase': base imponible sobre la que se calcula la retención (decimal positivo). Habitualmente coincide con 'totalExcludingVat' pero puede ser distinta.
+- 'irpfPorcentaje': porcentaje aplicado (decimal positivo, p.ej. 15.00, 7.00, 19.00).
+- 'irpfCuota': importe de la retención (decimal positivo: euros descontados al proveedor).
+
+INFERENCIA DE 'irpfClave' Y 'irpfClaveInferida':
+
+Cuando 'irpfCuota' está informado, deduce 'irpfClave' (entero 1-11) y rellena 'irpfClaveInferida' (string descriptivo del origen de la decisión, útil para que la app indique nivel de confianza). Aplica las reglas EN ORDEN, parando en la primera que coincida:
+
+1. TEXTO EXPLÍCITO: el PDF menciona literalmente "G.01", "G.02", "G.03", "G.04", "Mod. 115", "Modelo 115", "actividad profesional" o "actividad empresarial". → 'irpfClaveInferida': "explicit_text".
+   Mapeo:
+   - "Mod. 115" / "Modelo 115" / "actividad arrendamiento" → 'irpfClave': 2 (dinerario, defecto) o 3 si el PDF dice "en especie".
+   - "G.01" → 4 (dinerario) o 5 ("en especie").
+   - "G.02" → 6 (dinerario) o 7 ("en especie").
+   - "G.03" → 8 (dinerario) o 9 ("en especie").
+   - "G.04" → 10 (dinerario) o 11 ("en especie").
+   - "actividad profesional" sin más → 1.
+
+2. PORCENTAJE 19%: si 'irpfPorcentaje' es 19 (margen 0.5: entre 18.5 y 19.5) → 'irpfClave': 2, 'irpfClaveInferida': "porcentaje_19" (típico arrendamientos de local/oficina, Mod. 115 dinerario).
+
+3. CONCEPTO ARRENDAMIENTO: si el cuerpo de la factura, líneas o concepto mencionan "alquiler", "arrendamiento", "renta mensual", "local", "oficina", "nave", "garaje" como objeto principal del servicio → 'irpfClave': 2, 'irpfClaveInferida': "concept_keyword".
+
+4. NIF PERSONA FÍSICA: si el 'issuerCif' tiene formato de NIF de persona física española:
+   - 8 dígitos seguidos de letra (p.ej. "77579399P", "12345678X").
+   - O NIE: empieza por X/Y/Z + 7 dígitos + letra (p.ej. "Y1234567A").
+   Entonces 'irpfClave': 1, 'irpfClaveInferida': "issuer_nif_pattern". Caso típico de autónomo facturando servicios profesionales.
+
+5. PORCENTAJE 15% O 7%: si 'irpfPorcentaje' es 15 o 7 (margen 0.5) → 'irpfClave': 1, 'irpfClaveInferida': "porcentaje_15_or_7" (15 = profesionales general; 7 = profesionales recién dados de alta los 2 primeros años).
+
+6. CONCEPTO PROFESIONAL: si el concepto/líneas mencionan "honorarios", "consultoría", "asesoría", "abogados", "asesor", "auditoría", "marketing", "diseño gráfico", "redacción", "traducción", "formación", "docencia", "psicólogo", "médico", "arquitecto", "ingeniería" o servicios profesionales similares → 'irpfClave': 1, 'irpfClaveInferida': "concept_keyword".
+
+7. FALLBACK: si llegaste aquí (hay IRPF detectado pero ninguna señal anterior coincide) → 'irpfClave': 1, 'irpfClaveInferida': "fallback_default". Asignación de baja confianza; la app puede pedir al usuario que revise.
+
+NUNCA mezcles señales: la primera regla que coincida gana. NO inventes claves G.01-G.04 sin texto literal — si dudas, usa clave 1.
+
+Valores válidos de 'irpfClaveInferida': "explicit_text", "porcentaje_19", "porcentaje_15_or_7", "issuer_nif_pattern", "concept_keyword", "fallback_default", null. Cualquier otro valor será descartado por la app.
+
+Si NO hay rastro de IRPF en el PDF, los 6 campos IRPF (incluido 'irpfDeducidoEnTotal' e 'irpfClaveInferida') deben ir a null. NO inventes una retención.
+
+Coherencia: si 'irpfBase' e 'irpfPorcentaje' están informados, 'irpfCuota' debería cumplir 'irpfCuota ≈ irpfBase * irpfPorcentaje / 100' (margen 0.05€). Si los 3 vienen del PDF y no cumplen la igualdad, prioriza el valor literal de 'irpfCuota' del PDF.`;
+
+// PROMPT_DEFAULT — V3.1: V3 + reglas + IRPF afinada (vigente). Se construye sobre
+// V3_RULES_BASIC mediante dos .replace() encadenados: (1) sustituye el bloque
+// IRPF entero por la version TUNED, (2) anyade "irpfClaveInferida": null al
+// esquema JSON tras "irpfClave".
+//
+// Aserciones al cargar el modulo (defensa contra drift silencioso de los .replace):
+//  - El prompt resultante debe contener fragmentos caracteristicos del bloque TUNED.
+//  - Su SHA-256 debe coincidir con un hash hardcodeado calculado al construir esta
+//    version. Si alguien edita BLOQUE_IRPF_BASIC, V3_SIN_REGLAS o cualquier otra
+//    constante sin actualizar PROMPT_DEFAULT_HASH_ESPERADO, el server no levanta.
+//
+// Para regenerar el hash tras una modificacion intencional: comentar la asercion
+// temporalmente, arrancar el server y leer el hash que imprime al log de error,
+// luego fijarlo aqui y descomentar.
+const PROMPT_DEFAULT = PROMPT_DEFAULT_V3_RULES_BASIC
+  .replace(BLOQUE_IRPF_BASIC, BLOQUE_IRPF_TUNED)
+  .replace('"irpfClave": null,', '"irpfClave": null,\n  "irpfClaveInferida": null,');
+
+// SHA-256 calculado tras construir V3.1 el 2026-05-04. Si modificas BLOQUE_IRPF_BASIC,
+// BLOQUE_IRPF_TUNED, REGLAS_OVERRIDE_FISCAL, V3_SIN_REGLAS, o cualquier helper que
+// influya en la construccion, recalcula este hash o el server no levantara.
+// Para regenerarlo: corre `node -e "console.log(require('./src/services/extractorService').PROMPT_DEFAULT)" | shasum -a 256` o similar.
+const PROMPT_DEFAULT_HASH_ESPERADO = '2f849778ed7c5ab9b8660a822cbade0898665dfaed05c31df0f2873d21e2fb08';
+
+(function asertarPrompt() {
+  if (PROMPT_DEFAULT === PROMPT_DEFAULT_V3_RULES_BASIC) {
+    throw new Error('PROMPT_DEFAULT no se modifico respecto a V3_RULES_BASIC. Algun .replace() fallo silenciosamente — revisa BLOQUE_IRPF_BASIC.');
+  }
+  if (!PROMPT_DEFAULT.includes('irpfClaveInferida')
+   || !PROMPT_DEFAULT.includes('NIF PERSONA FÍSICA')
+   || !PROMPT_DEFAULT.includes('issuer_nif_pattern')) {
+    throw new Error('PROMPT_DEFAULT no contiene fragmentos caracteristicos del bloque TUNED. Construccion incompleta.');
+  }
+  const crypto = require('crypto');
+  const hashActual = crypto.createHash('sha256').update(PROMPT_DEFAULT).digest('hex');
+  if (PROMPT_DEFAULT_HASH_ESPERADO !== '__PENDIENTE__' && hashActual !== PROMPT_DEFAULT_HASH_ESPERADO) {
+    throw new Error(
+      `PROMPT_DEFAULT hash drift: esperado ${PROMPT_DEFAULT_HASH_ESPERADO}, actual ${hashActual}. ` +
+      `Algun .replace() fallo silenciosamente o se edito una constante sin actualizar PROMPT_DEFAULT_HASH_ESPERADO.`
+    );
+  }
+})();
 
 // ─── Prompt: lectura y escritura en BD ───────────────────────────────────────
 
@@ -448,13 +558,26 @@ function mapearRespuestaGemini(raw) {
 
   // Campos IRPF (prompt V3): irpf_base e irpf_cuota se persisten como columnas
   // separadas en drive_archivos. Los campos informativos extraidos de Gemini
-  // (porcentaje, clave, deducido_en_total) viajan en el JSONB datos_extraidos
-  // para que la UI muestre alertas si el porcentaje detectado por Gemini no
-  // coincide con el que tiene configurado el proveedor (commit 4 — alertas).
+  // (porcentaje, clave, deducido_en_total, clave_inferida_origen) viajan en el
+  // JSONB datos_extraidos para que la UI muestre alertas si el porcentaje
+  // detectado por Gemini no coincide con el que tiene configurado el proveedor
+  // (commit 4 — alertas) y para indicar el nivel de confianza de la clave inferida.
   // null = "Gemini no detecto IRPF / version pre-V3 sin el campo".
   const irpfDed = raw.irpfDeducidoEnTotal === true  ? true
                 : raw.irpfDeducidoEnTotal === false ? false
                 : null;
+
+  // irpfClaveInferida (V3.1): origen de la decision de irpfClave. Solo aceptamos
+  // los 6 valores del set conocido; cualquier otro string lo descartamos a null
+  // para no propagar valores inventados al JSONB.
+  const ORIGENES_IRPF_CLAVE = new Set([
+    'explicit_text', 'porcentaje_19', 'porcentaje_15_or_7',
+    'issuer_nif_pattern', 'concept_keyword', 'fallback_default',
+  ]);
+  const irpfClaveInfRaw = raw.irpfClaveInferida;
+  const irpfClaveInfOrigen = (typeof irpfClaveInfRaw === 'string' && ORIGENES_IRPF_CLAVE.has(irpfClaveInfRaw))
+    ? irpfClaveInfRaw
+    : null;
 
   return {
     numero_factura:    raw.invoiceNumber   ?? null,
@@ -474,11 +597,12 @@ function mapearRespuestaGemini(raw) {
     rect_numero:       raw.rectifiedNumber ?? null,
     rect_fecha:        parseFechaFlexible(raw.rectifiedDate),
     rect_base_imp:     rectBaseRaw != null ? Number(rectBaseRaw) : null,
-    // IRPF: los 2 primeros van a columnas; los 3 siguientes al JSONB (alertas UI).
+    // IRPF: los 2 primeros van a columnas; los 4 siguientes al JSONB (alertas UI).
     irpf_base:                    raw.irpfBase  != null ? Number(raw.irpfBase)  : null,
     irpf_cuota:                   raw.irpfCuota != null ? Number(raw.irpfCuota) : null,
     irpf_porcentaje_extraido:     raw.irpfPorcentaje != null ? Number(raw.irpfPorcentaje) : null,
     irpf_clave_extraida:          Number.isInteger(raw.irpfClave) ? raw.irpfClave : null,
+    irpf_clave_inferida_origen:   irpfClaveInfOrigen,
     irpf_deducido_en_total:       irpfDed,
   };
 }
@@ -871,7 +995,9 @@ async function ejecutarExtraccion(ids, onProgress = () => {}) {
 
 module.exports = {
   getPrompt, savePrompt, ensurePromptSeeded, resetPromptToDefault,
-  PROMPT_DEFAULT, PROMPT_DEFAULT_V1, PROMPT_DEFAULT_V2, PROMPT_DEFAULT_V3_SIN_REGLAS,
+  PROMPT_DEFAULT,
+  PROMPT_DEFAULT_V1, PROMPT_DEFAULT_V2,
+  PROMPT_DEFAULT_V3_SIN_REGLAS, PROMPT_DEFAULT_V3_RULES_BASIC,
   procesarArchivo, ejecutarExtraccion,
   buildGeminiModel, normalizarTotales, validarDatos, guardarResultado,
 };

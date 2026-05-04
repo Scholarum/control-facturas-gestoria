@@ -6,6 +6,7 @@ const {
   PROMPT_DEFAULT_V1,
   PROMPT_DEFAULT_V2,
   PROMPT_DEFAULT_V3_SIN_REGLAS,
+  PROMPT_DEFAULT_V3_RULES_BASIC,
 } = require('../services/extractorService');
 
 // ─── Schema ───────────────────────────────────────────────────────────────────
@@ -743,9 +744,10 @@ async function runMigrations() {
   const sha = (s) => crypto.createHash('sha256').update(s).digest('hex');
   const HASH_VIGENTE = sha(PROMPT_DEFAULT);
   const HASHES_OBSOLETOS = new Map([
-    [sha(PROMPT_DEFAULT_V1),            'V1'],
-    [sha(PROMPT_DEFAULT_V2),            'V2'],
-    [sha(PROMPT_DEFAULT_V3_SIN_REGLAS), 'V3 sin reglas'],
+    [sha(PROMPT_DEFAULT_V1),             'V1'],
+    [sha(PROMPT_DEFAULT_V2),             'V2'],
+    [sha(PROMPT_DEFAULT_V3_SIN_REGLAS),  'V3 sin reglas'],
+    [sha(PROMPT_DEFAULT_V3_RULES_BASIC), 'V3 + reglas (basic, sin afinar IRPF)'],
   ]);
 
   const promptRow = await db.one("SELECT valor FROM configuracion WHERE clave = 'prompt_gemini'");
