@@ -2,6 +2,14 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import TablaFacturas, { tieneIncidencia, tieneIncidenciaProveedor } from './TablaFacturas.jsx';
 import { fetchFacturas, fetchFacturaIds, descargarZip, contabilizar, revertirEstado, eliminarFactura, asignarCGMasivo, exportarLoteA3, exportarSage, sagePreview } from '../api.js';
 
+// Devuelve hoy en formato 'YYYY-MM-DD' usando getters locales (NO toISOString,
+// que devuelve UTC y en madrugadas con offset CEST puede dar el dia anterior).
+// Usado como default del input <type="date"> del modal SAGE.
+function getHoyIso() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
 // ─── Filtros compactos por sección ────────────────────────────────────────────
 
 const inputCls = 'rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm text-gray-800 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500';
@@ -263,6 +271,9 @@ export default function SeccionFacturas({
   const [sagePreviewData,    setSagePreviewData]    = useState(null);
   const [sageAsientoInicio,  setSageAsientoInicio]  = useState('');
   const [sageDocumentoInicio, setSageDocumentoInicio] = useState('');
+  // Fecha override del asiento (pos 2/47/127). Init con hoy en local time
+  // para evitar que el boton "Generar fichero" arranque disabled por valor vacio.
+  const [sageFechaExportacion, setSageFechaExportacion] = useState(getHoyIso());
   const [sageError,          setSageError]          = useState('');
   const [modalA3Open,        setModalA3Open]        = useState(false);
   const [ccMasiva,           setCcMasiva]           = useState('');
@@ -383,6 +394,7 @@ export default function SeccionFacturas({
       setSagePreviewData(data);
       setSageAsientoInicio(String(data.siguiente_asiento || 1));
       setSageDocumentoInicio(String(data.siguiente_documento || 1));
+      setSageFechaExportacion(getHoyIso());
       setModalSageOpen(true);
     } catch (e) { setError(e.message); }
   }
@@ -401,12 +413,20 @@ export default function SeccionFacturas({
       setSageError('El número de documento de inicio debe ser un entero positivo');
       return;
     }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(sageFechaExportacion)) {
+      setSageError('La fecha de exportación es obligatoria y debe tener formato YYYY-MM-DD');
+      return;
+    }
     const ids = Array.from(seleccionados);
     setExportandoSage(true); setError(''); setModalSageOpen(false);
     try {
       const result = await exportarSage(
         ids,
-        { asientoInicio: parseInt(sageAsientoInicio, 10), documentoInicio: parseInt(sageDocumentoInicio, 10) },
+        {
+          asientoInicio:    parseInt(sageAsientoInicio, 10),
+          documentoInicio:  parseInt(sageDocumentoInicio, 10),
+          fechaExportacion: sageFechaExportacion,
+        },
         marcarContabilizada
       );
       if (result.contabilizada) {
@@ -640,6 +660,22 @@ export default function SeccionFacturas({
                 </p>
               </div>
 
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1">
+                  Fecha de exportación
+                </label>
+                <input
+                  type="date"
+                  value={sageFechaExportacion}
+                  onChange={e => { setSageFechaExportacion(e.target.value); setSageError(''); }}
+                  className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-orange-400"
+                />
+                <p className="text-[10px] text-gray-400 mt-1">
+                  Fecha que se usará para el asiento (pos 2), expedición (pos 47) y registro SII (pos 127).
+                  Por defecto: hoy. La fecha de operación (pos 46) sigue siendo la fecha del PDF.
+                </p>
+              </div>
+
               {(sagePreviewData.ya_exportadas > 0 || sagePreviewData.sin_cuentas > 0) && (
                 <div className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-800">
                   {sagePreviewData.ya_exportadas > 0 && <div>⚠ {sagePreviewData.ya_exportadas} factura(s) ya exportadas previamente</div>}
@@ -661,12 +697,12 @@ export default function SeccionFacturas({
               </button>
               <div className="flex gap-2">
                 <button onClick={() => handleExportarSage(false)}
-                  disabled={!validarEnteroPositivo(sageAsientoInicio) || !validarEnteroPositivo(sageDocumentoInicio)}
+                  disabled={!validarEnteroPositivo(sageAsientoInicio) || !validarEnteroPositivo(sageDocumentoInicio) || !/^\d{4}-\d{2}-\d{2}$/.test(sageFechaExportacion)}
                   className="px-4 py-2 text-sm font-semibold text-orange-700 bg-orange-50 hover:bg-orange-100 border border-orange-200 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
                   Generar fichero
                 </button>
                 <button onClick={() => handleExportarSage(true)}
-                  disabled={!validarEnteroPositivo(sageAsientoInicio) || !validarEnteroPositivo(sageDocumentoInicio)}
+                  disabled={!validarEnteroPositivo(sageAsientoInicio) || !validarEnteroPositivo(sageDocumentoInicio) || !/^\d{4}-\d{2}-\d{2}$/.test(sageFechaExportacion)}
                   className="px-4 py-2 text-sm font-semibold text-white bg-orange-500 hover:bg-orange-600 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
                   Generar y contabilizar
                 </button>

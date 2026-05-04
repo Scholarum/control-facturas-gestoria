@@ -905,11 +905,17 @@ export async function sagePreview(ids) {
   return json.data;
 }
 
-export async function exportarSage(ids, { asientoInicio, documentoInicio }, contabilizar = false) {
+export async function exportarSage(ids, { asientoInicio, documentoInicio, fechaExportacion }, contabilizar = false) {
   const res = await fetch(`${API_BASE}/api/drive/exportar-sage`, {
     method:  'POST',
     headers: authHeaders({ 'Content-Type': 'application/json' }),
-    body:    JSON.stringify({ ids, asiento_inicio: asientoInicio, documento_inicio: documentoInicio, contabilizar }),
+    body:    JSON.stringify({
+      ids,
+      asiento_inicio:    asientoInicio,
+      documento_inicio:  documentoInicio,
+      fecha_exportacion: fechaExportacion || null,
+      contabilizar,
+    }),
   });
   const json = await res.json();
   if (!json.ok) throw new Error(json.error || 'Error al exportar a SAGE');

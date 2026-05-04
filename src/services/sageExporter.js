@@ -454,8 +454,12 @@ function construirDocumento(importe, contador) {
  * Genera ficheros SAGE con numeración correlativa global.
  * @param {Array} facturas — facturas a exportar, procesadas en el orden recibido
  * @param {Object} opts
- *   @param {number} opts.asientoInicio   — número de asiento inicial (1 por factura, correlativo global)
- *   @param {number} opts.documentoInicio — número de documento inicial (F/NNNN o A/NNNN según signo)
+ *   @param {number} opts.asientoInicio    — número de asiento inicial (1 por factura, correlativo global)
+ *   @param {number} opts.documentoInicio  — número de documento inicial (F/NNNN o A/NNNN según signo)
+ *   @param {string} [opts.fechaExportacion] — fecha override del asiento en formato 'YYYY-MM-DD'.
+ *     Si está informada y es valida, se usa para pos 2 (Fecha), pos 47 (Fecha_EX) y pos 127 (Decrecen).
+ *     Si no está informada o es invalida, fallback a la fecha de hoy (comportamiento historico).
+ *     Validacion de rango la hace gestion.js antes de llamar; aqui solo parseamos formato.
  * @returns {{ contenidoTXT, contenidoCSV, asientoInicio, asientoFin, documentoInicio, documentoFin }}
  */
 function generarFicheroSage(facturas, opts = {}) {
@@ -466,12 +470,21 @@ function generarFicheroSage(facturas, opts = {}) {
   let numAsiento  = asientoInicio;
   let numDoc      = documentoInicio;
 
-  // Fecha del asiento (hoy, AAAAMMDD). Se usa en pos 2 (Fecha), pos 47 (Fecha_EX)
-  // y pos 127 (Decrecen) — todas representan "día de contabilización".
-  const hoy = new Date();
-  const fechaAsientoYmd = String(hoy.getFullYear())
-    + String(hoy.getMonth() + 1).padStart(2, '0')
-    + String(hoy.getDate()).padStart(2, '0');
+  // Fecha del asiento (AAAAMMDD). Se usa en pos 2 (Fecha), pos 47 (Fecha_EX) y
+  // pos 127 (Decrecen) — todas representan "dia de contabilizacion". Si llega
+  // opts.fechaExportacion como ISO 'YYYY-MM-DD' valido, se usa; si no, hoy.
+  // Sin paso por Date intermedio para evitar drift de timezone (la fecha viene del
+  // <input type="date"> del modal SAGE, ya en formato local del usuario).
+  let fechaAsientoYmd = null;
+  if (opts.fechaExportacion && /^\d{4}-\d{2}-\d{2}$/.test(opts.fechaExportacion)) {
+    fechaAsientoYmd = opts.fechaExportacion.replace(/-/g, '');
+  }
+  if (!fechaAsientoYmd) {
+    const hoy = new Date();
+    fechaAsientoYmd = String(hoy.getFullYear())
+      + String(hoy.getMonth() + 1).padStart(2, '0')
+      + String(hoy.getDate()).padStart(2, '0');
+  }
 
   for (const factura of facturas) {
     const d = factura.datos_extraidos || {};
