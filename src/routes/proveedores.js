@@ -389,6 +389,10 @@ router.get('/excel', async (req, res) => {
     'Tipo No Sujeta SII':          r.sii_tipo_no_suje ?? 1,
     'Tipo Rectificativa SII':      r.sii_tipo_rectif  ?? 2,
     'Entrega/Prestacion SII':      r.sii_entr_prest   ?? 1,
+    'Aplica IRPF':                 r.aplica_irpf ? 'TRUE' : 'FALSE',
+    '% IRPF':                      r.irpf_porcentaje ?? '',
+    'Clave IRPF':                  r.irpf_clave      ?? '',
+    'Subcuenta IRPF':              r.irpf_subcuenta  ?? '',
   }));
 
   const ws = XLSX.utils.json_to_sheet(filas);
@@ -399,6 +403,7 @@ router.get('/excel', async (req, res) => {
     { wch: 30 }, { wch: 25 }, { wch: 14 },
     { wch: 22 }, { wch: 40 }, { wch: 22 }, { wch: 40 },
     { wch: 10 }, { wch: 16 }, { wch: 18 }, { wch: 18 }, { wch: 22 }, { wch: 22 },
+    { wch: 12 }, { wch: 8 }, { wch: 10 }, { wch: 16 },  // IRPF: aplica, %, clave, subcuenta
   ];
 
   const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
@@ -417,13 +422,14 @@ router.get('/excel', async (req, res) => {
 // GET /plantilla-importacion - descargar plantilla Excel de ejemplo
 router.get('/plantilla-importacion', async (req, res) => {
   const filas = [
-    { 'ID (no modificar)': '', 'Razon Social': 'EMPRESA EJEMPLO SL', 'CIF': 'B12345678', 'Cuenta Contable': '40000001', 'Nombre Carpeta': '', 'Cuenta Gasto': '', 'Clave SII': 1, 'Tipo Factura SII': 1, 'Tipo Exencion SII': 1, 'Tipo No Sujeta SII': 2, 'Tipo Rectificativa SII': 2, 'Entrega/Prestacion SII': 3 },
-    { 'ID (no modificar)': '', 'Razon Social': 'SERVICIOS DEMO SA',  'CIF': 'A87654321', 'Cuenta Contable': '40000002', 'Nombre Carpeta': 'SERVICIOS DEMO', 'Cuenta Gasto': '62300001', 'Clave SII': 1, 'Tipo Factura SII': 1, 'Tipo Exencion SII': 1, 'Tipo No Sujeta SII': 2, 'Tipo Rectificativa SII': 2, 'Entrega/Prestacion SII': 3 },
+    { 'ID (no modificar)': '', 'Razon Social': 'EMPRESA EJEMPLO SL', 'CIF': 'B12345678', 'Cuenta Contable': '40000001', 'Nombre Carpeta': '', 'Cuenta Gasto': '', 'Clave SII': 1, 'Tipo Factura SII': 1, 'Tipo Exencion SII': 1, 'Tipo No Sujeta SII': 2, 'Tipo Rectificativa SII': 2, 'Entrega/Prestacion SII': 3, 'Aplica IRPF': 'FALSE', '% IRPF': '', 'Clave IRPF': '', 'Subcuenta IRPF': '' },
+    { 'ID (no modificar)': '', 'Razon Social': 'AUTONOMO PROFESIONAL EJEMPLO', 'CIF': '12345678X', 'Cuenta Contable': '40000003', 'Nombre Carpeta': 'AUTONOMO EJEMPLO', 'Cuenta Gasto': '62300003', 'Clave SII': 1, 'Tipo Factura SII': 1, 'Tipo Exencion SII': 1, 'Tipo No Sujeta SII': 2, 'Tipo Rectificativa SII': 2, 'Entrega/Prestacion SII': 3, 'Aplica IRPF': 'TRUE', '% IRPF': 15, 'Clave IRPF': 1, 'Subcuenta IRPF': '47510001' },
+    { 'ID (no modificar)': '', 'Razon Social': 'SERVICIOS DEMO SA',  'CIF': 'A87654321', 'Cuenta Contable': '40000002', 'Nombre Carpeta': 'SERVICIOS DEMO', 'Cuenta Gasto': '62300001', 'Clave SII': 1, 'Tipo Factura SII': 1, 'Tipo Exencion SII': 1, 'Tipo No Sujeta SII': 2, 'Tipo Rectificativa SII': 2, 'Entrega/Prestacion SII': 3, 'Aplica IRPF': 'FALSE', '% IRPF': '', 'Clave IRPF': '', 'Subcuenta IRPF': '' },
   ];
   const ws = XLSX.utils.json_to_sheet(filas);
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Proveedores');
-  ws['!cols'] = [{ wch: 10 }, { wch: 30 }, { wch: 14 }, { wch: 18 }, { wch: 25 }, { wch: 18 }, { wch: 10 }, { wch: 16 }, { wch: 18 }, { wch: 18 }, { wch: 22 }, { wch: 22 }];
+  ws['!cols'] = [{ wch: 10 }, { wch: 30 }, { wch: 14 }, { wch: 18 }, { wch: 25 }, { wch: 18 }, { wch: 10 }, { wch: 16 }, { wch: 18 }, { wch: 18 }, { wch: 22 }, { wch: 22 }, { wch: 12 }, { wch: 8 }, { wch: 10 }, { wch: 16 }];
   const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
   res.set({
     'Content-Type':        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -479,6 +485,33 @@ router.post('/importar', requireAdmin, upload.single('archivo'), async (req, res
       const v = parseSiiEntero(raw);
       if (Number.isNaN(v)) { siiError = `${col} invalido: ${raw}`; break; }
       sii[col] = v;
+    }
+
+    // Lectura IRPF: solo se procesa la fila si "Aplica IRPF" viene en el Excel.
+    // Si la columna no esta presente, no se toca ningun campo IRPF (igual que el
+    // patron de edicion parcial via PUT). Si esta presente, se construye un body
+    // y se pasa a parseCamposIrpfBody para aprovechar la misma validacion del PUT.
+    const IRPF_HEADERS = {
+      aplica_irpf:     ['Aplica IRPF'],
+      irpf_porcentaje: ['% IRPF', '%IRPF'],
+      irpf_clave:      ['Clave IRPF'],
+      irpf_subcuenta:  ['Subcuenta IRPF'],
+    };
+    let valAplica;
+    for (const h of IRPF_HEADERS.aplica_irpf) if (h in fila) { valAplica = fila[h]; break; }
+    let irpfValues; // Si null = la columna no vino, no se toca IRPF; si {} = se aplica.
+    if (valAplica !== undefined && valAplica !== '') {
+      const irpfBody = { aplica_irpf: parseBooleano(valAplica) };
+      if (irpfBody.aplica_irpf === true) {
+        for (const col of ['irpf_porcentaje', 'irpf_clave', 'irpf_subcuenta']) {
+          let raw;
+          for (const h of IRPF_HEADERS[col]) if (h in fila) { raw = fila[h]; break; }
+          if (raw !== undefined && raw !== '') irpfBody[col] = raw;
+        }
+      }
+      const { values, error } = await parseCamposIrpfBody(irpfBody, db);
+      if (error) { errores.push({ fila: i + 2, error: `IRPF: ${error}` }); continue; }
+      irpfValues = values;
     }
 
     if (Number.isNaN(idNum)) { errores.push({ fila: i + 2, error: `ID invalido: ${idRaw}` }); continue; }
@@ -543,11 +576,22 @@ router.post('/importar', requireAdmin, upload.single('archivo'), async (req, res
     if (existing) {
       // UPDATE dinamico con COALESCE en SII: si la celda viene vacia (sii[c] === undefined),
       // se pasa NULL y COALESCE mantiene el valor actual en BD.
+      // IRPF: si irpfValues === undefined (columna ausente), no se tocan los 4 campos.
+      // Si parseCamposIrpfBody devolvio aplica_irpf=false, sus 3 restantes son NULL
+      // (limpieza intencional, sin COALESCE — sobrescribe valores antiguos).
       const sets = ['razon_social=$1', 'nombre_carpeta=COALESCE($2, nombre_carpeta)', 'cif=$3'];
       const params = [razon_social, nombre_carpeta, cif];
       for (const c of CAMPOS_SII_PROVEEDOR) {
         sets.push(`${c}=COALESCE($${params.length + 1}, ${c})`);
         params.push(sii[c] ?? null);
+      }
+      if (irpfValues) {
+        for (const c of CAMPOS_IRPF_PROVEEDOR) {
+          if (c in irpfValues) {
+            sets.push(`${c}=$${params.length + 1}`);
+            params.push(irpfValues[c]);
+          }
+        }
       }
       sets.push('activo=true', 'updated_at=NOW()');
       params.push(existing.id);
@@ -560,6 +604,11 @@ router.post('/importar', requireAdmin, upload.single('archivo'), async (req, res
       const vals = [razon_social, nombre_carpeta, cif];
       for (const c of CAMPOS_SII_PROVEEDOR) {
         if (sii[c] !== undefined) { cols.push(c); vals.push(sii[c]); }
+      }
+      if (irpfValues) {
+        for (const c of CAMPOS_IRPF_PROVEEDOR) {
+          if (c in irpfValues) { cols.push(c); vals.push(irpfValues[c]); }
+        }
       }
       const placeholders = vals.map((_, k) => `$${k + 1}`).join(', ');
       const newRow = await db.one(

@@ -104,6 +104,8 @@ throw Object.assign(new Error('No autorizado'), { status: 403 });
 
 **UPDATE dinámico para edición parcial:** los endpoints PUT que acepten ediciones parciales (p.ej. un campo inline aislado) deben construir el `SET` sólo con las columnas presentes en `req.body`, usando `'campo' in req.body` como detector uniforme. Nunca poner todas las columnas fijas con `$n` directo sin COALESCE: pisa con NULL los campos que el cliente no envió (ver patrón en `router.put('/:id')` de `src/routes/proveedores.js`).
 
+**Concurrencia en edición inline IRPF (proveedores):** los 4 campos IRPF (`aplica_irpf`, `irpf_porcentaje`, `irpf_clave`, `irpf_subcuenta`) son interdependientes: el backend (`parseCamposIrpfBody`) sólo los procesa si `aplica_irpf` viene en el body, y exige los 3 restantes informados cuando `aplica_irpf=true`. Por eso, al editar inline una sola celda IRPF desde la tabla de proveedores, el frontend (`FilaProveedorEditable.guardarCampoIrpf`) **envía siempre el set completo** con los 4 valores actuales del proveedor + el override del campo modificado. Riesgo: si dos pestañas editan el mismo proveedor a la vez, la última en guardar pisa los cambios IRPF de la otra (mismo riesgo que en cualquier last-write-wins, no es específico de IRPF). No es bloqueante; si el patrón de uso lo requiriese, añadir versionado optimista (`updated_at` como `If-Match`) — fuera del alcance del commit IRPF.
+
 **Database helpers (config/database.js):**
 - `db.query(sql, params)` — query genérica
 - `db.one(sql, params)` — una fila o null

@@ -84,6 +84,34 @@ export const SII_ENTR_PREST = {
   ],
 };
 
+// IRPF_CLAVES — valores validos del marcador *7 (pos 87 nClaveIRPF en SAGE R75).
+// Estructura identica a las constantes SII_*: {nombre, marcador, valores} para
+// poder reutilizar el helper tooltipSii directamente.
+export const IRPF_CLAVES = {
+  nombre: 'Clave IRPF',
+  marcador: '*7',
+  valores: [
+    { value: 1,  label: 'General profesionales',                   esDefault: true },
+    { value: 2,  label: 'Arrendamientos dinerarios (Mod. 115)' },
+    { value: 3,  label: 'Arrendamientos en especie (Mod. 115)' },
+    { value: 4,  label: 'G.01 Profesionales (dinerarios)' },
+    { value: 5,  label: 'G.01 Profesionales (especie)' },
+    { value: 6,  label: 'G.02 Profesionales (dinerarios)' },
+    { value: 7,  label: 'G.02 Profesionales (especie)' },
+    { value: 8,  label: 'G.03 Profesionales (dinerarios)' },
+    { value: 9,  label: 'G.03 Profesionales (especie)' },
+    { value: 10, label: 'G.04 Profesionales (dinerarios)' },
+    { value: 11, label: 'G.04 Profesionales (especie)' },
+  ],
+};
+
+// Tooltip de porcentajes IRPF tipicos (no usa tooltipSii porque no es dominio cerrado).
+export const TOOLTIP_IRPF_PORCENTAJE =
+  'Porcentaje IRPF típico:\n' +
+  '15 = profesionales general\n' +
+  '7  = profesionales en alta los 2 primeros años\n' +
+  '19 = arrendamientos de inmuebles (Mod. 115)';
+
 // Genera un tooltip multilinea para title="" nativo HTML. Los \n son
 // respetados por los navegadores modernos en el atributo title.
 // Para SII_TIPO_FACT intercala una linea divisoria entre los F* y los R*.

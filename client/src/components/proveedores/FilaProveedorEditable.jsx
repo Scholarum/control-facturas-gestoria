@@ -49,6 +49,136 @@ function CeldaNumeroSii({ valor, onGuardar, soloLectura, className = '' }) {
   );
 }
 
+// ─── Celda IRPF % editable inline (decimal 0-100, deshabilitada si no aplica) ──
+
+function CeldaNumeroIrpfPorcentaje({ valor, habilitada, onGuardar, className = '' }) {
+  const [val, setVal] = useState(valor == null ? '' : String(valor));
+  const [status, setStatus] = useState('idle');
+  const [errorMsg, setErrorMsg] = useState('');
+  useEffect(() => { setVal(valor == null ? '' : String(valor)); }, [valor]);
+
+  async function guardar() {
+    const raw = val.trim();
+    if (raw === '') { setVal(valor == null ? '' : String(valor)); return; }
+    const n = Number(raw);
+    if (!Number.isFinite(n) || n < 0 || n > 100) { setVal(valor == null ? '' : String(valor)); return; }
+    if (n === Number(valor)) return;
+    setStatus('saving'); setErrorMsg('');
+    try {
+      await onGuardar(n);
+      setStatus('ok');
+      setTimeout(() => setStatus('idle'), 500);
+    } catch (e) {
+      setStatus('error'); setErrorMsg(e.message || 'Error al guardar');
+      setVal(valor == null ? '' : String(valor));
+    }
+  }
+
+  const bg =
+    status === 'saving' ? 'bg-blue-50' :
+    status === 'ok'     ? 'bg-emerald-50' :
+    status === 'error'  ? 'bg-red-50' : '';
+
+  if (!habilitada) {
+    return (
+      <td className={`px-2 py-1 ${className}`}>
+        <span className="text-xs text-gray-300 select-none" title="Marca 'Aplica IRPF' en el modal del proveedor para activar.">—</span>
+      </td>
+    );
+  }
+
+  return (
+    <td className={`px-2 py-1 ${className}`}>
+      <input
+        type="number" min="0" max="100" step="0.01"
+        value={val}
+        onChange={e => setVal(e.target.value)}
+        onBlur={guardar}
+        onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); if (e.key === 'Escape') { setVal(valor == null ? '' : String(valor)); e.currentTarget.blur(); } }}
+        title={errorMsg || undefined}
+        className={`w-20 rounded border border-transparent px-2 py-1 text-xs text-center transition-colors
+          hover:border-gray-300 focus:border-blue-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-200
+          ${bg}`} />
+    </td>
+  );
+}
+
+// ─── Celda subcuenta IRPF editable inline (dropdown de cuentas 4751xxx) ────────
+
+function CeldaSubcuentaIrpf({ valor, habilitada, cuentas4751, onGuardar, className = '' }) {
+  const [editando, setEditando] = useState(false);
+  const [status, setStatus] = useState('idle');
+  const [errorMsg, setErrorMsg] = useState('');
+  const ref = useRef(null);
+
+  useEffect(() => {
+    if (!editando) return;
+    function onClick(e) { if (ref.current && !ref.current.contains(e.target)) setEditando(false); }
+    document.addEventListener('mousedown', onClick);
+    return () => document.removeEventListener('mousedown', onClick);
+  }, [editando]);
+
+  async function elegir(codigo) {
+    setEditando(false);
+    if (codigo === valor) return;
+    setStatus('saving'); setErrorMsg('');
+    try {
+      await onGuardar(codigo);
+      setStatus('ok');
+      setTimeout(() => setStatus('idle'), 500);
+    } catch (e) {
+      setStatus('error'); setErrorMsg(e.message || 'Error al guardar');
+    }
+  }
+
+  if (!habilitada) {
+    return (
+      <td className={`px-3 py-2 ${className}`}>
+        <span className="text-xs text-gray-300 select-none" title="Marca 'Aplica IRPF' en el modal del proveedor para activar.">—</span>
+      </td>
+    );
+  }
+
+  const bg =
+    status === 'saving' ? 'bg-blue-50' :
+    status === 'ok'     ? 'bg-emerald-50' :
+    status === 'error'  ? 'bg-red-50' : '';
+
+  if (!editando) {
+    return (
+      <td className={`px-3 py-2 cursor-pointer hover:bg-blue-50/50 ${bg} ${className}`}
+          onClick={() => setEditando(true)}
+          title={errorMsg || undefined}>
+        {valor
+          ? <span className="text-xs font-mono font-semibold text-gray-800">{valor}</span>
+          : <span className="text-xs text-amber-600">— elegir —</span>}
+      </td>
+    );
+  }
+
+  return (
+    <td className={`px-1 py-1 ${className}`}>
+      <div ref={ref}>
+        {cuentas4751.length === 0 ? (
+          <span className="text-[10px] text-amber-600 px-1">Sin subcuentas 4751xxx en plan contable</span>
+        ) : (
+          <select
+            autoFocus
+            value={valor || ''}
+            onChange={e => elegir(e.target.value)}
+            onBlur={() => setEditando(false)}
+            className="w-full rounded border border-blue-300 px-2 py-1 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-blue-400">
+            <option value="">— elegir —</option>
+            {cuentas4751.map(c => (
+              <option key={c.id} value={c.codigo}>{c.codigo} — {c.descripcion}</option>
+            ))}
+          </select>
+        )}
+      </div>
+    </td>
+  );
+}
+
 // ─── Celda de texto editable inline ─────────────────────────────────────────
 
 export function CeldaTexto({ valor, onGuardar, placeholder, mono, className = '' }) {
@@ -362,6 +492,25 @@ export default function FilaProveedorEditable({ proveedor: p, planContable, empr
     } catch (e) { setError(e.message); throw e; }
   }
 
+  // El backend (parseCamposIrpfBody en src/routes/proveedores.js) exige que
+  // 'aplica_irpf' venga en el body para tocar cualquier campo IRPF; si no
+  // viene, no se modifica ninguno. Por eso al editar inline una sola celda
+  // enviamos el set IRPF entero, manteniendo aplica_irpf y los otros 3 campos
+  // tal como estan en el proveedor + el override del campo modificado.
+  async function guardarCampoIrpf(patch) {
+    try {
+      const datos = {
+        aplica_irpf:     !!p.aplica_irpf,
+        irpf_porcentaje: p.irpf_porcentaje,
+        irpf_clave:      p.irpf_clave,
+        irpf_subcuenta:  p.irpf_subcuenta,
+        ...patch,
+      };
+      const actualizado = await editarProveedor(p.id, datos);
+      onGuardado({ id: p.id, ...actualizado });
+    } catch (e) { setError(e.message); throw e; }
+  }
+
   async function guardarCuenta(tipo, cuentaId) {
     try {
       const ccId = tipo === 'contable' ? cuentaId : (p.cuenta_contable_id || null);
@@ -378,6 +527,11 @@ export default function FilaProveedorEditable({ proveedor: p, planContable, empr
 
   const cuentas4 = planContable.filter(c => c.grupo === '4');
   const cuentasGasto = planContable.filter(c => c.grupo !== '4');
+  // Subcuentas 4751xxx para el dropdown de Cta. IRPF inline. Mismos criterios
+  // que ModalProveedor: prefijo + activas + codigo > 4 chars (sin la cuenta base).
+  const cuentas4751 = planContable.filter(c =>
+    c.codigo?.startsWith('4751') && c.codigo.length > 4 && c.activo !== false
+  );
 
   return (
     <tr className={`hover:bg-gray-50 transition-colors ${error ? 'bg-red-50' : ''}`}>
@@ -402,6 +556,17 @@ export default function FilaProveedorEditable({ proveedor: p, planContable, empr
         onGuardar={v => guardarCampo('sii_tipo_rectif', v)} soloLectura={soloLectura} />
       <CeldaNumeroSii valor={p.sii_entr_prest ?? 3}
         onGuardar={v => guardarCampo('sii_entr_prest', v)} soloLectura={soloLectura} />
+      <CeldaNumeroIrpfPorcentaje
+        valor={p.aplica_irpf ? p.irpf_porcentaje : null}
+        habilitada={!!p.aplica_irpf && !soloLectura}
+        onGuardar={v => guardarCampoIrpf({ irpf_porcentaje: v })}
+      />
+      <CeldaSubcuentaIrpf
+        valor={p.aplica_irpf ? p.irpf_subcuenta : null}
+        habilitada={!!p.aplica_irpf && !soloLectura}
+        cuentas4751={cuentas4751}
+        onGuardar={v => guardarCampoIrpf({ irpf_subcuenta: v })}
+      />
       <td className="px-2 py-2 text-center">
         {error && <span className="text-[10px] text-red-500 block mb-1">{error}</span>}
         <button onClick={onEliminar} title="Eliminar proveedor"

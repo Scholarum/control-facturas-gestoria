@@ -9,7 +9,7 @@ import BuscadorAvanzado, { FILTROS_VACIO } from '../components/proveedores/Busca
 import FilaProveedorEditable from '../components/proveedores/FilaProveedorEditable.jsx';
 import ModalProveedor from '../components/proveedores/ModalProveedor.jsx';
 import ModalImportar from '../components/proveedores/ModalImportar.jsx';
-import { SII_CLAVE, SII_TIPO_FACT, SII_TIPO_EXENCI, SII_TIPO_NO_SUJE, SII_TIPO_RECTIF, SII_ENTR_PREST, tooltipSii } from '../constants/sii.js';
+import { SII_CLAVE, SII_TIPO_FACT, SII_TIPO_EXENCI, SII_TIPO_NO_SUJE, SII_TIPO_RECTIF, SII_ENTR_PREST, IRPF_CLAVES, TOOLTIP_IRPF_PORCENTAJE, tooltipSii } from '../constants/sii.js';
 
 // Cabeceras de la tabla de proveedores. Las SII llevan tooltip nativo con los
 // valores validos (title=""), lista cargada desde client/src/constants/sii.js.
@@ -25,6 +25,8 @@ const CABECERAS_TABLA = [
   { label: 'No Suj.',        tooltip: tooltipSii(SII_TIPO_NO_SUJE) },
   { label: 'Rectif.',        tooltip: tooltipSii(SII_TIPO_RECTIF) },
   { label: 'Entr/Prest',     tooltip: tooltipSii(SII_ENTR_PREST) },
+  { label: 'IRPF %',         tooltip: TOOLTIP_IRPF_PORCENTAJE },
+  { label: 'Cta. IRPF',      tooltip: 'Subcuenta 4751xxx (HP retenciones practicadas).\nSólo aplica si el proveedor está marcado "aplica IRPF".\nLa clave IRPF (1-11) se edita desde el modal del proveedor.' },
   { label: '' },
 ];
 
@@ -33,6 +35,11 @@ const FORM_VACIO = {
   cuenta_contable_id: '', cuenta_gasto_id: '',
   sii_tipo_clave: 1, sii_tipo_fact: 1,
   sii_tipo_exenci: 1, sii_tipo_no_suje: 2, sii_tipo_rectif: 2, sii_entr_prest: 3,
+  // IRPF: aplica_irpf gobierna; los otros 3 sólo se rellenan si es true. Ver
+  // src/routes/proveedores.js parseCamposIrpfBody para la validacion exigida
+  // por el backend (porcentaje 0-100, clave 1-11, subcuenta debe existir en
+  // plan_contable y empezar por '4751').
+  aplica_irpf: false, irpf_porcentaje: '', irpf_clave: '', irpf_subcuenta: '',
 };
 
 export default function Proveedores() {
@@ -116,6 +123,10 @@ export default function Proveedores() {
       sii_tipo_no_suje:   p.sii_tipo_no_suje ?? 2,
       sii_tipo_rectif:    p.sii_tipo_rectif  ?? 2,
       sii_entr_prest:     p.sii_entr_prest   ?? 3,
+      aplica_irpf:        !!p.aplica_irpf,
+      irpf_porcentaje:    p.irpf_porcentaje ?? '',
+      irpf_clave:         p.irpf_clave      ?? '',
+      irpf_subcuenta:     p.irpf_subcuenta  ?? '',
     });
     setModal({ proveedor: p });
     setErrorModal('');
@@ -136,6 +147,12 @@ export default function Proveedores() {
         sii_tipo_no_suje:   form.sii_tipo_no_suje === '' ? undefined : form.sii_tipo_no_suje,
         sii_tipo_rectif:    form.sii_tipo_rectif  === '' ? undefined : form.sii_tipo_rectif,
         sii_entr_prest:     form.sii_entr_prest   === '' ? undefined : form.sii_entr_prest,
+        // IRPF: el backend exige aplica_irpf en el body para tocar IRPF (ver
+        // parseCamposIrpfBody). Si false, ignora los otros 3 y los fuerza a NULL.
+        aplica_irpf:        !!form.aplica_irpf,
+        irpf_porcentaje:    form.aplica_irpf ? Number(form.irpf_porcentaje) : null,
+        irpf_clave:         form.aplica_irpf ? Number(form.irpf_clave)      : null,
+        irpf_subcuenta:     form.aplica_irpf ? form.irpf_subcuenta          : null,
         empresa_id:         empresaActiva?.id || null,
       };
       if (modal === 'nuevo') {
